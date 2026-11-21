@@ -4,16 +4,16 @@
 **Flutter 轻小说阅读器改版源码**：加缓存管理、阅读预取加速、改版信息与联系方式替换，
 并把「哪些能改、哪些改不了」写清楚。
 
-> ⚠️ **先看这一段，避免白折腾**
+> ✅ **当前状态：Dart 层已补全，打包卡在原生层**
 >
-> 上游的公开仓库是**部分实现的参考快照**（作者在 `docs/RELEASING.md` 里明确写了
-> 「不能独立构建或复现正式安装包」）。实测缺 **13 个模块、120 个编译错误**，
-> `flutter build apk` 必然失败。**本仓库同样不能直接编译出安装包**，这不是改版造成的。
->
-> 所以：
-> - 想要**能装的成品** → 去上游发版页下载：<https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest>
->   （官方 0.5.6，含 arm64 / armeabi-v7a / x86_64 三种 APK、未签名 IPA、未签名 HAP）
-> - 想要**本改版的成品** → 需要先拿到完整源码，把本仓库的改动合并进去（见第五节，附文件清单）
+> - **Dart 层**：19 个缺失模块已全部重建，`flutter analyze` 从 **143 个错误降到 0 个**
+>   （剩余 265 条是 SDK 弃用提示，不影响编译）。
+> - **Android 打包**：需要把 AGP 8.11.1 + Gradle 8.14 升级到 **AGP 9.x + Gradle 9.3.1**
+>   （Flutter 3.50 的最低要求），属于构建配置联动升级。
+> - **iOS 打包**：缺 `NativeLanDiscoveryPlugin` / `BookFolderScanner` / `NativeBookConversion` /
+>   `NativePdfImport` 四个原生 Swift 模块，属于上游未公开部分。
+> - 结论：**源码可编译性已修复**；要出安装包还差原生配置与 iOS 原生文件。
+>   能装的官方成品见 <https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest>。
 
 - 改版作者：**LoveI-Livo**
 - 本仓库：<https://github.com/LoveI-Livo/Wenku8_Flutter>
