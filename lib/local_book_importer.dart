@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app_interactions.dart';
@@ -537,12 +538,21 @@ class LocalBookImporter extends ChangeNotifier {
           CloudLibraryPage(
             settings: _cloud,
             onImport: importFile,
-            onAddCloud: (entry) async {
+            booklists: await library.organization.ensureDefaultBooklists(),
+            onAddCloud: (entry, config, groupId) async {
               final novel = CloudDocumentService.instance.metadata(
                 entry.name,
                 entry.id,
+                cookie: config.cookie,
+                authorization: config.username.trim().isEmpty
+                    ? null
+                    : 'Basic ' + base64Encode(utf8.encode(
+                        '${config.username.trim()}:${config.password}')),
               );
               await library.toggleShelf(novel.id, novel: novel);
+              if (groupId != null) {
+                await library.organization.assignMany([novel.id], groupId);
+              }
             },
             onImportBatch: (name, path) async {
               final batch = await importPrepared([

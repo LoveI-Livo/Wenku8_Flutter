@@ -846,6 +846,18 @@ class DirectLinkBookClient implements CloudBookClient {
   final CloudSourceConfig config;
   final CloudHttp _http;
 
+  Map<String, String> get authHeaders {
+    final headers = <String, String>{};
+    if (config.cookie.trim().isNotEmpty) {
+      headers[HttpHeaders.cookieHeader] = config.cookie.trim();
+    }
+    if (config.username.trim().isNotEmpty && config.password.isNotEmpty) {
+      final token = base64Encode(utf8.encode('${config.username.trim()}:${config.password}'));
+      headers[HttpHeaders.authorizationHeader] = 'Basic $token';
+    }
+    return headers;
+  }
+
   @override
   String get root => config.address.trim();
 
@@ -880,7 +892,7 @@ class DirectLinkBookClient implements CloudBookClient {
     final res = await _http.request(
       'GET',
       Uri.parse(entry.id),
-      headers: (_) => const {'Accept': '*/*'},
+      headers: (_) => {'Accept': '*/*', ...authHeaders},
       redirects: true,
       allowHttp: config.allowHttp,
       redirectMessage: '直链发生跳转，请重新复制最新的下载地址',
@@ -909,7 +921,10 @@ class RssBookClient extends DirectLinkBookClient {
     final res = await CloudHttp().request(
       'GET',
       uri,
-      headers: (_) => const {'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'},
+      headers: (_) => {
+        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+        ...authHeaders,
+      },
       redirects: true,
       allowHttp: config.allowHttp,
       redirectMessage: '书源地址发生跳转，请填写最终 RSS/Atom 地址',

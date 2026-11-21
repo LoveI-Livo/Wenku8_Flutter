@@ -31,7 +31,8 @@ class CloudDocumentService {
   }
 
   /// 只生成书架元数据，不联网、不下载。
-  Novel metadata(String name, String url, {String? author}) {
+  Novel metadata(String name, String url,
+      {String? author, String? cookie, String? authorization}) {
     final id = idForUrl(url);
     _urls[id] = url;
     final book = Novel(
@@ -43,6 +44,8 @@ class CloudDocumentService {
       colors: const [Color(0xFF225577), Color(0xFF44AACC)],
       coverUrl: null,
       remoteUrl: url,
+      remoteCookie: cookie,
+      remoteAuthorization: authorization,
     );
     _metadata[id] = book;
     return book;
@@ -62,11 +65,13 @@ class CloudDocumentService {
       _metadata[novel.id] = cached.novel;
       return cached.novel;
     }
-    final bytes = await _fetch(url);
-    final document = _parse(novel.id, novel.title, url, bytes);
+    final bytes = await _fetch(url, cookie: novel.remoteCookie, authorization: novel.remoteAuthorization);
+    final parsed = _parse(novel.id, novel.title, url, bytes);
+    final full = _withSource(parsed.novel, novel);
+    final document = _CloudDocument(full, parsed.bodies);
     _documents[novel.id] = document;
-    _metadata[novel.id] = document.novel;
-    return document.novel;
+    _metadata[novel.id] = full;
+    return full;
   }
 
   Future<List<NovelChapter>> chapters(int id) async {
@@ -93,7 +98,7 @@ class CloudDocumentService {
     return document;
   }
 
-  Future<Uint8List> _fetch(String url) async {
+  Future<Uint8List> _fetch(String url, {String? cookie, String? authorization}) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 20);
     try {
@@ -102,6 +107,12 @@ class CloudDocumentService {
         final request = await client.getUrl(uri);
         request.followRedirects = false;
         request.headers.set(HttpHeaders.acceptHeader, '*/*');
+        if (cookie != null && cookie.trim().isNotEmpty) {
+          request.headers.set(HttpHeaders.cookieHeader, cookie.trim());
+        }
+        if (authorization != null && authorization.trim().isNotEmpty) {
+          request.headers.set(HttpHeaders.authorizationHeader, authorization.trim());
+        }
         final response = await request.close();
         if ({301, 302, 303, 307, 308}.contains(response.statusCode)) {
           final location = response.headers.value(HttpHeaders.locationHeader);
@@ -281,6 +292,24 @@ class CloudDocumentService {
     final novel = _novel(id, name, url, chapters);
     return _CloudDocument(novel, bodies);
   }
+
+  Novel _withSource(Novel parsed, Novel source) => Novel(
+    id: parsed.id,
+    title: parsed.title,
+    author: parsed.author,
+    genre: parsed.genre,
+    summary: parsed.summary,
+    colors: parsed.colors,
+    chapters: parsed.chapters,
+    isComplete: parsed.isComplete,
+    coverUrl: parsed.coverUrl,
+    lastUpdate: parsed.lastUpdate,
+    chapterCount: parsed.chapterCount,
+    navigation: parsed.navigation,
+    remoteUrl: parsed.remoteUrl,
+    remoteCookie: source.remoteCookie,
+    remoteAuthorization: source.remoteAuthorization,
+  );
 
   Novel _novel(int id, String name, String url, List<NovelChapter> chapters) =>
       Novel(

@@ -9,7 +9,7 @@ import 'cloud_sources.dart';
 import 'offline_cache.dart' show formatCacheBytes;
 
 typedef ImportCloudBook = Future<Novel> Function(String name, String path);
-typedef AddCloudBook = Future<void> Function(CloudBookEntry entry);
+typedef AddCloudBook = Future<void> Function(CloudBookEntry entry, CloudSourceConfig config, String? groupId);
 typedef ImportCloudBatch =
     Future<({int imported, int failed})> Function(String name, String path);
 
@@ -20,12 +20,14 @@ class CloudLibraryPage extends StatelessWidget {
     required this.onImport,
     this.onImportBatch,
     this.onAddCloud,
+    this.booklists = const {},
     this.reduceMotion = false,
   });
   final CloudSourceSettings settings;
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
   final AddCloudBook? onAddCloud;
+  final Map<String, String> booklists;
   final bool reduceMotion;
   Future<void> _edit(BuildContext context, CloudSourceKind kind) async {
     final config = await pushNovelPage<CloudSourceConfig>(
@@ -45,6 +47,7 @@ class CloudLibraryPage extends StatelessWidget {
           onImport: onImport,
           onImportBatch: onImportBatch,
           onAddCloud: onAddCloud,
+          booklists: booklists,
         ),
         reduceMotion: reduceMotion,
       );
@@ -386,6 +389,16 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
                     : 'https://wwx.lanzoui.com/… 或迅雷直链',
                 helper: '分享页地址不是直链；请在下载按钮上右键或长按复制真实下载地址。',
               ),
+              if (widget.kind == CloudSourceKind.rss)
+                _field(
+                  '登录 Cookie（私有书源）',
+                  _cookie,
+                  hint: 'sessionid=…; token=…',
+                  secret: true,
+                  helper: '登录站点后复制 Cookie；公开订阅可以留空。',
+                ),
+              _field('用户名（Basic 登录，可选）', _user),
+              _field('密码', _password, secret: true),
               Row(
                 children: [
                   const Expanded(child: AppText('允许 HTTP 直链')),
@@ -551,6 +564,7 @@ class CloudBookBrowser extends StatefulWidget {
     required this.onImport,
     this.onImportBatch,
     this.onAddCloud,
+    this.booklists = const {},
     this.client,
   });
   final CloudSourceConfig config;
@@ -558,6 +572,7 @@ class CloudBookBrowser extends StatefulWidget {
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
   final AddCloudBook? onAddCloud;
+  final Map<String, String> booklists;
   final CloudBookClient? client;
   @override
   State<CloudBookBrowser> createState() => _CloudBookBrowserState();
@@ -571,12 +586,13 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
   List<CloudBookEntry> _entries = [];
   int? _next;
   bool _loading = true,
+      _searching = false,
       _importing = false,
       _cancelled = false,
       _committing = false;
   int _generation = 0, _received = 0;
   int? _total;
-  String? _error, _current, _loadedFolder;
+  String? _error, _current, _loadedFolder, _query;
   @override
   void initState() {
     super.initState();
@@ -592,6 +608,62 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
     _client.close();
     _generation++;
     super.dispose();
+  }
+
+  Future<void> _search(String query) async {
+    final value = query.trim();
+    if (value.isEmpty) {
+      setState(() => _query = null);
+      await _load();
+      return;
+    }
+    final token = ++_generation;
+    setState(() {
+      _query = value;
+      _searching = true;
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final matches = <String, CloudBookEntry>{};
+      final pending = <String>[_client.root];
+      final visited = <String>{};
+      var folders = 0;
+      while (pending.isNotEmpty && folders < 80 && matches.length < 300) {
+        if (!mounted || token != _generation) return;
+        final folder = pending.removeFirst();
+        if (!visited.add(folder)) continue;
+        folders++;
+        try {
+          final listing = await _client.list(folder);
+          for (final entry in listing.entries) {
+            if (entry.folder) {
+              pending.add(entry.id);
+            } else if (entry.isBook &&
+                entry.name.toLowerCase().contains(value.toLowerCase())) {
+              matches[entry.id] = entry;
+            }
+          }
+        } catch (_) {
+          // 个别子目录无权限时继续搜索其他目录。
+        }
+      }
+      if (!mounted || token != _generation) return;
+      setState(() {
+        _entries = matches.values.toList();
+        _next = null;
+      });
+      if (matches.isEmpty) {
+        showNovelFeedback(context, '没有搜到包含「$value」的书');
+      }
+    } finally {
+      if (mounted && token == _generation) {
+        setState(() {
+          _searching = false;
+          _loading = false;
+        });
+      }
+    }
   }
 
   Future<void> _load({bool more = false}) async {
@@ -793,12 +865,26 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    CupertinoSearchTextField(
+                      key: const ValueKey('cloud-deep-search'),
+                      placeholder: '搜索整个网盘 / 书源里的书',
+                      onSubmitted: _search,
+                      onSuffixTap: () {
+                        setState(() => _query = null);
+                        _load();
+                      },
+                    ),
                     const SizedBox(height: 10),
                     AppText(
-                      widget.config.kind.isDirectLink
+                      _searching
+                          ? '正在搜索整个网盘…'
+                          : _query != null
+                          ? '搜索「$_query」：找到 ${_entries.length} 本'
+                          : widget.config.kind.isDirectLink
                           ? '直链书籍可直接加入书单在线阅读，不下载原文件；也可以选择传统导入保存到本机。'
                           : '支持电子书与常见文档，可勾选批量导入；ZIP 内的分卷会一起识别。',
-                      style: TextStyle(height: 1.65),
+                      style: const TextStyle(height: 1.65),
                     ),
                     const SizedBox(height: 16),
                     if (_importing) ...[
@@ -828,8 +914,29 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                           icon: CupertinoIcons.book,
                           label: '加入书单 · 在线读 ${_selected.length} 本',
                           onPressed: () async {
+                            String? groupId;
+                            if (widget.booklists.isNotEmpty) {
+                              groupId = await showCupertinoModalPopup<String>(
+                                context: context,
+                                builder: (_) => CupertinoActionSheet(
+                                  title: const Text('加入哪个书单'),
+                                  actions: [
+                                    for (final entry in widget.booklists.entries)
+                                      CupertinoActionSheetAction(
+                                        onPressed: () => Navigator.pop(context, entry.key),
+                                        child: Text(entry.value),
+                                      ),
+                                  ],
+                                  cancelButton: CupertinoActionSheetAction(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('取消'),
+                                  ),
+                                ),
+                              );
+                            }
+                            if (groupId == null) return;
                             for (final entry in _selected.values) {
-                              await widget.onAddCloud!(entry);
+                              await widget.onAddCloud!(entry, widget.config, groupId);
                             }
                             if (!mounted) return;
                             showNovelFeedback(context, '已加入书单，点开即在线阅读，不下载原文件');

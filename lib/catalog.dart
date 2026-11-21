@@ -19,6 +19,8 @@ class Novel {
     this.chapterCount = 0,
     this.navigation,
     this.remoteUrl,
+    this.remoteCookie,
+    this.remoteAuthorization,
   });
 
   final int id;
@@ -36,6 +38,10 @@ class Novel {
 
   /// 网盘直链书籍的远程地址；有值时正文按需从网络读取，不落盘。
   final String? remoteUrl;
+
+  /// 私有书源登录后保存的请求头；只随书架元数据保存在本机。
+  final String? remoteCookie;
+  final String? remoteAuthorization;
 
   /// Public directory rows can target any preserved reading section. A resource
   /// missing from the authored TOC remains reachable by normal page turns.
@@ -189,6 +195,8 @@ class Novel {
     'chapterCount': chapters.isNotEmpty ? chapters.length : chapterCount,
     if (navigation != null) 'navigation': navigation!.toJson(),
     if (remoteUrl != null) 'remoteUrl': remoteUrl,
+    if (remoteCookie != null) 'remoteCookie': remoteCookie,
+    if (remoteAuthorization != null) 'remoteAuthorization': remoteAuthorization,
   };
 
   factory Novel.fromSnapshot(Map<String, dynamic> value) {
@@ -218,6 +226,8 @@ class Novel {
           ? null
           : BookNavigation.fromJson(value['navigation']),
       remoteUrl: value['remoteUrl'] is String ? value['remoteUrl'] as String : null,
+      remoteCookie: value['remoteCookie'] is String ? value['remoteCookie'] as String : null,
+      remoteAuthorization: value['remoteAuthorization'] is String ? value['remoteAuthorization'] as String : null,
     );
   }
 }

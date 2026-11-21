@@ -493,6 +493,20 @@ class LocalLibraryPreferences extends ChangeNotifier {
     return _save();
   }
 
+  /// 云端书常用的三个默认书单：想读、在读、已读。
+  Future<Map<String, String>> ensureDefaultBooklists() async {
+    const names = ['想读', '在读', '已读'];
+    for (final name in names) {
+      if (!groups.values.contains(name)) {
+        try { await addGroup(name); } catch (_) {}
+      }
+    }
+    return {
+      for (final entry in groups.entries)
+        if (names.contains(entry.value)) entry.key: entry.value,
+    };
+  }
+
   Future<String> addGroup(String name) {
     name = name.trim();
     if (name.isEmpty || name.length > 30) {
