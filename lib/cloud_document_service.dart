@@ -78,8 +78,19 @@ class CloudDocumentService {
   }
 
   Future<String> chapterContent(int id, NovelChapter chapter) async {
-    final document = _documents[id] ?? await detail(_metadata[id]!);
+    final document = await _ensure(id);
     return document.bodies[chapter.id] ?? '';
+  }
+
+  Future<_CloudDocument> _ensure(int id) async {
+    final cached = _documents[id];
+    if (cached != null) return cached;
+    final meta = _metadata[id];
+    if (meta == null) throw const FormatException('请从书架重新打开这本书');
+    await detail(meta);
+    final document = _documents[id];
+    if (document == null) throw const FormatException('网盘书籍解析失败');
+    return document;
   }
 
   Future<Uint8List> _fetch(String url) async {
