@@ -6,6 +6,7 @@ import 'book_documents.dart';
 import 'book_sync.dart';
 import 'catalog.dart';
 import 'cloud_library_page.dart';
+import 'cloud_document_service.dart';
 import 'cloud_sources.dart';
 import 'cloud_book_sync_panel.dart';
 import 'library_state.dart';
@@ -536,6 +537,13 @@ class LocalBookImporter extends ChangeNotifier {
           CloudLibraryPage(
             settings: _cloud,
             onImport: importFile,
+            onAddCloud: (entry) async {
+              final novel = CloudDocumentService.instance.metadata(
+                entry.name,
+                entry.id,
+              );
+              await library.toggleShelf(novel.id, novel: novel);
+            },
             onImportBatch: (name, path) async {
               final batch = await importPrepared([
                 BookDocumentSelection(name: name, path: path),

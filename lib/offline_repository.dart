@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import 'catalog.dart';
+import 'cloud_document_service.dart';
 import 'book_search.dart';
 import 'offline_cache.dart';
 import 'local_books.dart';
@@ -322,6 +323,9 @@ class OfflineNovelRepository extends FrameChangeNotifier
   @override
   Future<Novel?> find(int id) async {
     if (isLocalBook(id)) return local?.book(id);
+    if (CloudDocumentService.instance.handles(id)) {
+      return CloudDocumentService.instance.known(id);
+    }
     if (offline) return cachedBook(id);
     try {
       final book = await remote.find(id);
@@ -339,6 +343,11 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<Novel> detail(Novel novel) async {
+    if (novel.remoteUrl != null || CloudDocumentService.instance.handles(novel.id)) {
+      final book = await CloudDocumentService.instance.detail(novel);
+      _known[novel.id] = book;
+      return book;
+    }
     if (isLocalBook(novel.id)) {
       if (local == null || !local!.contains(novel.id)) {
         throw const FormatException('本地原书不存在，请重新导入');
@@ -365,6 +374,9 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<List<NovelChapter>> chapters(int id) async {
+    if (CloudDocumentService.instance.handles(id)) {
+      return CloudDocumentService.instance.chapters(id);
+    }
     if (isLocalBook(id)) {
       return local?.book(id)?.chapters ??
           (throw const FormatException('本地原书不存在，请重新导入'));
@@ -469,6 +481,9 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<String> chapterContent(int novelId, NovelChapter chapter) async {
+    if (CloudDocumentService.instance.handles(novelId)) {
+      return CloudDocumentService.instance.chapterContent(novelId, chapter);
+    }
     if (isLocalBook(novelId)) return _localContent(novelId, chapter);
     // Inline/demo chapters have no remote stable ID and stay source-owned.
     if (chapter.id <= 0) return remote.chapterContent(novelId, chapter);

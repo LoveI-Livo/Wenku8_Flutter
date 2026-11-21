@@ -9,6 +9,7 @@ import 'cloud_sources.dart';
 import 'offline_cache.dart' show formatCacheBytes;
 
 typedef ImportCloudBook = Future<Novel> Function(String name, String path);
+typedef AddCloudBook = Future<void> Function(CloudBookEntry entry);
 typedef ImportCloudBatch =
     Future<({int imported, int failed})> Function(String name, String path);
 
@@ -18,11 +19,13 @@ class CloudLibraryPage extends StatelessWidget {
     required this.settings,
     required this.onImport,
     this.onImportBatch,
+    this.onAddCloud,
     this.reduceMotion = false,
   });
   final CloudSourceSettings settings;
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
+  final AddCloudBook? onAddCloud;
   final bool reduceMotion;
   Future<void> _edit(BuildContext context, CloudSourceKind kind) async {
     final config = await pushNovelPage<CloudSourceConfig>(
@@ -41,6 +44,7 @@ class CloudLibraryPage extends StatelessWidget {
           settings: settings,
           onImport: onImport,
           onImportBatch: onImportBatch,
+          onAddCloud: onAddCloud,
         ),
         reduceMotion: reduceMotion,
       );
@@ -538,12 +542,14 @@ class CloudBookBrowser extends StatefulWidget {
     required this.settings,
     required this.onImport,
     this.onImportBatch,
+    this.onAddCloud,
     this.client,
   });
   final CloudSourceConfig config;
   final CloudSourceSettings settings;
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
+  final AddCloudBook? onAddCloud;
   final CloudBookClient? client;
   @override
   State<CloudBookBrowser> createState() => _CloudBookBrowserState();
@@ -780,8 +786,10 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    const AppText(
-                      '支持电子书与常见文档，可勾选批量导入；ZIP 内的分卷会一起识别。',
+                    AppText(
+                      widget.config.kind.isDirectLink
+                          ? '直链书籍可直接加入书单在线阅读，不下载原文件；也可以选择传统导入保存到本机。'
+                          : '支持电子书与常见文档，可勾选批量导入；ZIP 内的分卷会一起识别。',
                       style: TextStyle(height: 1.65),
                     ),
                     const SizedBox(height: 16),
@@ -806,6 +814,21 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                         child: const AppText('取消导入'),
                       ),
                     ] else if (_selected.isNotEmpty) ...[
+                      if (widget.onAddCloud != null &&
+                          widget.config.kind.isDirectLink) ...[
+                        GlassPillButton(
+                          icon: CupertinoIcons.book,
+                          label: '加入书单 · 在线读 ${_selected.length} 本',
+                          onPressed: () async {
+                            for (final entry in _selected.values) {
+                              await widget.onAddCloud!(entry);
+                            }
+                            if (!mounted) return;
+                            showNovelFeedback(context, '已加入书单，点开即在线阅读，不下载原文件');
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       GlassPillButton(
                         icon: CupertinoIcons.arrow_down_doc,
                         label: '导入选中的 ${_selected.length} 本',
