@@ -13,11 +13,24 @@ part 'cloud_s3.dart';
 enum CloudSourceKind {
   webdav('OpenList / WebDAV'),
   quark('夸克网盘'),
-  direct('蓝奏云 / 迅雷直链'),
+  lanzou('蓝奏云 · 普通版'),
+  lanzouPro('蓝奏云 · 优享版'),
+  xunlei('迅雷云盘'),
+  aliyun('阿里云盘'),
+  baidu('百度网盘'),
+  pan123('123 云盘'),
+  uc('UC 网盘'),
+  direct('其他网盘直链'),
   s3('S3 / 兼容对象存储');
 
   const CloudSourceKind(this.label);
   final String label;
+
+  /// 这些来源都通过「文件下载直链」流式读取，不保存账号 Cookie。
+  bool get isDirectLink => switch (this) {
+    lanzou || lanzouPro || xunlei || aliyun || baidu || pan123 || uc || direct => true,
+    _ => false,
+  };
 }
 
 /// Only this device's encrypted vault contains connection secrets. This record
@@ -50,14 +63,14 @@ class CloudSourceConfig {
   }
 
   void validate() {
-    if (kind == CloudSourceKind.direct) {
+    if (kind.isDirectLink) {
       final uri = Uri.tryParse(address.trim());
       if (uri == null ||
           uri.host.isEmpty ||
           uri.userInfo.isNotEmpty ||
           (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp)) ||
           address.length > 4096) {
-        throw const CloudSourceFailure('请填写蓝奏云或迅雷的 HTTPS 直链地址');
+        throw CloudSourceFailure('请填写${kind.label}的 HTTPS 文件下载直链');
       }
       return;
     }
@@ -320,6 +333,13 @@ abstract class CloudBookClient {
   }) => switch (config.kind) {
     CloudSourceKind.webdav => WebDavBookClient(config),
     CloudSourceKind.quark => QuarkBookClient(config, settings: settings),
+    CloudSourceKind.lanzou ||
+    CloudSourceKind.lanzouPro ||
+    CloudSourceKind.xunlei ||
+    CloudSourceKind.aliyun ||
+    CloudSourceKind.baidu ||
+    CloudSourceKind.pan123 ||
+    CloudSourceKind.uc ||
     CloudSourceKind.direct => DirectLinkBookClient(config),
     CloudSourceKind.s3 => S3BookClient(config),
   };

@@ -100,15 +100,23 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.quark =>
                       '使用本人网页 Cookie 直连，无需另搭服务。接口变化或登录失效时需要重新配置。',
                     CloudSourceKind.s3 => '连接 Amazon S3 或 S3 兼容存储，按文件夹浏览并导入书籍。',
+                    CloudSourceKind.lanzou || CloudSourceKind.lanzouPro =>
+                      '蓝奏云普通版 / 优享版：复制文件下载直链，流式读取，不保存账号 Cookie。',
+                    CloudSourceKind.xunlei =>
+                      '迅雷云盘：复制文件的下载直链，流式读取，不经过本地下载目录。',
+                    CloudSourceKind.aliyun => '阿里云盘：复制分享文件的下载直链，流式读取。',
+                    CloudSourceKind.baidu => '百度网盘：复制文件的下载直链（需带有效签名）。',
+                    CloudSourceKind.pan123 => '123 云盘：复制文件下载直链，流式读取。',
+                    CloudSourceKind.uc => 'UC 网盘：复制文件下载直链，流式读取。',
                     CloudSourceKind.direct =>
-                      '粘贴蓝奏云或迅雷的文件下载直链，直接流式读取，不保存账号 Cookie。',
+                      '任意 HTTPS 文件直链，粘贴后直接流式读取，不保存账号 Cookie。',
                   }, style: const TextStyle(fontSize: 13, height: 1.65)),
                   const SizedBox(height: 12),
                   if (settings[kind] case final config?) ...[
                     AppText(
                       switch (kind) {
                         CloudSourceKind.quark => '已保存本机连接',
-                        CloudSourceKind.direct => '已保存直链',
+                        _ => '已保存直链',
                         _ => config.endpoint.host,
                       },
                       style: TextStyle(
@@ -153,7 +161,14 @@ class CloudLibraryPage extends StatelessWidget {
                       label: switch (kind) {
                         CloudSourceKind.webdav => '添加 WebDAV 连接',
                         CloudSourceKind.quark => '配置夸克 Cookie',
-                        CloudSourceKind.direct => '添加蓝奏云 / 迅雷直链',
+                        CloudSourceKind.lanzou ||
+                        CloudSourceKind.lanzouPro ||
+                        CloudSourceKind.xunlei ||
+                        CloudSourceKind.aliyun ||
+                        CloudSourceKind.baidu ||
+                        CloudSourceKind.pan123 ||
+                        CloudSourceKind.uc ||
+                        CloudSourceKind.direct => '添加直链',
                         CloudSourceKind.s3 => '添加 S3 连接',
                       },
                       onPressed: () => _edit(context, kind),
@@ -336,12 +351,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
   Widget build(BuildContext context) => _CloudScaffold(
     title: widget.syncConnection
         ? 'S3 云端同步'
-        : '连接 ${switch (widget.kind) {
-              CloudSourceKind.webdav => 'WebDAV',
-              CloudSourceKind.s3 => 'S3',
-              CloudSourceKind.direct => '蓝奏云 / 迅雷',
-              CloudSourceKind.quark => '夸克网盘',
-            }}',
+        : '连接 ${widget.kind.label}',
     code: widget.syncConnection ? 'LIBRARY / S3 SYNC' : 'LOCAL / CONNECTION',
     child: Align(
       alignment: Alignment.topCenter,
@@ -350,10 +360,11 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.kind == CloudSourceKind.direct) ...[
+            if (widget.kind.isDirectLink) ...[
               const AppText(
-                '在蓝奏云或迅雷网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
-                '应用会直接流式读取，不保存账号 Cookie，也不会把整本书长期留在本机。',
+                '在${widget.kind.label}网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
+                '应用会直接流式读取，不保存账号 Cookie，也不会把整本书长期留在本机。'
+                '蓝奏云普通版与优享版域名不同，请复制带真实文件名的下载地址，不要粘贴分享页。',
                 style: TextStyle(height: 1.7),
               ),
               const SizedBox(height: 24),
