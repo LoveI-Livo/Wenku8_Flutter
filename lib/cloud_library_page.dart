@@ -631,7 +631,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
       var folders = 0;
       while (pending.isNotEmpty && folders < 80 && matches.length < 300) {
         if (!mounted || token != _generation) return;
-        final folder = pending.removeFirst();
+        final folder = pending.removeAt(0);
         if (!visited.add(folder)) continue;
         folders++;
         try {

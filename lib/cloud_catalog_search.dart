@@ -74,7 +74,7 @@ class CloudCatalogSearch {
     final visited = <String>{};
     var folders = 0;
     while (pending.isNotEmpty && folders < 60 && matches.length < 100) {
-      final folder = pending.removeFirst();
+      final folder = pending.removeAt(0);
       if (!visited.add(folder)) continue;
       folders++;
       final listing = await client.list(folder);
