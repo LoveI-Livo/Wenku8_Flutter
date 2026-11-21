@@ -865,7 +865,7 @@ class DirectLinkBookClient implements CloudBookClient {
   Future<CloudBookListing> list(String folder, {int page = 1}) async {
     if (page > 1) return const CloudBookListing([]);
     return CloudBookListing([
-      CloudBookEntry(id: root, name: _name, folder: '', size: 0),
+      CloudBookEntry(id: root, name: _name, folder: false, size: 0),
     ]);
   }
 

@@ -361,11 +361,11 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (widget.kind.isDirectLink) ...[
-              const AppText(
+              AppText(
                 '在${widget.kind.label}网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
                 '应用会直接流式读取，不保存账号 Cookie，也不会把整本书长期留在本机。'
                 '蓝奏云普通版与优享版域名不同，请复制带真实文件名的下载地址，不要粘贴分享页。',
-                style: TextStyle(height: 1.7),
+                style: const TextStyle(height: 1.7),
               ),
               const SizedBox(height: 24),
               _field(
