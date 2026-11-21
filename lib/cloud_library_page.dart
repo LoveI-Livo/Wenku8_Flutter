@@ -7,6 +7,7 @@ import 'app_interactions.dart';
 import 'catalog.dart';
 import 'cloud_sources.dart';
 import 'offline_cache.dart' show formatCacheBytes;
+import 'source_login_page.dart';
 
 typedef ImportCloudBook = Future<Novel> Function(String name, String path);
 typedef AddCloudBook = Future<void> Function(CloudBookEntry entry, CloudSourceConfig config, String? groupId);
@@ -259,6 +260,22 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
     super.dispose();
   }
 
+  Future<void> _webLogin() async {
+    final address = _address.text.trim();
+    if (!address.startsWith('http://') && !address.startsWith('https://')) {
+      setState(() => _error = '请先填写书源或网站地址，再打开网页登录');
+      return;
+    }
+    final cookie = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(
+        builder: (_) => SourceLoginPage(address: address),
+      ),
+    );
+    if (cookie != null && mounted) {
+      setState(() => _cookie.text = cookie);
+    }
+  }
+
   Future<void> _connect() async {
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
@@ -389,6 +406,12 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
                     : 'https://wwx.lanzoui.com/… 或迅雷直链',
                 helper: '分享页地址不是直链；请在下载按钮上右键或长按复制真实下载地址。',
               ),
+              GlassTextButton(
+                key: const ValueKey('cloud-web-login'),
+                onPressed: _busy ? null : _webLogin,
+                child: const AppText('网页登录并自动获取 Cookie'),
+              ),
+              const SizedBox(height: 12),
               if (widget.kind == CloudSourceKind.rss)
                 _field(
                   '登录 Cookie（私有书源）',

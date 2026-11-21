@@ -538,7 +538,7 @@ class LocalBookImporter extends ChangeNotifier {
           CloudLibraryPage(
             settings: _cloud,
             onImport: importFile,
-            booklists: await library.organization.ensureDefaultBooklists(),
+            booklists: library.organization.groups,
             onAddCloud: (entry, config, groupId) async {
               final novel = CloudDocumentService.instance.metadata(
                 entry.name,
