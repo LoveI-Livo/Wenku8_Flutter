@@ -14,8 +14,8 @@
 
 ## 下载安装
 
-- **Android**：[v0.6.3 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.3-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
-- **iOS**：[v0.6.3 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.3-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
+- **Android**：[v0.6.4 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.4-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
+- **iOS**：[v0.6.4 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.4-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
 
 所有版本与安装包见 [Releases](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases)。
 
