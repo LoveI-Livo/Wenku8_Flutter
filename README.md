@@ -113,6 +113,15 @@ cp lib/cache_center_page.dart  <完整工程>/lib/
 cp -r assets/reading_previews <完整工程>/assets/
 ```
 
+更省事的方式：本仓库保留了上游历史，直接导出补丁再 apply：
+
+```bash
+git fetch mod master
+git diff ebcd7f1..mod/master -- lib/ pubspec.yaml > mod-edition.patch
+git apply --3way mod-edition.patch
+git checkout mod/master -- assets/reading_previews assets/report
+```
+
 然后用 `docs/BUILD.md` 的步骤构建。
 
 ## 六、怎么把信息换成你自己的

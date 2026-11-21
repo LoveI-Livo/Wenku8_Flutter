@@ -91,6 +91,25 @@
 
 合并后用 `docs/BUILD.md` 的步骤构建。
 
+### 直接取补丁
+
+本仓库保留了上游完整提交历史，改动可以直接导出成补丁：
+
+```bash
+# 在完整工程里执行
+git remote add mod https://github.com/LoveI-Livo/Wenku8_Flutter.git
+git fetch mod master
+
+# 只取改版改动（相对上游 ebcd7f1）
+git diff ebcd7f1..mod/master -- lib/ pubspec.yaml > mod-edition.patch
+git apply --3way mod-edition.patch
+
+# 资源
+git checkout mod/master -- assets/reading_previews assets/report
+```
+
+上游基线 commit 为 `ebcd7f1`（`Refine mobile activity layout and unavailable data states`）。
+
 ## 四、继续扩展
 
 ### 加一类网盘
