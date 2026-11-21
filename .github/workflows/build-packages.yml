@@ -35,7 +35,10 @@ jobs:
       - name: Build APK
         run: |
           flutter build apk --release --no-tree-shake-icons \
-            --android-skip-build-dependency-validation
+            --android-skip-build-dependency-validation || true
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          cd android
+          ./gradlew assembleRelease --stacktrace
 
       - name: Stage artifact
         run: |
