@@ -12,7 +12,22 @@
 
 本改版仅做功能补充与项目信息整理，原作者版权与贡献全部保留。
 
+## 下载安装
+
+- **Android**：[v0.6.1 APK](https://github.com/LoveI-Livo/Wenku8_Flutter/releases/download/v0.6.1/wenku8-mod-0.6.1-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
+- **iOS**：[v0.6.1 未签名 IPA](https://github.com/LoveI-Livo/Wenku8_Flutter/releases/download/v0.6.1/wenku8-mod-0.6.1-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
+
+所有版本与安装包见 [Releases](https://github.com/LoveI-Livo/Wenku8_Flutter/releases)。
+
 ## 更新内容
+
+### 0.6.1
+
+**修复**
+
+- Android 构建链升级为 Gradle 9.3.1 + AGP 9.1.1，修复 `getDefaultConfig()` 与 Flutter 3.50 最低版本校验
+- 补齐公开源码缺失的 `BookArchiveImport` / `BookMarkupImport` / `BookPdfImport` 占位类，APK 可正常编译启动
+- iOS 恢复并修复原生占位模块，未签名 IPA 构建通过
 
 ### 0.6.0
 
@@ -31,7 +46,7 @@
 **整理**
 
 - 补齐 `pubspec.yaml` 中声明的资源目录（`assets/reading_previews`、`assets/report`）
-- 统一 Android 构建配置（Gradle 9.3.1 / AGP 9.0）
+- 统一 Android 构建配置（Gradle 9.3.1 / AGP 9.1.1）
 - 补充构建说明与改版文档：见 [docs/BUILD.md](docs/BUILD.md)、[docs/MODIFICATIONS.md](docs/MODIFICATIONS.md)
 
 ## 联系

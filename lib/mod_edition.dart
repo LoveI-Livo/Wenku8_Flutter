@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库 · 改版版';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.6.0';
-const modEditionBuild = 3000;
+const modEditionVersion = '0.6.1';
+const modEditionBuild = 3001;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -44,8 +44,9 @@ const modEditionSummary =
     '本仓库是原项目（mikufoxxx/Wenku8_Flutter）的改版源码，遵循 GPL-2.0 许可证。'
     '在保留原有阅读器、书架、听书、统计等设计的基础上，加入了缓存管理、阅读预取加速，'
     '并把应用内的项目信息与联系方式替换为改版作者的信息。\n\n'
-    '注意：上游公开仓库是「部分实现的参考快照」，缺少 13 个模块，无法直接编译出安装包，'
-    '本改版如实记录这一点，不伪造缺失模块。';
+    '上游公开仓库是「部分实现的参考快照」。本改版已补齐构建所需的占位模块，'
+    '可以稳定产出 Android APK 与 iOS 未签名 IPA；文件夹扫描、局域网与部分语音增强、'
+    '文档格式转换在源码构建中为降级实现，不影响正常阅读、缓存与书架。';
 
 /// 改版说明的条目：标题 + 说明。
 class ModChange {
@@ -57,6 +58,11 @@ class ModChange {
 
 /// 改动清单，显示在「关于 → 改版说明」。
 const modEditionChanges = <ModChange>[
+  ModChange(
+    '构建与安装包修复',
+    '改用 Gradle 9.3.1 + AGP 9.1.1，补齐文档转换占位类，Android APK 与 iOS 未签名 IPA '
+        '均可从 GitHub Actions 稳定产出，并在 Release 提供下载。',
+  ),
   ModChange(
     '新增「缓存与存储」中心',
     '在 设置 → 数据与存储 中新增入口：实时显示正文缓存、图片内存缓存与临时文件占用，'
