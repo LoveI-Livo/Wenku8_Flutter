@@ -1,4 +1,6 @@
 import java.util.Properties
+import com.android.build.api.dsl.ApplicationExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -13,7 +15,7 @@ val releaseKeys = Properties().apply {
 }
 val readerPreview = providers.gradleProperty("wenkuReaderPreview").orNull == "true"
 
-android {
+configure<ApplicationExtension> {
     namespace = "org.mewx.wenku8_flutter"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
@@ -24,9 +26,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
+
 
     defaultConfig {
         // Public source previews must not replace an installed distribution.
@@ -85,6 +85,12 @@ android {
             ndk.abiFilters.clear()
             ndk.abiFilters.addAll(targetAbis)
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
