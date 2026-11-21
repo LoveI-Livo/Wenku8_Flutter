@@ -14,12 +14,25 @@
 
 ## 下载安装
 
-- **Android**：[v0.6.1 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.1/wenku8-mod-0.6.1-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
-- **iOS**：[v0.6.1 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.1/wenku8-mod-0.6.1-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
+- **Android**：[v0.6.2 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.2-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
+- **iOS**：[v0.6.2 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.2-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
 
 所有版本与安装包见 [Releases](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases)。
 
 ## 更新内容
+
+### 0.6.2
+
+**新增**
+
+- 多网盘来源：蓝奏云普通版、蓝奏云优享版、迅雷云盘、阿里云盘、百度网盘、123 云盘、UC 网盘、其他 HTTPS 直链，均可单独配置
+- 书单与分类：书架侧可按书单归类、新建 / 重命名 / 删除书单，按作者归档
+- Android 文件夹扫描：支持「所有文件」授权与 SAF 目录授权，递归扫描、格式过滤、按 token 导入，不再调用即报错
+
+**说明**
+
+- 网盘统一使用网页复制的文件下载直链，流式读取，不保存账号 Cookie，不长期保留本地副本
+- GitHub 仓库地址不允许中文字符，中文显示名放在 README 标题与仓库描述中；地址为 `qingxiaoshuo-wenku`
 
 ### 0.6.1
 
