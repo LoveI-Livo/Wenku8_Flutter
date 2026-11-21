@@ -1,0 +1,41 @@
+name: Analyze diagnostics
+
+# 只做静态分析并把完整报告作为 artifact 上传，永远成功（不产生失败记录）。
+# 用途：拿到 flutter analyze 的完整错误清单，据此补齐缺失模块。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: |
+          set +e
+          flutter analyze --no-pub > analyze.txt 2>&1
+          echo "exit=$?" >> analyze.txt
+          echo "--- summary ---"
+          grep -c ' error • ' analyze.txt || true
+          tail -5 analyze.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyze-report
+          path: analyze.txt
+          if-no-files-found: error
