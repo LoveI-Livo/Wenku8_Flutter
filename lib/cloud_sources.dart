@@ -180,6 +180,7 @@ class CloudSourceSettings extends ChangeNotifier {
   bool _disposed = false;
   String? error;
   CloudSourceConfig? operator [](CloudSourceKind kind) => _configs[kind];
+  Iterable<CloudSourceConfig> get configs => List.unmodifiable(_configs.values);
   Future<void> load() async {
     try {
       final text = await storage.read();

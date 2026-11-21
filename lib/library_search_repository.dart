@@ -4,6 +4,7 @@ import 'library_state.dart';
 import 'local_books.dart';
 import 'offline_repository.dart';
 import 'bookshelf_scope.dart';
+import 'cloud_catalog_search.dart';
 
 /// Feeds the same search presentation as discovery, with a library-only data
 /// scope. Missing legacy snapshots resolve at bounded concurrency, not on each
@@ -97,7 +98,7 @@ class LibrarySearchRepository extends NovelRepository {
     final pattern = BookSearch(query, field: field);
     final books = await list();
     final organization = pattern.terms.isEmpty ? null : state.organization;
-    return books
+    final localMatches = books
         .where(
           (book) => pattern.matches(
             title: book.title,
@@ -110,6 +111,22 @@ class LibrarySearchRepository extends NovelRepository {
           ),
         )
         .toList();
+    if (pattern.terms.isEmpty) return localMatches;
+    final cloud = await CloudCatalogSearch.instance.search(query);
+    final ids = {for (final book in localMatches) book.id};
+    return [
+      ...localMatches,
+      for (final book in cloud)
+        if (ids.add(book.id))
+          if (pattern.matches(
+            title: book.title,
+            author: book.author,
+            tags: book.genre,
+            id: '${book.id}',
+            classification: '',
+          ))
+            book,
+    ];
   }
 
   @override
