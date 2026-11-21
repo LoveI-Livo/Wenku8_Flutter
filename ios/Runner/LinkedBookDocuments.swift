@@ -190,7 +190,7 @@ final class LinkedBookDocuments {
         do {
           var stat = Darwin.stat()
           guard fstat(fd, &stat) == 0, stat.st_mode & S_IFMT == S_IFREG,
-            stat.st_size > 0, stat.st_size <= BookImportFormatPolicy.byteLimit((name as NSString).pathExtension) else {
+            stat.st_size > 0, stat.st_size <= Int64(BookImportFormatPolicy.byteLimit((name as NSString).pathExtension)) else {
             throw unavailable()
           }
           let candidate = Lease(handle: handle, scope: scope, scoped: scoped, name: name,

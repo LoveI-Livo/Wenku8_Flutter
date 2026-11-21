@@ -10,11 +10,11 @@ final class NativeBookConversion {
     self.portableRoot = portableRoot
   }
 
-  func extractPdf(_ path: String, output: URL, name: String) throws {
+  func extractPdf(_ path: String, output: String, name: String) throws {
     throw BookDocumentFailure(code: "pdf_unavailable", message: "PDF 转换在当前构建中未启用")
   }
 
-  func extractKindle(_ path: String, output: URL) throws -> [String: Any] {
+  func extractKindle(_ path: String, output: String) throws -> [String: Any] {
     throw BookDocumentFailure(code: "kindle_unavailable", message: "Kindle 转换在当前构建中未启用")
   }
 }

@@ -1,10 +1,27 @@
 import Foundation
 
+/// 公开源码构建可用的导入格式策略。与 Dart 的 book_import_limits.dart 对齐。
+enum BookImportFormatPolicy {
+  static let extensions: Set<String> = [
+    "txt", "epub", "mobi", "azw", "azw3", "prc", "fb2", "pdf",
+    "doc", "docx", "rtf", "html", "htm", "xhtml", "md", "markdown", "zip",
+  ]
+  static func byteLimit(_ ext: String) -> Int {
+    switch ext.lowercased() {
+    case "zip": return 512 * 1024 * 1024
+    case "epub", "pdf", "docx": return 512 * 1024 * 1024
+    case "mobi", "azw", "azw3", "prc": return 256 * 1024 * 1024
+    case "html", "htm", "xhtml", "md", "markdown": return 32 * 1024 * 1024
+    default: return 128 * 1024 * 1024
+    }
+  }
+}
+
 /// 本地文件夹扫描占位：状态可保存，扫描返回空列表。
 final class BookFolderScanner {
   private let stateFile: URL
   private let documentsDirectory: URL
-  private var formats: [String] = ["txt", "epub"]
+  private var formatList: [String] = ["txt", "epub"]
   private var automatic = false
   private var selected: URL?
 
@@ -19,7 +36,7 @@ final class BookFolderScanner {
     [
       "folder": selected?.path ?? documentsDirectory.path,
       "automatic": automatic,
-      "formats": formats,
+      "formats": formatList,
       "count": 0,
     ]
   }
@@ -36,10 +53,10 @@ final class BookFolderScanner {
     return try info()
   }
 
-  func formats() throws -> [String] { formats }
+  func formats() throws -> [String] { formatList }
 
   func setFormats(_ extensions: [String]) throws {
-    formats = extensions.map { $0.lowercased() }
+    formatList = extensions.map { $0.lowercased() }
     try save()
   }
 
@@ -71,7 +88,7 @@ final class BookFolderScanner {
     let payload: [String: Any] = [
       "folder": selected?.path as Any,
       "automatic": automatic,
-      "formats": formats,
+      "formats": formatList,
     ]
     let data = try JSONSerialization.data(withJSONObject: payload)
     try data.write(to: stateFile, options: .atomic)
