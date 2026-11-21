@@ -33,11 +33,6 @@ double _gain(Object? value) {
 /// A small, immutable record so a damaged preference cannot break playback.
 @immutable
 class ListeningEnhancementPreference {
-  int? _audioSessionId;
-
-  /// 当前音频会话 id（Android 上由播放器回传），仅用于调试与效果绑定。
-  int? get audioSessionId => _audioSessionId;
-
   const ListeningEnhancementPreference({
     this.mode = ListeningEnhancementMode.off,
     this.gain = 0,
@@ -111,6 +106,11 @@ class ListeningEnhancementPreference {
 /// the controller awaits [dispose]; a notifier's `void dispose()` could not be
 /// awaited.
 class ListeningEnhancement implements Listenable {
+  int? _audioSessionId;
+
+  /// 当前音频会话 id（Android 上由播放器回传）。
+  int? get audioSessionId => _audioSessionId;
+
   ListeningEnhancement({
     ListeningEnhancementPreference preference = ListeningEnhancementPreference
         .none,
