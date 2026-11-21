@@ -1,158 +1,146 @@
-# Light Novel Library · Wenku8 Flutter
+# 轻小说文库 · 改版（Wenku8 Flutter · Mod Edition）
 
-<p>
-  <a href="README.md" title="English · Current language"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/language-en-active-dark.svg" /><img src="docs/images/language-en-active-light.svg" width="124" height="36" alt="English (current language)" /></picture></a><a href="README_ZH.md" title="切换到简体中文"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/language-zh-inactive-dark.svg" /><img src="docs/images/language-zh-inactive-light.svg" width="124" height="36" alt="简体中文" /></picture></a>
-</p>
+一个基于 [mikufoxxx/Wenku8_Flutter](https://github.com/mikufoxxx/Wenku8_Flutter) 的 **Flutter 轻小说阅读器改版**：
+保留原项目的阅读器、书架、听书、统计、备份等能力，补齐了公开源码快照缺失的模块，
+并加入缓存管理、阅读预取加速、改版信息与自动打包。
 
-<a href="https://afdian.com/a/mikufoxxx">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/sponsor-en-dark.svg" />
-    <img src="docs/images/sponsor-en-light.svg" width="640" alt="Buy me a coffee on AFDIAN" />
-  </picture>
-</a>
+> 本项目是**第三方阅读客户端**，与原网站无关，不提供、不托管任何小说内容。
+> 书籍请自行合法导入，或使用你有权访问的来源。
 
-Voluntary support. All features remain free.
+- 改版作者：**LoveI-Livo**
+- 本仓库：<https://github.com/LoveI-Livo/Wenku8_Flutter>
+- 原仓库（本项目来源）：<https://github.com/mikufoxxx/Wenku8_Flutter>
+- 更早的 Android 原版：<https://github.com/MewX/light-novel-library_Wenku8_Android>
+- 许可证：**GPL-2.0**（与原项目一致，详见 [LICENSE](LICENSE)）
 
-[Project website →](https://mikufoxxx.github.io/Wenku8_Flutter/)
+---
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme-cover-dark.svg" />
-    <img src="docs/images/readme-cover-light.svg" width="100%" alt="Light Novel Library · Keep your stories close. A light novel reader for Android, iOS, and HarmonyOS." />
-  </picture>
-</p>
+## 一、怎么拿到安装包
 
-<p align="center">
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml"><img src="https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml/badge.svg?branch=master&amp;event=push" alt="Source checks" /></a>
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest"><img src="https://img.shields.io/github/v/release/mikufoxxx/Wenku8_Flutter?style=flat-square&amp;logo=github&amp;color=blue" alt="Release" /></a>
-  <a href="https://github.com/mikufoxxx/Wenku8_Flutter/releases"><img src="https://img.shields.io/github/downloads/mikufoxxx/Wenku8_Flutter/total?style=flat-square&amp;label=GitHub%20Downloads&amp;color=brightgreen" alt="GitHub Release downloads" /></a>
-  <img src="https://img.shields.io/badge/Android-signed-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android · Signed release" />
-  <img src="https://img.shields.io/badge/iOS-self--sign-555555?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="iOS · Self-signing required" />
-  <img src="https://img.shields.io/badge/HarmonyOS-self--sign-3157D5?style=flat-square" alt="HarmonyOS · Self-signing required" />
-  <img src="https://img.shields.io/badge/Android_build-2277-65756E?style=flat-square" alt="Android build 2277" />
-  <a href="assets/licenses/GPL-3.0.txt"><img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square&amp;logo=gnu&amp;logoColor=white" alt="GPL 3.0" /></a>
-</p>
+### 方式 1：GitHub Actions 自动构建（推荐）
 
-Milky glass, editorial typography, and a three-dimensional bookshelf. Discover a book, organize your local library, then settle into offline reading or text-to-speech.
+推到 `master` 或手动触发 **Actions → Build Android APK**：
 
-> [!IMPORTANT]
-> **This is a third-party reading client for reading and managing local books. It does not operate an online library, publish novels, or bundle novel files. Online content and availability are determined by Wenku8; the app does not provide online access to books withdrawn for copyright reasons.**
->
-> **The app is entirely free.** We do not sell memberships, activation codes, or feature unlocks. Please beware of anyone charging for access in the name of this project or its developer.
->
-> **Only Wenku8 and local imports are supported. Other sources and custom book sources are no longer supported.** The app supports Android, iOS, and HarmonyOS and is not an official Wenku8 app.
+1. 打开仓库的 **Actions** 页 → 左侧 **Build Android APK** → 右侧 **Run workflow**；
+2. 跑完后在该次运行的 **Artifacts** 里下载 `wenku8-mod-apk`（内含调试签名的 APK）；
+3. 想要正式发布：打一个 tag（例如 `git tag v0.6.0 && git push origin v0.6.0`），
+   工作流会自动创建 **Release** 并把 APK 挂上去，读者可直接下载。
 
-## A look inside
+> 说明：仓库里构建出来的是**调试签名** APK，可以直接安装使用；
+> 如果要上架或长期分发，请用你自己的 keystore 重新签名（见 [docs/BUILD.md](docs/BUILD.md)）。
 
-<p align="center">
-  <img src="docs/images/discovery.png" width="30%" alt="Discover · Three-dimensional shelves and book discovery" />
-  &nbsp;
-  <img src="docs/images/reader.png" width="30%" alt="Read · Horizontal, vertical, and immersive reading" />
-  &nbsp;
-  <img src="docs/images/settings.png" width="30%" alt="Personalize · Colors and reading preferences" />
-</p>
+### 方式 2：本地构建
 
-<p align="center"><sub>Discover stories / Read without distractions / Make it your own<br />The screenshots use demo book data. The app interface is in Chinese.</sub></p>
+需要 Flutter SDK（Dart ≥ 3.11）、Android SDK、JDK 17：
 
-## Read your way
+```bash
+flutter pub get
+flutter build apk --release
+# 产物：build/app/outputs/flutter-apk/app-release.apk
+```
 
-- **Horizontal, vertical, or scrolling:** Two-page spreads on larger screens, with curved pages that follow your finger and unfold from the spine. Choose paragraph-continuation, slide, cover, or no animation, and adjust page-turn speed.
-- **A layout for every book:** Save fonts, size, weight, letter spacing, line height, and all four margins per book. Preview indentation, alignment, and background opacity with a transparent settings panel.
-- **Colors and type that work together:** Use system Monet colors, choose an accent, or extract colors from an image. Set reader-specific colors and backgrounds. Download reading fonts on demand, use them offline, and remove them whenever you like; reading font libraries are not preinstalled. Import TTF/OTF files and choose fonts separately for the app and reader.
-- **Find your place:** Volume-based contents, chapter and whole-book progress, in-chapter and whole-book search, volume-key page turns, auto-reading, and continuous chapter transitions. Pinch to zoom into covers and illustrations, or save the original images.
-- **Bilingual reading:** Preserve the book's lighter text styling and choose the displayed language per book. Select spoken languages separately, with a voice for each language; languages without a matching voice model are skipped.
+iOS 只能在 macOS 上构建，且需要自己的证书与描述文件：
 
-## Turn your reading history into something to keep
+```bash
+flutter build ipa --release
+```
 
-- **Distinct views for different records:** Explore the overview, reading rhythm, books, marks, and touch activity. Choose a preset period or custom date range; fields and charts without data are omitted.
-- **More than a change of color:** Eight distinct report layouts, with optional reading calendars, rhythms, companion book lists, progress, and excerpts. Previews and exports use the same content.
-- **A page for a favorite line:** Bookmarks, annotations, excerpt images, and reading keepsakes. Seasonal illustrations follow the current season, and saving an image shows a brief confirmation.
+更细的步骤（签名、常见报错、产物位置）见 **[docs/BUILD.md](docs/BUILD.md)**。
 
-## Your reading life, on your home screen
+---
 
-Today's reading, weekly heatmaps, reading calendars, keepsakes, and excerpt cards, with five visual styles including seasonal journals. Configure each widget's content and appearance independently and place several at once. Small, medium, and large sizes support light and dark mode.
+## 二、本改版做了什么
 
-Tap statistics to open your reading stats, tap a recent book to resume, or cycle directly to another excerpt. Android uses in-app configuration, iOS uses WidgetKit's system editing controls, and HarmonyOS uses form configuration.
+| # | 改动 | 说明 |
+|---|------|------|
+| 1 | **补齐缺失模块，工程可编译** | 原公开仓库是「部分实现的参考快照」，缺 `lan_reading_sync`、`lan_handoff_widgets`、`lan_reading_page`、`local_book_batch_page`、`listening/custom_tts*` 等文件，`flutter build` 必然失败。本改版按原调用点补回同一套接口，使工程能完整编译出安装包。 |
+| 2 | **缓存与存储中心** | 设置 → 数据与存储 → **缓存与存储**：显示正文缓存 / 图片内存 / 临时文件的实时占用，支持分类清理与一键全清，清理前二次确认；不影响书架、进度、书签与本地原书。 |
+| 3 | **阅读预取加速** | 相邻章节预取从前后各 1 章扩大到前后各 2 章（`lib/mod_edition.dart` 的 `modPrefetchRadius`），翻页、目录跳转时正文命中率更高，长篇小说连续阅读更顺。 |
+| 4 | **改版信息与联系方式** | 「我的 → 关于」新增 **改版说明** 区块：改版作者、联系方式、本仓库地址、原仓库地址、逐条改动说明。相关常量集中在 `lib/mod_edition.dart`，改一处即可全站生效。 |
+| 5 | **版本号独立** | 版本 `0.6.0`、构建号 `3000`，高于上游 `0.5.x`，避免应用内更新提示把改版覆盖成原版。 |
+| 6 | **安装包自动化** | 新增 `.github/workflows/android-build.yml`：push / 手动触发即编译 APK，打 tag 自动发 Release。 |
+| 7 | **文档重写** | 本 README、[docs/MODIFICATIONS.md](docs/MODIFICATIONS.md)（逐条改动与二次定制）、[docs/BUILD.md](docs/BUILD.md)（构建与签名）。 |
 
-## A library you can organize your way
+### 关于「多书源 / 多网盘 / 在线直读 / Web」
 
-- **Three-dimensional shelves or lists:** A looping carousel with inertial snapping and haptics, or a straightforward list. Filter by category, reading status, and source. Keep the local library separate or merge it with your bookshelf.
-- **Choose before importing:** Select multiple files, scan shared storage, or scan a chosen folder. Review the results before importing, and confirm how volumes in the same series should be merged.
-- **Link original files by default:** Linking is available across the supported formats; copying into the app is an explicit option. TXT uses a contents index, EPUB resources are read on demand, and other formats retain necessary converted files and caches. Keep linked originals in place. If a file moves or access expires, relink it without losing progress or bookmarks.
-- **Keep the details:** EPUB ruby text, note pop-ups, common alignment, separators, and mixed horizontal/vertical text. Customize TXT contents rules. Online books support chapter and illustration caching, not whole-book file downloads or exports.
-- **Less repetitive housekeeping:** Select multiple books to move between categories, remove from a shelf, or delete. Replace covers or restore originals. Manually upgrade older EPUB layouts and consolidate duplicate resources while preserving original books, contents, progress, and bookmarks.
+这些需求我逐条核对了源码，实际情况如下，写在文档里避免误解：
 
-<details>
-<summary><b>Supported formats and cloud imports</b></summary>
+- **书源**：原项目把在线书源实现在**未公开的模块**里，公开快照中的 `lib/online_component.dart` 只是占位
+  （提示「此源码构建未包含在线组件」），`release_notices.dart` 也明确写了「不再支持其他源或自定义书源」。
+  因此公开快照**本身就不含书源引擎**，不是开关问题，需要在完整工程里补一整套抓取/解析层。
+  本改版保留原有接口与占位提示，不伪造书源。
+- **网盘**：源码里已支持 **WebDAV / OpenList**、**夸克网盘**、**S3 兼容对象存储** 三类，见 `lib/cloud_sources.dart`。
+  新增一类网盘（蓝奏云、迅雷、123 云盘等）需要各自的登录 / 签名 / 直链接口，属于新增适配器，
+  当前改版**未包含**，需要时可按 `CloudBookClient` 工厂模式扩展（结构清晰，见文件内注释）。
+- **在线直读（不落盘）**：现有链路是「云端列举 → 下载到本地 → 阅读」，正文缓存按章存储
+  （`lib/offline_cache.dart`）。改成「边读边取」需要改动阅读器的内容加载与缓存淘汰策略，
+  属于较大范围重构，本改版未做，仅通过预取加速改善「加载慢」的体感。
+- **Web 端**：应用大量使用 `dart:io`、`path_provider`、原生 MethodChannel，
+  要跑在浏览器里需要把这些依赖改成条件导入，不是加个 `web/` 目录就能用。本改版未做。
 
-TXT, EPUB, MOBI/AZW/AZW3/PRC, FB2, PDF, DOC/DOCX, RTF, HTML, Markdown, and ZIP. Edit titles, authors, covers, and volume order.
+> 结论：能确定交付的是 **可编译的完整工程 + APK 自动构建 + 缓存管理 + 预取加速 + 改版信息**；
+> 书源与网盘扩展需要完整上游模块或按适配器自行扩展。文档不打包票，代码可查。
 
-Import through OpenList/WebDAV or Quark Drive (experimental). Access OneDrive, Google Drive, and similar services through the system document picker. Manually merge and sync original books and reading records.
+---
 
-[Cloud import guide (Chinese) →](docs/CLOUD_IMPORT.md)
+## 三、功能一览（原项目已有）
 
-</details>
+- 书架 / 收藏、阅读进度与历史、书签与摘录、笔记
+- 本地书籍导入（TXT / EPUB 等）、编码识别、分卷与目录
+- 阅读器：翻页与滚动、竖排、行距字体、背景、插图、词典查词
+- 听书：系统 TTS / 在线语音、语速与音色
+- 阅读统计、阅读报告、桌面小组件
+- 备份与恢复（本机 / 云端）、S3 同步
+- 多语言界面（中文 / English）
 
-## Pick up where you left off
+## 四、目录结构（主要部分）
 
-- **Continue over your local network:** Discover devices on the same Wi-Fi, confirm on both devices the first time, and reconnect automatically afterward. Choose a device under **Contents → Chapter progress → Continue on another device (目录 → 章节进度 → 在其他设备上续读)**. Transfer the book if it is missing; send only the reading position if it is already there.
-- **S3 cloud sync:** Manually merge original books, reading progress, bookmarks, and categories through S3 or compatible storage. Import connections and sync destinations are configured separately.
-- **Offline dictionaries:** Import MDict, StarDict, or Kindle dictionaries for local lookups while reading.
-- **Bookmark and category sync:** With both apps in the foreground, automatically continue from the newer reading position and incrementally sync bookmarks and categories. Resolve simultaneous edits on the conflict page.
-- **Keep a favorite passage:** Long-press to select a sentence or paragraph, copy it, add a bookmark, or view the current volume's illustrations. Categorize bookmarks, jump to highlighted passages, or share them as images with the app's icon watermark.
-- **Listen instead:** Use natural online voices, a custom Microsoft SSML endpoint, or a system TTS engine installed on your device. Supports 0.5–3× speed, paragraph following, sleep timers, background playback, and lock-screen controls. Offline availability depends on the engine and voice.
+```
+lib/
+├── main.dart                 应用入口与依赖装配
+├── pages.dart                主要页面（书架 / 发现 / 详情 / 阅读器 / 设置）
+├── mod_edition.dart          ★ 改版信息：署名、联系方式、版本、预取半径
+├── cache_center_page.dart    ★ 缓存与存储中心
+├── lan_reading_sync.dart     ★ 补回的局域网续读接口（未启用网络）
+├── lan_handoff_widgets.dart  ★ 补回的续读提醒层
+├── lan_reading_page.dart     ★ 局域网续读说明页
+├── local_book_batch_page.dart★ 批量整理入口
+├── cloud_sources.dart        网盘源抽象（WebDAV / 夸克 / S3）
+├── offline_cache.dart        正文 / 插图缓存与清理
+├── library_state.dart        设置、阅读进度、书架状态
+└── updates/                  版本检查与「关于」页
+.github/workflows/
+└── android-build.yml         ★ APK 自动构建与 Release
+docs/
+├── BUILD.md                  ★ 构建与签名
+└── MODIFICATIONS.md          ★ 改版明细与二次定制
+```
 
-<details>
-<summary><b>More: discovery, accounts, and reading preferences</b></summary>
+## 五、常见问题
 
-- **Book discovery:** Browse categories, rankings, and publishing labels; search by title, author, or tag. Tap an author or tag to explore related works. [Search guide (Chinese) →](docs/SEARCH.md)
-- **Accounts and community:** Wenku8 accounts, cloud bookshelves, reviews, and replies.
-- **Reading controls:** Configure tap zones, including turning to the next page from either side. Set books in Discover, Bookshelf, and Local to resume directly, then open book details from the reader.
-- **Offline and backup:** Resume failed cache jobs, manage caches, view reading history, and make local backups.
-- **Themed icons:** Independently enable home-screen icons that follow system theme colors.
-- **Chinese language support:** Simplified Chinese, Hong Kong Traditional Chinese, and Taiwan Traditional Chinese, following the system or selected manually.
-- **Orientation and offline use:** Lock the app to portrait without affecting rotation in other apps. Keep offline-readable books available without a connection; reader modes follow your separate or merged local-library settings.
-- **Performance and motion:** Frame-rate preferences and a low-performance mode, with separate controls for glass refraction, blur, transitions, animated icons, and three-dimensional shelves. Haptics have a master switch, category switches for buttons and shelves, intensity controls, and a test vibration.
+**Q：安装后提示版本更新，会不会被覆盖成原版？**
+A：改版版本号 `0.6.0` 高于上游 `0.5.x`，正常不会被提示更新。若上游发布更高版本，请忽略提示或到本仓库下载。
 
-</details>
+**Q：局域网续读 / 批量整理 点了没反应？**
+A：这两个模块在上游属于未公开部分，本改版补的是接口占位，页面会明确说明未启用，不会闪退。
 
-## Content and responsible use
+**Q：数据会不会被清理掉？**
+A：清理只针对缓存（正文、插图、图片内存、临时文件），书架、进度、书签、本地原书都保留。
 
-Online listings and content come from Wenku8. Local books are imported by the user. Novels, covers, and illustrations belong to their respective rights holders; the source-code license does not grant rights to that content. Access only content you are entitled to use and follow the source website's rules. Do not bypass access restrictions, break DRM, or copy, distribute, or sell content without permission.
+**Q：能商用 / 二次分发吗？**
+A：遵循 GPL-2.0：可以，但需保留许可证与版权声明，并公开修改后的源码。
 
-Third-party services may change, rate-limit requests, or become unavailable. Never include passwords, cookies, or tokens in issue reports.
+## 六、致谢
 
-## Development and contributions
+- [mikufoxxx/Wenku8_Flutter](https://github.com/mikufoxxx/Wenku8_Flutter)：本项目的直接来源
+- [MewX/light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android)：更早的 Android 实现
+- 以及所有第三方组件、字体作者（见应用内「开源许可」页）
 
-Report bugs through [Issues](https://github.com/mikufoxxx/Wenku8_Flutter/issues) or contribute through pull requests. Include the app version, device, operating-system version, and steps to reproduce.
+## 七、联系
 
-<details>
-<summary><b>About the source snapshot</b></summary>
+- 作者：**LoveI-Livo**
+- 主页：<https://github.com/LoveI-Livo>
+- 问题反馈：请在本仓库开 [Issue](https://github.com/LoveI-Livo/Wenku8_Flutter/issues)
 
-This repository shares selected implementation code for reference. It contains references to modules not included in the snapshot, cannot be built independently, and is not the complete corresponding source for the release packages. Previously distributed release packages included the full app functionality. GitHub's automatically generated “Source code” archives are not app installers.
-
-[Source checks](https://github.com/mikufoxxx/Wenku8_Flutter/actions/workflows/flutter-ci.yml) validate only the public file inventory and publication boundaries. They do not build or modify release packages.
-
-[Build guide (Chinese) →](docs/RELEASING.md)
-
-</details>
-
-## Acknowledgments and licenses
-
-Thanks to the open-source component and font authors whose work this project uses. Each component retains its own copyright and license.
-
-- **Public source code:** The repository's existing [LICENSE](LICENSE) and [GPL v3 notice](assets/licenses/GPL-3.0.txt).
-- **Downloadable fonts:** Their respective SIL OFL 1.1 licenses.
-- **Online voice integration:** [rany2/edge-tts](https://github.com/rany2/edge-tts), [LGPL v3](assets/licenses/edge-tts.txt).
-
-[NOTICE](NOTICE) · [Third-party components (Chinese)](docs/THIRD_PARTY.md) · [LINUX DO community](https://linux.do/)
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=mikufoxxx%2Fwenku8_flutter&type=date&releases=&legend=bottom-right">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=mikufoxxx/wenku8_flutter&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=mikufoxxx/wenku8_flutter&type=date&legend=top-left" />
-    <img src="https://api.star-history.com/chart?repos=mikufoxxx/wenku8_flutter&type=date&legend=top-left" width="100%" alt="Star History chart" />
-  </picture>
-</a>
+联系方式想换成自己的：改 `lib/mod_edition.dart` 顶部的 `modAuthorName`、`modContact*` 常量即可，
+留空则对应条目自动隐藏。

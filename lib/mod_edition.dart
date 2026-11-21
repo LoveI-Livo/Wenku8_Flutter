@@ -1,0 +1,89 @@
+/// 改版信息（Mod Edition）。
+///
+/// 这个文件只存放常量，不参与任何业务逻辑，方便二次修改：
+/// 1. 想换成自己的署名和联系方式，改下面的常量即可，界面会自动同步；
+/// 2. 联系方式留空字符串时，对应条目不会显示；
+/// 3. 改动清单直接增删 [modEditionChanges] 里的条目。
+library;
+
+/// 改版名称，显示在「关于」页的标题里。
+const modEditionName = '轻小说文库 · 改版版';
+
+/// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
+const modEditionVersion = '0.6.0';
+const modEditionBuild = 3000;
+
+/// 改版作者。
+const modAuthorName = 'LoveI-Livo';
+
+/// 联系方式：留空即隐藏对应条目。
+const modContactEmail = '';
+const modContactQq = '';
+const modContactTelegram = '';
+const modContactWeChat = '';
+const modContactSite = 'https://github.com/LoveI-Livo';
+
+/// 本改版仓库（你现在用的这个仓库）。
+const modRepository = 'https://github.com/LoveI-Livo/Wenku8_Flutter';
+
+/// 原仓库：Flutter 移植版，本项目由它复制而来。
+const modOriginalRepository = 'https://github.com/mikufoxxx/Wenku8_Flutter';
+
+/// 更早的 Android 原版，保留致谢。
+const modLegacyRepository =
+    'https://github.com/MewX/light-novel-library_Wenku8_Android';
+
+/// 阅读器相邻章节预取半径。
+///
+/// 原版只预取前后各 1 章；改版扩大到 2 章，翻页时更少等待，
+/// 代价是略微增加内存与流量占用。想要更快可以改成 3，想省流量改回 1。
+const modPrefetchRadius = 2;
+
+/// 概况，显示在「关于」页顶部。
+const modEditionSummary =
+    '本仓库是原项目（mikufoxxx/Wenku8_Flutter）的改版副本，遵循 GPL-2.0 许可证。'
+    '在保留原有阅读器、书架、听书、统计等功能的基础上，补充了构建与使用体验方面的改动，'
+    '并把应用内的项目信息、联系方式替换为改版作者的信息。';
+
+/// 改版说明的条目：标题 + 说明。
+class ModChange {
+  const ModChange(this.title, this.detail);
+
+  final String title;
+  final String detail;
+}
+
+/// 改动清单，显示在「关于 → 改版说明」。
+const modEditionChanges = <ModChange>[
+  ModChange(
+    '补全公开快照缺失的模块',
+    '原公开仓库是「部分实现的参考快照」，缺少局域网续读、自定义语音等文件，直接构建会失败。'
+        '本改版补齐了这些占位实现，使工程可以完整编译出安装包。',
+  ),
+  ModChange(
+    '新增「缓存与存储」中心',
+    '在 设置 → 数据与存储 中新增一键清理：正文与插图缓存、图片内存缓存、临时文件，'
+        '并实时显示各部分占用大小，清理前有二次确认。',
+  ),
+  ModChange(
+    '阅读预取加速',
+    '相邻章节预取从前后各 1 章扩大到前后各 2 章，翻页与目录跳转时正文命中率更高，'
+        '轻长篇小说的打开与连续阅读明显更顺。',
+  ),
+  ModChange(
+    '项目信息与联系方式改为改版作者',
+    '「关于」页与许可页中的项目信息、联系方式、仓库地址已替换为本仓库，'
+        '并保留原仓库与更早的 Android 原版地址以注明出处。',
+  ),
+  ModChange(
+    '安装包自动化构建',
+    '新增 GitHub Actions 工作流：推送即自动编译 APK 并归档产物，'
+        '打 tag 时自动创建 Release 并上传安装包，不再依赖本地环境。',
+  ),
+];
+
+/// 说明性文字，显示在「关于 → 改版说明」末尾。
+const modEditionNotice =
+    '本改版仅调整客户端功能与信息展示，不运营在线书库、不托管小说文件；'
+    '书籍内容请自行合法导入或使用你有权访问的来源。'
+    '原项目版权归其作者与贡献者所有，改版部分同样遵循 GPL-2.0。';

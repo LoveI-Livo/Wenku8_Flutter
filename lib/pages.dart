@@ -10,6 +10,8 @@ import 'package:flutter/services.dart';
 
 import 'app_ui.dart';
 import 'app_window_insets.dart';
+import 'cache_center_page.dart';
+import 'mod_edition.dart';
 import 'app_search_field.dart';
 import 'setting_menu.dart';
 import 'cover_images.dart';
@@ -3569,6 +3571,35 @@ class SettingsPage extends StatelessWidget {
       ),
       const SizedBox(height: 24),
     ],
+    sectionHeader(context, '缓存与存储', ''),
+    const SizedBox(height: 14),
+    ContentPanel(
+      key: const ValueKey('settings-cache-center'),
+      onTap: () => pushNovelPage<void>(
+        context,
+        CacheCenterPage(
+          repository: repository is OfflineNovelRepository
+              ? repository as OfflineNovelRepository
+              : null,
+          reduceMotion: state.reduceMotion,
+        ),
+        reduceMotion: state.reduceMotion,
+      ),
+      child: const Row(
+        children: [
+          ArchiveIcon(CupertinoIcons.archivebox, size: 21),
+          SizedBox(width: 12),
+          Expanded(
+            child: AppText(
+              '缓存与存储',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          ArchiveIcon(CupertinoIcons.chevron_right, size: 14),
+        ],
+      ),
+    ),
+    const SizedBox(height: 24),
     sectionHeader(context, '备份与清理', ''),
     const SizedBox(height: 14),
     ContentPanel(
@@ -7186,15 +7217,20 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _prefetchAdjacent() {
-    _automaticContent.removeWhere((index, _) => (index - _chapter).abs() > 1);
-    _preparedContent.removeWhere((index, _) => (index - _chapter).abs() > 1);
-    _preparedDisplay.removeWhere((index, _) => (index - _chapter).abs() > 1);
+    _automaticContent.removeWhere((index, _) => (index - _chapter).abs() > modPrefetchRadius);
+    _preparedContent.removeWhere((index, _) => (index - _chapter).abs() > modPrefetchRadius);
+    _preparedDisplay.removeWhere((index, _) => (index - _chapter).abs() > modPrefetchRadius);
     // The continuous view owns its next/previous slots and inline retry state.
     if (!_paginated && !_readerPreferences.chapterEntrance) {
       _scrollStream.prepareAdjacent();
       return;
     }
-    for (final index in [_chapter + 1, _chapter - 1]) {
+    for (final index in [
+      for (var offset = 1; offset <= modPrefetchRadius; offset++) ...[
+        _chapter + offset,
+        _chapter - offset,
+      ],
+    ]) {
       if (index < 0 || index >= _sourceBook.chapters.length) continue;
       if (widget.repository case final OfflineNovelRepository offline) {
         if (offline.offline &&

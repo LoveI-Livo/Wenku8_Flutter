@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_interactions.dart';
+import '../mod_edition.dart';
 import '../app_ui.dart';
 import '../archive_progress.dart';
 import 'app_updates.dart';
@@ -609,6 +611,106 @@ class AppUpdatePage extends StatelessWidget {
                 child: ReleaseNotes(projectImportantNotices),
               ),
               const SizedBox(height: 28),
+              const ArchiveSection(title: '改版说明', code: 'MOD / EDITION'),
+              const SizedBox(height: 14),
+              ContentPanel(
+                key: const ValueKey('app-mod-edition'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AppText(
+                      modEditionSummary,
+                      style: const TextStyle(height: 1.7),
+                    ),
+                    const SizedBox(height: 8),
+                    AppText(
+                      '$modEditionName $modEditionVersion（构建 $modEditionBuild）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    for (final change in modEditionChanges) ...[
+                      AppText(
+                        '· ${change.title}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      AppText(
+                        change.detail,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.7,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    AppText(
+                      modEditionNotice,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.7,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    AppText(
+                      '改版作者：$modAuthorName',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    if (modContactEmail.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      AppText('邮箱：$modContactEmail'),
+                    ],
+                    if (modContactQq.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      AppText('QQ：$modContactQq'),
+                    ],
+                    if (modContactTelegram.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      AppText('Telegram：$modContactTelegram'),
+                    ],
+                    if (modContactWeChat.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      AppText('微信：$modContactWeChat'),
+                    ],
+                    if (modContactSite.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      AppText('主页：$modContactSite'),
+                    ],
+                    const SizedBox(height: 14),
+                    GlassTextButton(
+                      key: const ValueKey('app-mod-origin-repo'),
+                      onPressed: () => _open(
+                        context,
+                        () => _launch(modOriginalRepository),
+                      ),
+                      child: const AppText('原仓库（本项目来源）'),
+                    ),
+                    const SizedBox(height: 8),
+                    GlassTextButton(
+                      key: const ValueKey('app-mod-repo'),
+                      onPressed: () => _open(
+                        context,
+                        () => _launch(modRepository),
+                      ),
+                      child: const AppText('本改版仓库'),
+                    ),
+                    const SizedBox(height: 8),
+                    GlassTextButton(
+                      key: const ValueKey('app-mod-legacy-repo'),
+                      onPressed: () => _open(
+                        context,
+                        () => _launch(modLegacyRepository),
+                      ),
+                      child: const AppText('更早的 Android 原版'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
               const ArchiveSection(title: '项目与许可', code: 'SOURCE / LICENSES'),
               const SizedBox(height: 14),
               ContentPanel(
@@ -659,6 +761,10 @@ class AppUpdatePage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _launch(String url) async {
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   Future<void> _open(
