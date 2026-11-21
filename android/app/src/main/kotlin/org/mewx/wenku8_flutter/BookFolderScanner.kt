@@ -97,9 +97,9 @@ internal class BookFolderScanner(private val activity: Activity) {
             books += mapOf("token" to token, "name" to display, "size" to size, "folder" to folder)
         }
         if (tree != null) {
-            walkTree(tree!!, "", add, warnings, 0)
+            walkTree(tree!!, "", ::add, warnings, 0)
         } else if (canReadAll()) {
-            walkFiles(Environment.getExternalStorageDirectory(), "", add, warnings, 0)
+            walkFiles(Environment.getExternalStorageDirectory(), "", ::add, warnings, 0)
         } else {
             throw IllegalStateException("尚未授权扫描目录，请先选择文件夹或授予「所有文件」权限")
         }
