@@ -32,7 +32,7 @@ class CloudCatalogSearch {
     final value = query.trim();
     if (value.length < 2) return const [];
     await _ensureLoaded();
-    final configs = settings.configs.values
+    final configs = settings.configs
         .where((config) => config.kind.isDirectLink)
         .toList();
     if (configs.isEmpty) return const [];
