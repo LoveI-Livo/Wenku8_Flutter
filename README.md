@@ -14,12 +14,20 @@
 
 ## 下载安装
 
-- **Android**：[v0.6.2 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.2-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
-- **iOS**：[v0.6.2 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.2-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
+- **Android**：[v0.6.3 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.3-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
+- **iOS**：[v0.6.3 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.3-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
 
 所有版本与安装包见 [Releases](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases)。
 
 ## 更新内容
+
+### 0.6.3
+
+**新增**
+
+- 网盘书「加入书单 · 在线读」：书架只存直链与元数据，打开时在内存解析 TXT / EPUB / HTML，不下载原文件
+- 其他书源：RSS / Atom 订阅入口，订阅条目可直接加入书单在线阅读
+- 网盘书进入现有本地书架，支持分类、排序与阅读进度
 
 ### 0.6.2
 
