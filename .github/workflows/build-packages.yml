@@ -1,0 +1,104 @@
+name: Build packages (manual)
+
+# 手动触发一次，同时产出 Android APK 与 iOS 未签名 IPA。
+# 不做自动触发，避免推送即构建。
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '可选：填了 tag（如 v0.6.0）就创建 Release 并上传安装包'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build APK
+        run: |
+          flutter build apk --release --no-tree-shake-icons \
+            --android-skip-build-dependency-validation
+
+      - name: Stage artifact
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/wenku8-mod-android.apk
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wenku8-mod-android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          cd dist && zip -qry wenku8-mod-ios-unsigned.ipa Payload
+          rm -rf Payload
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wenku8-mod-ios
+          path: dist/*.ipa
+          if-no-files-found: error
+
+  release:
+    needs: [android, ios]
+    if: inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            改版安装包（debug 签名 APK / 未签名 IPA，可直接安装或自行签名）。
+
+            - 源码：https://github.com/${{ github.repository }}
+            - 原仓库：https://github.com/mikufoxxx/Wenku8_Flutter
+            - 改版说明：见 README 第一节
+
+            iOS 的 `.ipa` 未签名：Sideloadly / AltStore / TrollStore 自签安装。
