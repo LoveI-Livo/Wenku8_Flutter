@@ -114,6 +114,8 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.uc => 'UC 网盘：复制文件下载直链，流式读取。',
                     CloudSourceKind.direct =>
                       '任意 HTTPS 文件直链，粘贴后直接流式读取，不保存账号 Cookie。',
+                    CloudSourceKind.rss =>
+                      '其他书源：填写公开的 RSS / Atom 订阅地址，列表里的每个条目都会变成一本可在线阅读的书。',
                   }, style: const TextStyle(fontSize: 13, height: 1.65)),
                   const SizedBox(height: 12),
                   if (settings[kind] case final config?) ...[
@@ -173,6 +175,7 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.pan123 ||
                         CloudSourceKind.uc ||
                         CloudSourceKind.direct => '添加直链',
+                        CloudSourceKind.rss => '添加其他书源',
                         CloudSourceKind.s3 => '添加 S3 连接',
                       },
                       onPressed: () => _edit(context, kind),
@@ -366,16 +369,21 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
           children: [
             if (widget.kind.isDirectLink) ...[
               AppText(
-                '在${widget.kind.label}网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
-                '应用会直接流式读取，不保存账号 Cookie，也不会把整本书长期留在本机。'
-                '蓝奏云普通版与优享版域名不同，请复制带真实文件名的下载地址，不要粘贴分享页。',
+                widget.kind == CloudSourceKind.rss
+                    ? '填写公开的 RSS / Atom 订阅地址。应用会列出订阅里的书籍条目，'
+                          '点开即在线解析正文，不下载到本地；不支持需要登录的私有订阅。'
+                    : '在${widget.kind.label}网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
+                          '应用会直接流式读取，不保存账号 Cookie，也不会把整本书长期留在本机。'
+                          '蓝奏云普通版与优享版域名不同，请复制带真实文件名的下载地址，不要粘贴分享页。',
                 style: const TextStyle(height: 1.7),
               ),
               const SizedBox(height: 24),
               _field(
-                '文件直链',
+                widget.kind == CloudSourceKind.rss ? '订阅地址' : '文件直链',
                 _address,
-                hint: 'https://wwx.lanzoui.com/… 或迅雷直链',
+                hint: widget.kind == CloudSourceKind.rss
+                    ? 'https://example.com/feed.xml'
+                    : 'https://wwx.lanzoui.com/… 或迅雷直链',
                 helper: '分享页地址不是直链；请在下载按钮上右键或长按复制真实下载地址。',
               ),
               Row(

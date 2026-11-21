@@ -119,6 +119,10 @@ class CloudDocumentService {
   }
 
   _CloudDocument _parse(int id, String name, String url, Uint8List bytes) {
+    final head = utf8.decode(bytes.take(512).toList(), allowMalformed: true).toLowerCase();
+    if (head.contains('<html') || head.contains('<!doctype html')) {
+      return _parseHtml(id, name, url, bytes);
+    }
     final isZip = bytes.length > 4 &&
         bytes[0] == 0x50 && bytes[1] == 0x4B;
     if (isZip) {
@@ -175,6 +179,26 @@ class CloudDocumentService {
     if (chapters.isEmpty) throw const FormatException('文件里没有可阅读的文字');
     final novel = _novel(id, name, url, chapters);
     return _CloudDocument(novel, bodies);
+  }
+
+  _CloudDocument _parseHtml(int id, String name, String url, Uint8List bytes) {
+    final text = utf8.decode(bytes, allowMalformed: true);
+    final document = html.parse(text);
+    final heading = (document.querySelector('h1')?.text ??
+            document.querySelector('title')?.text ??
+            name)
+        .trim();
+    final paragraphs = document.querySelectorAll('p')
+        .map((e) => e.text.trim())
+        .where((t) => t.isNotEmpty && t.length > 1)
+        .toList();
+    final body = paragraphs.isEmpty
+        ? (document.body?.text ?? '').trim()
+        : paragraphs.join('\n\n');
+    if (body.isEmpty) throw const FormatException('网页里没有可阅读的正文');
+    final chapters = [NovelChapter(_limit(heading, 80), '', id: 1)];
+    final novel = _novel(id, name, url, chapters);
+    return _CloudDocument(novel, {1: body});
   }
 
   _CloudDocument _parseEpub(int id, String name, String url, Uint8List bytes) {

@@ -21,6 +21,7 @@ enum CloudSourceKind {
   pan123('123 云盘'),
   uc('UC 网盘'),
   direct('其他网盘直链'),
+  rss('其他书源 · RSS/Atom'),
   s3('S3 / 兼容对象存储');
 
   const CloudSourceKind(this.label);
@@ -28,7 +29,7 @@ enum CloudSourceKind {
 
   /// 这些来源都通过「文件下载直链」流式读取，不保存账号 Cookie。
   bool get isDirectLink => switch (this) {
-    lanzou || lanzouPro || xunlei || aliyun || baidu || pan123 || uc || direct => true,
+    lanzou || lanzouPro || xunlei || aliyun || baidu || pan123 || uc || direct || rss => true,
     _ => false,
   };
 }
@@ -340,6 +341,7 @@ abstract class CloudBookClient {
     CloudSourceKind.baidu ||
     CloudSourceKind.pan123 ||
     CloudSourceKind.uc ||
+    CloudSourceKind.rss => RssBookClient(config),
     CloudSourceKind.direct => DirectLinkBookClient(config),
     CloudSourceKind.s3 => S3BookClient(config),
   };
@@ -891,4 +893,65 @@ class DirectLinkBookClient implements CloudBookClient {
 
   @override
   void close() => _http.close();
+}
+
+
+/// RSS / Atom 书源：一个订阅地址就是一套书源，条目里的链接就是书页。
+///
+/// 只读取公开订阅，不登录站点，不抓取需要 Cookie 的私有内容。
+class RssBookClient extends DirectLinkBookClient {
+  RssBookClient(super.config);
+
+  @override
+  Future<CloudBookListing> list(String folder, {int page = 1}) async {
+    if (page > 1) return const CloudBookListing([]);
+    final uri = Uri.parse(root);
+    final res = await CloudHttp().request(
+      'GET',
+      uri,
+      headers: (_) => const {'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'},
+      redirects: true,
+      allowHttp: config.allowHttp,
+      redirectMessage: '书源地址发生跳转，请填写最终 RSS/Atom 地址',
+    );
+    final bytes = await CloudHttp().bytes(res, limit: 4 * 1024 * 1024);
+    final document = XmlDocument.parse(utf8.decode(bytes, allowMalformed: true));
+    final items = document.findAllElements('item');
+    final entries = document.findAllElements('entry');
+    final result = <CloudBookEntry>[];
+    void add(String title, String? link, String summary) {
+      if (title.trim().isEmpty || link == null || link.trim().isEmpty) return;
+      final resolved = Uri.parse(root).resolve(link.trim()).toString();
+      result.add(CloudBookEntry(
+        id: resolved,
+        name: title.trim(),
+        folder: false,
+        size: 0,
+      ));
+    }
+    for (final item in items) {
+      final title = _child(item, 'title');
+      var link = _child(item, 'link');
+      if (link.isEmpty) link = _child(item, 'guid');
+      add(title, link, _child(item, 'description'));
+    }
+    for (final item in entries) {
+      final title = _child(item, 'title');
+      String link = '';
+      for (final node in item.findElements('link')) {
+        final href = node.getAttribute('href');
+        if (href != null) { link = href; break; }
+      }
+      add(title, link, _child(item, 'summary'));
+    }
+    if (result.isEmpty) throw const CloudSourceFailure('这个订阅里没有可阅读的条目');
+    return CloudBookListing(result);
+  }
+
+  String _child(XmlElement item, String name) {
+    for (final node in item.findElements(name)) {
+      return node.innerText.trim();
+    }
+    return '';
+  }
 }
