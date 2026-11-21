@@ -33,6 +33,11 @@ double _gain(Object? value) {
 /// A small, immutable record so a damaged preference cannot break playback.
 @immutable
 class ListeningEnhancementPreference {
+  int? _audioSessionId;
+
+  /// 当前音频会话 id（Android 上由播放器回传），仅用于调试与效果绑定。
+  int? get audioSessionId => _audioSessionId;
+
   const ListeningEnhancementPreference({
     this.mode = ListeningEnhancementMode.off,
     this.gain = 0,
@@ -136,7 +141,11 @@ class ListeningEnhancement implements Listenable {
   }
 
   /// Restore a stored preference before playback starts.
-  Future<void> configure(ListeningEnhancementPreference value) async {
+  Future<void> configure(
+    ListeningEnhancementPreference value, {
+    int? audioSessionId,
+  }) async {
+    _audioSessionId = audioSessionId;
     _apply(value);
   }
 
