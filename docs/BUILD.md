@@ -1,21 +1,24 @@
 # 构建与签名
 
-本文对应改版 `0.6.0+3000`。
+对应改版 `0.6.0+3000`。
+
+> **先读这个**：上游公开快照缺 13 个模块、120 个编译错误（清单见
+> [MODIFICATIONS.md](MODIFICATIONS.md)），**原样无法构建**。本文写给两种情况：
+> ① 你拿到了完整源码，想构建带本改版功能的包；② 你想知道构建时到底会卡在哪。
+> 只想装个能用的 App → 直接去
+> [上游 Releases](https://github.com/mikufoxxx/Wenku8_Flutter/releases/latest)。
 
 ## 1. 环境要求
 
 | 目标 | 需要 |
 |------|------|
-| Android APK | Flutter SDK（Dart ≥ 3.11）、Android SDK（compileSdk 见 `android/app/build.gradle.kts`）、JDK 17 |
-| iOS IPA | macOS + Xcode + 自己的 Apple 开发者证书与描述文件 |
+| Android APK | Flutter SDK（Dart ≥ 3.11）、Android SDK、JDK 17、**Gradle ≥ 9.3.1** |
+| iOS IPA | macOS + Xcode + 自己的开发者证书与描述文件 |
 | HarmonyOS | DevEco Studio（见 `ohos/` 与 `scripts/build_harmony.sh`） |
 
-检查环境：
-
 ```bash
-flutter --version
-flutter doctor -v
-java -version      # 需要 17
+flutter --version     # 实测 CI 用的是 stable 3.50.1 / Dart 3.11.x
+java -version         # 需要 17
 ```
 
 ## 2. 拉取与依赖
@@ -23,41 +26,52 @@ java -version      # 需要 17
 ```bash
 git clone https://github.com/LoveI-Livo/Wenku8_Flutter.git
 cd Wenku8_Flutter
-flutter pub get
+flutter pub get          # 这一步在公开快照上是可以成功的
 ```
-
-> `third_party/liquid_glass_easy` 是随仓库一起提供的本地依赖，`pub get` 会自动拉起，不需要单独处理。
 
 ## 3. 构建 Android
 
 ```bash
-# 调试包（最快，用于自测）
-flutter build apk --debug
-
-# 发布包（需要签名配置，见下）
 flutter build apk --release
-
-# 按 ABI 拆包，体积更小
-flutter build apk --release --split-per-abi
+# 产物：build/app/outputs/flutter-apk/app-release.apk
 ```
 
-产物位置：
+### 3.1 已知的第一个拦路虎：Gradle 版本
+
+实测报错（Flutter 3.50.1）：
 
 ```
-build/app/outputs/flutter-apk/app-release.apk
-build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+Your project's Gradle version (8.14.0) is lower than Flutter's minimum
+supported version of 9.3.1. Please upgrade your Gradle version.
 ```
+
+修法：改 `android/gradle/wrapper/gradle-wrapper.properties`
+
+```properties
+distributionUrl=https\://services.gradle.org/distributions/gradle-9.3.1-all.zip
+```
+
+然后确认 `android/settings.gradle.kts` 里的 AGP 版本支持 Gradle 9.x（AGP 8.13+ / 9.x）。
+
+### 3.2 第二个拦路虎：Dart 编译
+
+```bash
+flutter analyze --no-pub | grep ' error • '
+```
+
+在当前公开快照上会看到 120 个错误、13 个缺失模块。**必须先把这些模块补齐**，
+否则 `flutter build` 一定失败。补齐后 `flutter analyze` 无 error 再继续。
 
 ## 4. 用自己的 keystore 签名
 
-1. 生成 keystore：
+自动构建出来的是 **debug 签名**，能装能用，但不适合长期分发（换签名会导致覆盖安装失败）。
 
 ```bash
 keytool -genkey -v -keystore ~/wenku8-mod.jks -keyalg RSA -keysize 2048 \
   -validity 10000 -alias wenku8
 ```
 
-2. 新建 `android/key.properties`（**不要提交到仓库**）：
+`android/key.properties`（**不要提交**）：
 
 ```properties
 storePassword=你的密码
@@ -66,50 +80,83 @@ keyAlias=wenku8
 storeFile=/绝对路径/wenku8-mod.jks
 ```
 
-3. 在 `android/app/build.gradle.kts` 的 `android { }` 中配置 `signingConfigs` 并让 `buildTypes.release` 使用它
-   （若原工程已配置，直接用 `key.properties` 即可）。
+在 `android/app/build.gradle.kts` 的 `android {}` 里配置 `signingConfigs`，
+并让 `buildTypes.release` 使用它，然后重新 `flutter build apk --release`。
 
-4. 重新 `flutter build apk --release`。
-
-> 仓库自动构建出来的是 **debug 签名**，能装能用，但不适合长期分发：
-> 换签名会导致覆盖安装失败（签名不一致），正式分发请固定一个 keystore。
-
-## 5. iOS
+## 5. 拆包（体积更小）
 
 ```bash
-flutter build ipa --release \
-  --export-options-plist=ios/ExportOptions.plist
+flutter build apk --release --split-per-abi
+# app-arm64-v8a-release.apk / app-armeabi-v7a-release.apk / app-x86_64-release.apk
 ```
 
-需要：
+## 6. 需要时再加回自动构建
 
-- Apple 开发者账号、`ios/Runner.xcworkspace` 中的 Team 与 Bundle ID 改成你自己的；
-- `ExportOptions.plist` 里的 `method`（app-store / ad-hoc / development）与描述文件匹配；
-- 没有证书时可以 `flutter build ios --no-codesign` 产出未签名的 `.app`，但无法直接安装。
+本仓库**没有**挂自动构建工作流（公开快照必然构建失败，避免刷失败记录）。
+等缺失模块补齐、本地 `flutter build apk` 成功后，在
+`.github/workflows/android-build.yml` 放入下面内容，然后到
+Actions → Build Android APK → Run workflow 手动跑：
 
-## 6. GitHub Actions 自动构建
+```yaml
+name: Build Android APK
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '可选：填 tag 就创建 Release 并上传 APK'
+        required: false
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/wenku8-mod.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: wenku8-mod-apk, path: 'dist/*.apk' }
+      - if: inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: dist/*.apk
+```
 
-`.github/workflows/android-build.yml`：
+> 关键点：`on` 只保留 `workflow_dispatch`，不要加 `push`。
+> 否则每次推代码都会跑构建，失败记录会刷满 Actions。
 
-- **push 到 master / 手动触发** → 编译 release APK，作为 Artifacts 上传（保留 30 天）；
-- **推送 `v*` tag** → 编译并自动创建 GitHub Release，附上 APK。
+## 7. iOS
 
-手动触发：仓库 → Actions → Build Android APK → Run workflow。
+```bash
+flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+```
 
-## 7. 常见问题
+需要把 `ios/Runner.xcworkspace` 里的 Team、Bundle ID 换成自己的，
+并准备匹配的描述文件；没有证书时 `flutter build ios --no-codesign` 只能产出未签名 `.app`。
+
+## 8. 常见问题
 
 | 现象 | 处理 |
 |------|------|
-| `Dart SDK version is ... but ... requires ^3.11.3` | 升级 Flutter：`flutter upgrade` |
-| `Execution failed for task ':app:...'` 且提示 SDK 版本 | 安装对应 Android SDK Platform / Build-Tools |
-| `Gradle task assembleRelease failed with exit code 1` | 看完整日志，多半是 JDK 版本或签名配置 |
-| `MissingPluginException` 运行时 | `flutter clean && flutter pub get` 后重装 |
-| 构建卡在 `Running Gradle task 'assembleRelease'` | 首次构建要下载 Gradle 与依赖，耐心等待或配置国内镜像 |
+| `Dart SDK version ... requires ^3.11.3` | `flutter upgrade` |
+| `Gradle version ... lower than ... 9.3.1` | 按 3.1 改 wrapper |
+| `Target of URI doesn't exist: 'xxx.dart'` | 缺模块，见 MODIFICATIONS.md 第二节 |
+| `MissingPluginException` 运行时 | `flutter clean && flutter pub get` 重装 |
+| 卡在 `Running Gradle task` | 首次要下 Gradle 与依赖，耐心等或配镜像 |
 
-## 8. 版本号
+## 9. 版本号
 
-三处保持一致，改版本时一起改：
+三处一起改：
 
-- `pubspec.yaml` 的 `version: 0.6.0+3000`
-- `lib/updates/app_updates.dart` 的 `currentAppVersion` / `currentAppBuild`
-- `lib/mod_edition.dart` 的 `modEditionVersion` / `modEditionBuild`（仅用于展示）
+- `pubspec.yaml`：`version: 0.6.0+3000`
+- `lib/updates/app_updates.dart`：`currentAppVersion` / `currentAppBuild`
+- `lib/mod_edition.dart`：`modEditionVersion` / `modEditionBuild`（仅展示）

@@ -17,5 +17,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate the exact public source commit
+
+      # 上游脚本会校验「公开源码清单」的精确指纹（tools/public-source-files.txt）。
+      # 本仓库是改版，新增了文件（mod_edition.dart、cache_center_page.dart、docs 等），
+      # 自然无法与上游清单逐字节一致，因此这里只作为参考信息，不阻断 CI。
+      - name: Validate the exact public source commit (informational)
+        continue-on-error: true
         run: python3 tools/check_public_source.py --revision "$(git rev-parse HEAD)"
