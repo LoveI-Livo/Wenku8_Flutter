@@ -23,6 +23,24 @@ internal class BookMarkupImport(@Suppress("UNUSED_PARAMETER") root: File,
 internal class BookArchiveImport(private val root: File) {
     var documents: Any? = null
 
+    companion object {
+        const val MAX_ARCHIVE: Long = 512L * 1024L * 1024L
+        private val supportedExtensions = setOf(
+            "txt", "epub", "mobi", "azw", "azw3", "prc", "fb2", "pdf",
+            "doc", "docx", "rtf", "html", "htm", "xhtml", "md", "markdown", "zip",
+        )
+
+        fun supported(name: String): Boolean =
+            name.substringAfterLast('.', "").lowercase() in supportedExtensions
+
+        fun limit(name: String): Long = when (name.substringAfterLast('.', "").lowercase()) {
+            "epub", "pdf", "docx", "zip" -> 512L * 1024L * 1024L
+            "mobi", "azw", "azw3", "prc" -> 256L * 1024L * 1024L
+            "html", "htm", "xhtml", "md", "markdown" -> 32L * 1024L * 1024L
+            else -> 128L * 1024L * 1024L
+        }
+    }
+
     fun prepare(name: String, source: BookDocumentInput): List<Map<String, Any?>> =
         copy(name, source.file)
 
