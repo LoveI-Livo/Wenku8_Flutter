@@ -35,7 +35,7 @@ const modContactQq = '';
 const modContactTelegram = '';
 const modContactWeChat = '';
 const modContactSite = 'https://github.com/LoveI-Livo';
-const modRepository = 'https://github.com/LoveI-Livo/Wenku8_Flutter';
+const modRepository = 'https://github.com/LoveI-Livo/qingxiaoshuo-wenku';
 const modOriginalRepository = 'https://github.com/mikufoxxx/Wenku8_Flutter';
 const modEditionChanges = <ModChange>[ ... ];
 ```

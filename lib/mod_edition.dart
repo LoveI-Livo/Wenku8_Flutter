@@ -24,7 +24,7 @@ const modContactWeChat = '';
 const modContactSite = 'https://github.com/LoveI-Livo';
 
 /// 本改版仓库（你现在用的这个仓库）。
-const modRepository = 'https://github.com/LoveI-Livo/Wenku8_Flutter';
+const modRepository = 'https://github.com/LoveI-Livo/qingxiaoshuo-wenku';
 
 /// 原仓库：Flutter 移植版，本项目由它复制而来。
 const modOriginalRepository = 'https://github.com/mikufoxxx/Wenku8_Flutter';

@@ -26,7 +26,7 @@ Future<void> showBookCategories(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const ArchiveSection(title: '书籍分类', code: 'LIBRARY / CATEGORIES'),
+          const ArchiveSection(title: '书单与分类', code: 'LIBRARY / BOOKLISTS'),
           const SizedBox(height: 16),
           for (final entry in {
             LocalLibraryPreferences.all: '全部书籍',
@@ -49,14 +49,14 @@ Future<void> showBookCategories(
                     const SizedBox(width: 8),
                     GlassIconButton(
                       icon: CupertinoIcons.pencil,
-                      label: '重命名 ${entry.value}',
+                      label: '重命名书单 ${entry.value}',
                       onPressed: () =>
                           Navigator.pop(sheet, 'rename:${entry.key}'),
                     ),
                     const SizedBox(width: 8),
                     GlassIconButton(
                       icon: CupertinoIcons.trash,
-                      label: '删除分类 ${entry.value}',
+                      label: '删除书单 ${entry.value}',
                       onPressed: () =>
                           Navigator.pop(sheet, 'delete:${entry.key}'),
                     ),
@@ -73,7 +73,7 @@ Future<void> showBookCategories(
           const SizedBox(height: 12),
           GlassPillButton(
             icon: CupertinoIcons.plus,
-            label: '新建分类',
+            label: '新建书单',
             onPressed: () => Navigator.pop(sheet, '_new'),
           ),
         ],
@@ -190,7 +190,7 @@ Future<String?> chooseBookCategory(
         const SizedBox(height: 12),
         GlassPillButton(
           icon: CupertinoIcons.plus,
-          label: '新建分类',
+          label: '新建书单',
           onPressed: () => Navigator.pop(sheet, '_new'),
         ),
       ],

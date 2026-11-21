@@ -25,7 +25,7 @@ internal class BookArchiveImport(private val root: File) {
 
     companion object {
         const val MAX_ARCHIVE: Long = 512L * 1024L * 1024L
-        private val supportedExtensions = setOf(
+        val supportedExtensions = setOf(
             "txt", "epub", "mobi", "azw", "azw3", "prc", "fb2", "pdf",
             "doc", "docx", "rtf", "html", "htm", "xhtml", "md", "markdown", "zip",
         )

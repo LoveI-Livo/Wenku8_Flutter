@@ -13,6 +13,7 @@ part 'cloud_s3.dart';
 enum CloudSourceKind {
   webdav('OpenList / WebDAV'),
   quark('夸克网盘'),
+  direct('蓝奏云 / 迅雷直链'),
   s3('S3 / 兼容对象存储');
 
   const CloudSourceKind(this.label);
@@ -49,6 +50,17 @@ class CloudSourceConfig {
   }
 
   void validate() {
+    if (kind == CloudSourceKind.direct) {
+      final uri = Uri.tryParse(address.trim());
+      if (uri == null ||
+          uri.host.isEmpty ||
+          uri.userInfo.isNotEmpty ||
+          (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp)) ||
+          address.length > 4096) {
+        throw const CloudSourceFailure('请填写蓝奏云或迅雷的 HTTPS 直链地址');
+      }
+      return;
+    }
     if (kind == CloudSourceKind.webdav || kind == CloudSourceKind.s3) {
       final uri = Uri.tryParse(address.trim());
       if (uri == null ||
@@ -308,6 +320,7 @@ abstract class CloudBookClient {
   }) => switch (config.kind) {
     CloudSourceKind.webdav => WebDavBookClient(config),
     CloudSourceKind.quark => QuarkBookClient(config, settings: settings),
+    CloudSourceKind.direct => DirectLinkBookClient(config),
     CloudSourceKind.s3 => S3BookClient(config),
   };
   String get root;
@@ -797,4 +810,65 @@ class QuarkBookClient implements CloudBookClient {
   void cancel() => http.close();
   @override
   void close() => http.close();
+}
+
+
+/// 蓝奏云 / 迅雷等网盘的直链客户端。
+///
+/// 用户从网盘网页复制文件的下载直链（带 sign 的临时地址）粘贴进来，
+/// 客户端只做一次 GET，跟随跳转后流式读取，不保留账号 Cookie，
+/// 也不会把文件长期写入应用目录。适合蓝奏云、迅雷以及任意 HTTPS 直链。
+class DirectLinkBookClient implements CloudBookClient {
+  DirectLinkBookClient(this.config) : _http = CloudHttp();
+
+  final CloudSourceConfig config;
+  final CloudHttp _http;
+
+  @override
+  String get root => config.address.trim();
+
+  Uri get _uri {
+    final uri = Uri.tryParse(root);
+    if (uri == null) throw const CloudSourceFailure('直链地址无效');
+    CloudHttp.validateUrl(uri, allowHttp: config.allowHttp);
+    return uri;
+  }
+
+  String get _name {
+    final segments = _uri.pathSegments.where((e) => e.isNotEmpty).toList();
+    final segment = segments.isEmpty ? null : segments.last;
+    final decoded = segment == null ? '' : Uri.decodeComponent(segment);
+    return supportsBookImport(decoded) ? decoded : '云端书籍.epub';
+  }
+
+  @override
+  Future<CloudBookListing> list(String folder, {int page = 1}) async {
+    if (page > 1) return const CloudBookListing([]);
+    return CloudBookListing([
+      CloudBookEntry(id: root, name: _name, folder: '', size: 0),
+    ]);
+  }
+
+  @override
+  Future<void> download(
+    CloudBookEntry entry,
+    File target, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    final res = await _http.request(
+      'GET',
+      Uri.parse(entry.id),
+      headers: (_) => const {'Accept': '*/*'},
+      redirects: true,
+      allowHttp: config.allowHttp,
+      redirectMessage: '直链发生跳转，请重新复制最新的下载地址',
+    );
+    await _http.save(res, target, bookName: entry.name, onProgress: onProgress);
+  }
+
+  @override
+  void cancel() => _http.close();
+
+  @override
+  void close() => _http.close();
 }

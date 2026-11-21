@@ -56,7 +56,8 @@ class CloudLibraryPage extends StatelessWidget {
           const ArchiveSection(title: '网盘来源', code: 'BOOKS / DOCUMENTS'),
           const SizedBox(height: 12),
           const AppText(
-            '浏览网盘，选择书籍后导入本机。导入完成即可离线阅读。',
+            '浏览网盘或直链，选择书籍导入书架；导入过程只使用临时缓存，'
+            '完成后由书架保存，不会在下载目录留下副本。',
             style: TextStyle(fontSize: 13, height: 1.65),
           ),
           const SizedBox(height: 24),
@@ -99,13 +100,17 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.quark =>
                       '使用本人网页 Cookie 直连，无需另搭服务。接口变化或登录失效时需要重新配置。',
                     CloudSourceKind.s3 => '连接 Amazon S3 或 S3 兼容存储，按文件夹浏览并导入书籍。',
+                    CloudSourceKind.direct =>
+                      '粘贴蓝奏云或迅雷的文件下载直链，直接流式读取，不保存账号 Cookie。',
                   }, style: const TextStyle(fontSize: 13, height: 1.65)),
                   const SizedBox(height: 12),
                   if (settings[kind] case final config?) ...[
                     AppText(
-                      kind != CloudSourceKind.quark
-                          ? config.endpoint.host
-                          : '已保存本机连接',
+                      switch (kind) {
+                        CloudSourceKind.quark => '已保存本机连接',
+                        CloudSourceKind.direct => '已保存直链',
+                        _ => config.endpoint.host,
+                      },
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
@@ -148,6 +153,7 @@ class CloudLibraryPage extends StatelessWidget {
                       label: switch (kind) {
                         CloudSourceKind.webdav => '添加 WebDAV 连接',
                         CloudSourceKind.quark => '配置夸克 Cookie',
+                        CloudSourceKind.direct => '添加蓝奏云 / 迅雷直链',
                         CloudSourceKind.s3 => '添加 S3 连接',
                       },
                       onPressed: () => _edit(context, kind),
@@ -330,11 +336,12 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
   Widget build(BuildContext context) => _CloudScaffold(
     title: widget.syncConnection
         ? 'S3 云端同步'
-        : '连接 ${widget.kind == CloudSourceKind.webdav
-              ? 'WebDAV'
-              : widget.kind == CloudSourceKind.s3
-              ? 'S3'
-              : '夸克网盘'}',
+        : '连接 ${switch (widget.kind) {
+              CloudSourceKind.webdav => 'WebDAV',
+              CloudSourceKind.s3 => 'S3',
+              CloudSourceKind.direct => '蓝奏云 / 迅雷',
+              CloudSourceKind.quark => '夸克网盘',
+            }}',
     code: widget.syncConnection ? 'LIBRARY / S3 SYNC' : 'LOCAL / CONNECTION',
     child: Align(
       alignment: Alignment.topCenter,
@@ -343,7 +350,30 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.kind == CloudSourceKind.webdav) ...[
+            if (widget.kind == CloudSourceKind.direct) ...[
+              const AppText(
+                '在蓝奏云或迅雷网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
+                '应用会直接流式读取，不保存账号 Cookie，也不会把整本书长期留在本机。',
+                style: TextStyle(height: 1.7),
+              ),
+              const SizedBox(height: 24),
+              _field(
+                '文件直链',
+                _address,
+                hint: 'https://wwx.lanzoui.com/… 或迅雷直链',
+                helper: '分享页地址不是直链；请在下载按钮上右键或长按复制真实下载地址。',
+              ),
+              Row(
+                children: [
+                  const Expanded(child: AppText('允许 HTTP 直链')),
+                  AppControls.toggle(
+                    context,
+                    value: _http,
+                    onChanged: _busy ? null : (v) => setState(() => _http = v),
+                  ),
+                ],
+              ),
+            ] else if (widget.kind == CloudSourceKind.webdav) ...[
               const AppText(
                 'OpenList 地址一般以 /dav/ 结尾。账号需要 WebDAV 读取权限。',
                 style: TextStyle(height: 1.65),
