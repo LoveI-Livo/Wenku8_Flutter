@@ -47,6 +47,7 @@ class CloudCatalogSearch {
           results.add(CloudDocumentService.instance.metadata(
             entry.name,
             entry.id,
+            author: entry.author.isEmpty ? null : entry.author,
             cookie: config.cookie,
             authorization: config.username.trim().isEmpty
                 ? null

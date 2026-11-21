@@ -165,6 +165,9 @@ class Novel {
     lastUpdate: lastUpdate,
     chapterCount: chapterCount,
     navigation: navigation,
+    remoteUrl: remoteUrl,
+    remoteCookie: remoteCookie,
+    remoteAuthorization: remoteAuthorization,
   );
 
   Novel withChapters(List<NovelChapter> items) => Novel(
@@ -180,6 +183,9 @@ class Novel {
     lastUpdate: lastUpdate,
     chapterCount: items.length,
     navigation: navigation,
+    remoteUrl: remoteUrl,
+    remoteCookie: remoteCookie,
+    remoteAuthorization: remoteAuthorization,
   );
 
   Map<String, Object?> toSnapshot() => {

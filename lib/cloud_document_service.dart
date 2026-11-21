@@ -159,6 +159,9 @@ class CloudDocumentService {
 
   _CloudDocument _parseText(int id, String name, String url, Uint8List bytes) {
     var text = utf8.decode(bytes, allowMalformed: true);
+    String? author;
+    final authorMatch = RegExp(r'(?:作者|作\s*者|Author)\s*[:：]\s*([^\n\r]{1,40})', caseSensitive: false).firstMatch(text.substring(0, text.length.clamp(0, 4000)));
+    if (authorMatch != null) author = authorMatch.group(1)?.trim();
     if (text.contains('\uFFFD')) {
       try { text = latin1.decode(bytes); } catch (_) {}
     }
@@ -199,16 +202,21 @@ class CloudDocumentService {
       flush();
     }
     if (chapters.isEmpty) throw const FormatException('文件里没有可阅读的文字');
-    final novel = _novel(id, name, url, chapters);
+    final novel = _novel(id, name, url, chapters, author: author);
     return _CloudDocument(novel, bodies);
   }
 
   _CloudDocument _parseHtml(int id, String name, String url, Uint8List bytes) {
     final text = utf8.decode(bytes, allowMalformed: true);
     final document = html.parse(text);
-    final heading = (document.querySelector('h1')?.text ??
+    final heading = (document.querySelector('meta[property="og:title"]')?.attributes['content'] ??
+            document.querySelector('h1')?.text ??
             document.querySelector('title')?.text ??
             name)
+        .trim();
+    final author = (document.querySelector('meta[name="author"]')?.attributes['content'] ??
+            document.querySelector('meta[property="article:author"]')?.attributes['content'] ??
+            '')
         .trim();
     final paragraphs = document.querySelectorAll('p')
         .map((e) => e.text.trim())
@@ -219,7 +227,7 @@ class CloudDocumentService {
         : paragraphs.join('\n\n');
     if (body.isEmpty) throw const FormatException('网页里没有可阅读的正文');
     final chapters = [NovelChapter(_limit(heading, 80), '', id: 1)];
-    final novel = _novel(id, name, url, chapters);
+    final novel = _novel(id, name, url, chapters, author: author);
     return _CloudDocument(novel, {1: body});
   }
 
@@ -246,6 +254,12 @@ class CloudDocumentService {
     final opfFile = files[opfPath];
     if (opfFile == null) throw const FormatException('EPUB OPF 文件不存在');
     final opf = utf8.decode(opfFile.content as List<int>, allowMalformed: true);
+    String meta(String name) {
+      final match = RegExp('<dc:$name[^>]*>([^<]*)</dc:$name>', caseSensitive: false).firstMatch(opf);
+      return match?.group(1)?.trim() ?? '';
+    }
+    final epubTitle = meta('title');
+    final epubAuthor = meta('creator');
     final base = opfPath.contains('/')
         ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1)
         : '';
@@ -275,7 +289,7 @@ class CloudDocumentService {
       final markup = utf8.decode(file.content as List<int>, allowMalformed: true);
       final document = html.parse(markup);
       final heading = (document.querySelector('h1, h2, title')?.text ?? '').trim();
-      final blocks = document.querySelectorAll('p, div')
+      final blocks = document.querySelectorAll('p')
           .map((e) => e.text.trim())
           .where((t) => t.isNotEmpty)
           .toList();
@@ -289,7 +303,9 @@ class CloudDocumentService {
       bodies[cid] = body;
     }
     if (chapters.isEmpty) throw const FormatException('EPUB 没有可读章节');
-    final novel = _novel(id, name, url, chapters);
+    final novel = _novel(id, name, url, chapters,
+        title: epubTitle.isEmpty ? null : epubTitle,
+        author: epubAuthor.isEmpty ? null : epubAuthor);
     return _CloudDocument(novel, bodies);
   }
 
@@ -311,11 +327,12 @@ class CloudDocumentService {
     remoteAuthorization: source.remoteAuthorization,
   );
 
-  Novel _novel(int id, String name, String url, List<NovelChapter> chapters) =>
+  Novel _novel(int id, String name, String url, List<NovelChapter> chapters,
+          {String? title, String? author}) =>
       Novel(
         id: id,
-        title: _cleanName(name),
-        author: '网盘书源',
+        title: _cleanName(title?.trim().isNotEmpty == true ? title! : name),
+        author: author?.trim().isNotEmpty == true ? author! : '网盘书源',
         genre: '在线读取',
         summary: '来自网盘直链，在线阅读，不下载原文件。',
         colors: const [Color(0xFF225577), Color(0xFF44AACC)],

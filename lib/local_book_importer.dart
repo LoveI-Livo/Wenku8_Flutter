@@ -543,6 +543,7 @@ class LocalBookImporter extends ChangeNotifier {
               final novel = CloudDocumentService.instance.metadata(
                 entry.name,
                 entry.id,
+                author: entry.author.isEmpty ? null : entry.author,
                 cookie: config.cookie,
                 authorization: config.username.trim().isEmpty
                     ? null

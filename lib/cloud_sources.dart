@@ -315,10 +315,12 @@ class CloudBookEntry {
     required this.name,
     required this.folder,
     this.size = 0,
+    this.author = '',
   });
   final String id, name;
   final bool folder;
   final int size;
+  final String author;
   bool get isBook => !folder && supportsBookImport(name);
 }
 
@@ -935,7 +937,7 @@ class RssBookClient extends DirectLinkBookClient {
     final items = document.findAllElements('item');
     final entries = document.findAllElements('entry');
     final result = <CloudBookEntry>[];
-    void add(String title, String? link, String summary) {
+    void add(String title, String? link, String summary, [String author = '']) {
       if (title.trim().isEmpty || link == null || link.trim().isEmpty) return;
       final resolved = Uri.parse(root).resolve(link.trim()).toString();
       result.add(CloudBookEntry(
@@ -943,13 +945,17 @@ class RssBookClient extends DirectLinkBookClient {
         name: title.trim(),
         folder: false,
         size: 0,
+        author: author.trim(),
       ));
     }
     for (final item in items) {
       final title = _child(item, 'title');
       var link = _child(item, 'link');
       if (link.isEmpty) link = _child(item, 'guid');
-      add(title, link, _child(item, 'description'));
+      final author = _child(item, 'author').isNotEmpty
+          ? _child(item, 'author')
+          : _child(item, 'dc:creator');
+      add(title, link, _child(item, 'description'), author);
     }
     for (final item in entries) {
       final title = _child(item, 'title');
@@ -958,7 +964,10 @@ class RssBookClient extends DirectLinkBookClient {
         final href = node.getAttribute('href');
         if (href != null) { link = href; break; }
       }
-      add(title, link, _child(item, 'summary'));
+      final author = _child(item, 'author').isNotEmpty
+          ? _child(item, 'author')
+          : _child(item, 'dc:creator');
+      add(title, link, _child(item, 'summary'), author);
     }
     if (result.isEmpty) throw const CloudSourceFailure('这个订阅里没有可阅读的条目');
     return CloudBookListing(result);
