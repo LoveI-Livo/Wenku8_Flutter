@@ -7,12 +7,14 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app_interactions.dart';
 import 'app_ui.dart';
+import 'cloud_book_media.dart';
 import 'feature_pages.dart';
 import 'legacy_cover.dart';
 import 'library_state.dart';
 import 'mod_edition.dart';
 import 'offline_cache.dart';
 import 'offline_repository.dart';
+import 'reader_illustrations.dart';
 import 'widget_cache_bridge.dart';
 
 /// 「缓存与存储」中心：查看占用、按类别清理。
@@ -45,6 +47,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
   int _tempBytes = 0;
   int _cacheBytes = 0;
   int _widgetBytes = 0;
+  int _cloudMediaBytes = 0;
   int _imageBytes = 0;
 
   @override
@@ -77,17 +80,26 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
     }
     var tempBytes = 0;
     var cacheBytes = 0;
+    var cloudMediaBytes = 0;
+    try {
+      cloudMediaBytes = await CloudBookMedia.diskBytes();
+    } catch (_) {
+      cloudMediaBytes = 0;
+    }
     try {
       tempBytes = await _folderBytes(await getTemporaryDirectory());
     } catch (_) {
       tempBytes = 0;
     }
     try {
-      cacheBytes = await _folderBytes(await getApplicationCacheDirectory());
+      final appCache = await _folderBytes(await getApplicationCacheDirectory());
+      // 网盘封面/插图会单独列出，避免在“网页与应用缓存”里重复计算。
+      cacheBytes = appCache > cloudMediaBytes ? appCache - cloudMediaBytes : 0;
     } catch (_) {
       cacheBytes = 0;
     }
-    final widgetBytes = await WidgetCacheBridge.nativeBytes() +
+    final widgetBytes =
+        await WidgetCacheBridge.nativeBytes() +
         await WidgetCacheBridge.flutterBytes() +
         await _widgetCoverBytes();
     if (!mounted) return;
@@ -97,7 +109,12 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
       _tempBytes = tempBytes;
       _cacheBytes = cacheBytes;
       _widgetBytes = widgetBytes;
-      _imageBytes = PaintingBinding.instance.imageCache.currentSizeBytes + LegacyCover.encodedBytes;
+      _cloudMediaBytes = cloudMediaBytes;
+      _imageBytes =
+          PaintingBinding.instance.imageCache.currentSizeBytes +
+          LegacyCover.encodedBytes +
+          ReaderIllustrationCache.shared.encodedBytes +
+          CloudBookMedia.memoryBytes;
       _measuring = false;
     });
   }
@@ -134,7 +151,11 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
       ..clear()
       ..clearLiveImages();
     LegacyCover.clear();
+    ReaderIllustrationCache.shared.clearMemory();
+    CloudBookMedia.clearMemory();
   }
+
+  Future<void> _clearCloudMedia() => CloudBookMedia.clear();
 
   Future<void> _clearAppCache() async {
     try {
@@ -221,11 +242,13 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
 
   Future<void> _clearAll() => _run(
     title: '清理全部缓存？',
-    message: '包括正文与插图、网页与应用缓存、临时文件、桌面小组件图片和图片内存缓存。'
+    message:
+        '包括正文与插图、网盘封面与插图、网页与应用缓存、临时文件、桌面小组件图片和图片内存缓存。'
         '书架、阅读进度、书签、登录状态与本地导入的原书都会保留，缓存内容在需要时重新生成。',
     confirmLabel: '全部清理',
     action: () async {
       await _clearChapters();
+      await _clearCloudMedia();
       await _clearAppCache();
       await _clearTemp();
       await _clearWidgets();
@@ -248,7 +271,10 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppText(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+              AppText(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 4),
               AppText(
                 subtitle,
@@ -278,7 +304,12 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     // 图片缓存是运行期内存，不占安装存储；不计入“已占用”，避免空书架也显示二十多 MB。
-    final total = _chapterBytes + _tempBytes + _cacheBytes + _widgetBytes;
+    final total =
+        _chapterBytes +
+        _tempBytes +
+        _cacheBytes +
+        _widgetBytes +
+        _cloudMediaBytes;
     return ArchiveFeaturePage(
       title: '缓存与存储',
       code: 'SYSTEM / CACHE',
@@ -305,7 +336,8 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
                 AppText(
                   '正文 ${formatCacheBytes(_chapterBytes)}（$_chapterBooks 本） · '
                   '网页 ${formatCacheBytes(_cacheBytes)} · 临时 ${formatCacheBytes(_tempBytes)}\n'
-                  '小组件图片 ${formatCacheBytes(_widgetBytes)} · '
+                  '网盘书图片 ${formatCacheBytes(_cloudMediaBytes)} · '
+                  '小组件图片 ${formatCacheBytes(_widgetBytes)}\n'
                   '图片内存 ${formatCacheBytes(_imageBytes)}（运行期，不占存储）',
                   style: TextStyle(fontSize: 12, height: 1.6, color: muted),
                 ),
@@ -352,9 +384,24 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
           ),
           const SizedBox(height: 14),
           _row(
+            icon: CupertinoIcons.photo_on_rectangle,
+            title: '网盘书封面与插图',
+            subtitle: '阅读网盘书时产生的封面缩略图和正文插图；原书始终留在网盘，清理后下次打开重新识别',
+            trailing: formatCacheBytes(_cloudMediaBytes),
+            onTap: _busy
+                ? null
+                : () => _run(
+                    title: '清理网盘书图片缓存？',
+                    message: '只删除封面缩略图和正文插图缓存，网盘原书、书架和阅读进度都不会受影响。',
+                    confirmLabel: '清理',
+                    action: _clearCloudMedia,
+                  ),
+          ),
+          const SizedBox(height: 14),
+          _row(
             icon: CupertinoIcons.photo,
             title: '图片内存缓存',
-            subtitle: '运行期内存，不占安装存储；清理后重新加载封面与插图',
+            subtitle: '运行期内存，不占安装存储；清理封面、插图和网盘图片的即时解码缓存',
             trailing: formatCacheBytes(_imageBytes),
             onTap: _busy
                 ? null

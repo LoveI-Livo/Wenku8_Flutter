@@ -11,8 +11,66 @@ abstract final class CloudBookMedia {
   static const scheme = 'wenku-cloud-cover:';
   static const mediaScheme = 'wenku-cloud-media:';
   static const _maxBytes = 4 * 1024 * 1024;
+  static const _coverDirectoryName = 'cloud-book-covers-v1';
+  static const _mediaDirectoryName = 'cloud-book-media-v1';
   static final _memory = <int, Uint8List>{};
   static final _mediaMemory = <String, Uint8List>{};
+
+  static int get memoryBytes {
+    var total = 0;
+    for (final bytes in _memory.values) {
+      total += bytes.length;
+    }
+    for (final bytes in _mediaMemory.values) {
+      total += bytes.length;
+    }
+    return total;
+  }
+
+  /// 网盘书产生的封面与正文插图缓存。原书文件不会写入这里。
+  static Future<Directory> cacheDirectory() async => Directory(
+    '${(await getApplicationCacheDirectory()).path}/$_coverDirectoryName',
+  );
+
+  static Future<Directory> mediaDirectory() async => Directory(
+    '${(await getApplicationCacheDirectory()).path}/$_mediaDirectoryName',
+  );
+
+  static Future<int> diskBytes() async {
+    var total = 0;
+    for (final directory in [await cacheDirectory(), await mediaDirectory()]) {
+      try {
+        if (!await directory.exists()) continue;
+        await for (final entity in directory.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (entity is File) total += await entity.length();
+        }
+      } catch (_) {
+        // 单个缓存目录不可读时跳过。
+      }
+    }
+    return total;
+  }
+
+  /// 只释放运行期图片内存，保留磁盘缓存。
+  static void clearMemory() {
+    _memory.clear();
+    _mediaMemory.clear();
+  }
+
+  /// 释放内存并删除全部网盘封面/插图缓存，不涉及网盘原书。
+  static Future<void> clear() async {
+    clearMemory();
+    for (final directory in [await cacheDirectory(), await mediaDirectory()]) {
+      try {
+        if (await directory.exists()) await directory.delete(recursive: true);
+      } catch (_) {
+        // 被占用的缓存保留，下次清理再尝试。
+      }
+    }
+  }
 
   static bool handles(String? url) => url?.startsWith(scheme) == true;
 
@@ -75,7 +133,7 @@ abstract final class CloudBookMedia {
     if (!handlesMedia(url)) throw const FormatException('网盘图片地址无效');
     final memory = _mediaMemory[url];
     if (memory != null && memory.isNotEmpty) return memory;
-    final file = await _mediaFile(url!);
+    final file = await _mediaFile(url);
     if (!await file.exists()) throw const FormatException('网盘图片缓存不存在');
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty || bytes.length > _maxBytes) {
@@ -118,14 +176,14 @@ abstract final class CloudBookMedia {
     final key = raw.substring(slash + 1);
     if (book == null || book <= 0) throw const FormatException('网盘图片地址无效');
     final directory = Directory(
-      '${(await getApplicationCacheDirectory()).path}/cloud-book-media-v1/$book',
+      '${(await getApplicationCacheDirectory()).path}/$_mediaDirectoryName/$book',
     );
     return File('${directory.path}/$key.img');
   }
 
   static Future<File> _file(int id) async {
     final directory = Directory(
-      '${(await getApplicationCacheDirectory()).path}/cloud-book-covers-v1',
+      '${(await getApplicationCacheDirectory()).path}/$_coverDirectoryName',
     );
     return File('${directory.path}/$id.img');
   }
