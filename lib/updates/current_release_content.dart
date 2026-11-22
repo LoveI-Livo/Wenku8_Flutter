@@ -13,6 +13,9 @@ const releaseRightsNotice =
     '小说、封面和插图归各自权利人所有。请仅使用有权访问的内容，遵守来源网站规则，不得绕过访问限制、破解 DRM，或未经许可传播、出售内容。';
 const releaseReadingNotice = '**在线内容以轻小说文库开放状态为准，不提供因版权限制而停止开放的在线书籍阅读。**';
 const releaseMaintenanceNotice = '项目继续以稳定维护为主；账号、登录与阅读链路的明确问题仍会修复。';
+const _cloudParse =
+    '新增云端主机解析：在「网盘在线阅读 → 云端主机解析」填写自己的 PHP 接口地址和密钥，网盘直链交给主机拉取、解析并返回书名、作者、简介、封面、章节与插图；主机未配置、失败或格式不支持时自动回退本机解析。';
+const _cloudAuto = '网盘搜索改为每次实时读取当前全部已连接来源：新连接一个网盘后无需重启，自动进入“网盘搜索”，不再依赖固定来源列表。';
 const _cloudShelf =
     '网盘书新增独立的“加入书架（不下载）”：勾选后直接写入书架，不复制文件；加入后与普通在线书一致，详情页齿轮和书架菜单都能进入“书籍设置”，编辑书名、作者、标签、简介和分类，也可移出书架并保留阅读进度。';
 const _cloudMetadata =
@@ -30,6 +33,8 @@ const _api =
     '保留登录接口修复：POST 带 Content-Length、接口版本 1.30/1.13 回退、长密码与登录前测试连接/保持登录/云书架入口。';
 const _links = '保留关联导入修复：iOS 符号链接与授权失效回退副本，Android 关联文件转工作副本。';
 const _changes = [
+  _cloudParse,
+  _cloudAuto,
   _cloudShelf,
   _cloudMetadata,
   _cloudCache,
@@ -62,6 +67,8 @@ $releaseReadingNotice
 
 ### 本次更新
 
+- $_cloudParse
+- $_cloudAuto
 - $_cloudShelf
 - $_cloudMetadata
 - $_cloudCache

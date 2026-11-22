@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库 · 改版版';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.7.3';
-const modEditionBuild = 3014;
+const modEditionVersion = '0.7.4';
+const modEditionBuild = 3015;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -57,6 +57,16 @@ class ModChange {
 
 /// 改动清单，显示在「关于 → 改版说明」。
 const modEditionChanges = <ModChange>[
+  ModChange(
+    '云端主机解析',
+    '可把自己的 PHP 虚拟主机设为解析服务：网盘直链交给主机拉取和解析，'
+        '返回书名、作者、简介、封面、章节与插图；主机失败时自动回退本机解析。',
+  ),
+  ModChange(
+    '新增网盘自动纳入搜索',
+    '每次网盘搜索都实时读取当前全部已连接来源；新连接一个网盘后无需重启，'
+        '自动进入“网盘搜索”，不再依赖固定来源列表。',
+  ),
   ModChange(
     '网盘书加入书架',
     '网盘书可独立“加入书架”，不下载原文件；加入后与普通在线书一致，'

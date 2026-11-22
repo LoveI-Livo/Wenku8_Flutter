@@ -11,6 +11,7 @@ import 'package:xml/xml.dart' as xml;
 import 'book_documents.dart';
 import 'catalog.dart';
 import 'cloud_book_media.dart';
+import 'cloud_parse_service.dart';
 import 'cloud_sources.dart';
 import 'portable_book_text.dart';
 
@@ -95,6 +96,32 @@ class CloudDocumentService {
     if (url == null || !handles(novel.id)) return novel;
     try {
       final resolved = await _resolveCloudUrl(url, novel);
+      final remote = await CloudParseService.instance.parse(
+        novel,
+        resolvedUrl: resolved,
+        metaOnly: true,
+      );
+      if (remote != null) {
+        final coverBytes = remote.coverBytes;
+        if (coverBytes != null && coverBytes.isNotEmpty) {
+          try {
+            await CloudBookMedia.saveCover(novel.id, coverBytes);
+          } catch (_) {
+            // Metadata remains usable even when cover caching is unavailable.
+          }
+        }
+        final enriched = novel.withMetadata(
+          title: remote.title,
+          author: remote.author,
+          summary: remote.summary,
+          coverUrl: coverBytes == null || coverBytes.isEmpty
+              ? null
+              : CloudBookMedia.marker(novel.id),
+        );
+        _metadata[novel.id] = enriched;
+        _enriched.add(novel.id);
+        return enriched;
+      }
       final bytes = await _fetch(
         resolved,
         cookie: novel.remoteCookie,
@@ -186,6 +213,17 @@ class CloudDocumentService {
       return cached.novel;
     }
     final resolved = await _resolveCloudUrl(url, novel);
+    final remote = await CloudParseService.instance.parse(
+      novel,
+      resolvedUrl: resolved,
+    );
+    if (remote != null) {
+      final document = await _fromRemote(novel.id, novel, resolved, remote);
+      _documents[novel.id] = document;
+      _metadata[novel.id] = document.novel;
+      _enriched.add(novel.id);
+      return document.novel;
+    }
     final bytes = await _fetch(
       resolved,
       cookie: novel.remoteCookie,
@@ -304,6 +342,67 @@ class CloudDocumentService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<_CloudDocument> _fromRemote(
+    int id,
+    Novel source,
+    String url,
+    CloudRemoteDocument remote,
+  ) async {
+    final coverBytes = remote.coverBytes;
+    if (coverBytes != null && coverBytes.isNotEmpty) {
+      try {
+        await CloudBookMedia.saveCover(id, coverBytes);
+      } catch (_) {
+        // The remote chapters remain readable without a cached cover.
+      }
+    }
+    final media = <String, Uint8List>{};
+    for (final entry in remote.media.entries) {
+      try {
+        await CloudBookMedia.saveMedia(id, entry.key, entry.value);
+        media[entry.key] = entry.value;
+      } catch (_) {
+        // One broken illustration must not discard the chapter text.
+      }
+    }
+    final mediaMarkers = media.map(
+      (key, _) => MapEntry(
+        '[[CLOUD_MEDIA:$key]]',
+        '<!--image-->${CloudBookMedia.mediaMarker(id, key)}<!--image-->',
+      ),
+    );
+    String body(String value) {
+      var text = value;
+      for (final entry in mediaMarkers.entries) {
+        text = text.replaceAll(entry.key, entry.value);
+      }
+      return text.trim();
+    }
+
+    final chapters = <NovelChapter>[];
+    final bodies = <int, String>{};
+    for (final item in remote.chapters) {
+      final content = body(item.content);
+      if (content.isEmpty) continue;
+      final cid = chapters.length + 1;
+      chapters.add(NovelChapter(_limit(item.title, 80), '', id: cid));
+      bodies[cid] = content;
+    }
+    if (chapters.isEmpty) throw const FormatException('云端解析没有返回可读章节');
+    final parsed = _novel(
+      id,
+      source.title,
+      url,
+      chapters,
+      title: remote.title,
+      author: remote.author,
+      summary: remote.summary,
+      coverBytes: coverBytes,
+    );
+    final full = _withSource(parsed, source);
+    return _CloudDocument(full, bodies, coverBytes: coverBytes, media: media);
   }
 
   Future<_CloudDocument> _parseAsync(

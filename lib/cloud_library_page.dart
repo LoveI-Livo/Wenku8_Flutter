@@ -7,6 +7,7 @@ import 'app_interactions.dart';
 import 'catalog.dart';
 import 'cloud_sources.dart';
 import 'cloud_catalog_search.dart';
+import 'cloud_parse_page.dart';
 import 'offline_cache.dart' show formatCacheBytes;
 import 'source_login_page.dart';
 
@@ -119,6 +120,8 @@ class CloudLibraryPage extends StatelessWidget {
             '不下载到本机。主搜索框切到“网盘搜索”可检索全部已连接网盘。',
             style: TextStyle(fontSize: 13, height: 1.65),
           ),
+          const SizedBox(height: 18),
+          CloudParseCard(reduceMotion: reduceMotion),
           const SizedBox(height: 24),
           if (settings.error != null)
             AppText(

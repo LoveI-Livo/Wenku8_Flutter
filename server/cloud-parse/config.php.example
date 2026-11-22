@@ -1,0 +1,8 @@
+<?php
+// 复制为 config.php，改成自己的长随机密钥；App 里填写同一个密钥。
+return [
+    'token' => 'CHANGE-ME-TO-A-LONG-RANDOM-TOKEN',
+    'max_bytes' => 64 * 1024 * 1024,
+    // 仅本地联调时可设为 true；线上保持 false，避免被用来访问内网。
+    'allow_private' => false,
+];
