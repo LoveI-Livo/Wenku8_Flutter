@@ -69,6 +69,7 @@ import 'local_library_page.dart';
 import 'local_series_actions.dart';
 import 'local_library_preferences.dart';
 import 'local_book_editor.dart';
+import 'online_book_editor.dart';
 import 'local_book_importer.dart';
 import 'local_text_reference.dart';
 import 'local_text_recovery.dart';
@@ -123,6 +124,7 @@ import 'reader_preferences.dart';
 import 'reader_text.dart';
 import 'reading_history.dart';
 import 'recent_searches.dart';
+import 'search_scopes.dart';
 import 'ui_notifiers.dart';
 import 'route_identity.dart';
 import 'feature_pages.dart';
@@ -174,16 +176,16 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     widget.repository,
     initialItems: 60,
   );
-  late final _searchFeed = NovelFeedController(widget.repository, search: true)
-    ..searchField = BookSearchField.title;
-  LocalBookStore? get _localBooks => widget.repository is OfflineNovelRepository
-      ? (widget.repository as OfflineNovelRepository).local
-      : null;
+  late final _searchFeeds = {
+    for (final scope in SearchSource.values)
+      scope: (NovelFeedController(
+        ScopedSearchRepository(source: widget.repository, scope: scope),
+        search: true,
+      )..searchField = BookSearchField.title),
+  };
+  SearchSource _searchSource = SearchSource.library;
+  NovelFeedController get _activeSearch => _searchFeeds[_searchSource]!;
   int _searchScope = 0;
-
-  /// One search box for the whole app: Wenku8 + local library + configured
-  /// cloud sources. The active tab only changes presentation, not coverage.
-  NovelFeedController get _activeSearch => _searchFeed;
   final _localLibrary = LocalLibraryController();
   List<Widget> _pageWidgets = const [];
   List<WidgetBuilder> _headers = const [];
@@ -232,7 +234,9 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _visitedTabs.add(_tab);
     _navigation.addListener(_navigationChanged);
     _searchText.addListener(_searchEdited);
-    _searchFeed.addListener(_searchSucceeded);
+    for (final feed in _searchFeeds.values) {
+      feed.addListener(_searchSucceeded);
+    }
     widget.state.blockedTagsChanges.addListener(_blockedTagsChanged);
     _blockedTagsChanged();
     if (widget.repository case final OfflineNovelRepository offline) {
@@ -336,7 +340,9 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
 
   void _blockedTagsChanged() {
     _catalog.setBlockedTags(widget.state.blockedTags);
-    _searchFeed.setBlockedTags(widget.state.blockedTags);
+    for (final feed in _searchFeeds.values) {
+      feed.setBlockedTags(widget.state.blockedTags);
+    }
   }
 
   void _navigationChanged() {
@@ -348,7 +354,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       _visibleTabs = tabs;
     });
     if (next != _tab) _selectTab(next);
-    if (_searchOpen) _searchFeed.refresh();
+    if (_searchOpen) _activeSearch.refresh();
     _ensureCatalog();
   }
 
@@ -384,7 +390,9 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _searchText.dispose();
     _searchFocus.dispose();
     _catalog.dispose();
-    _searchFeed.dispose();
+    for (final feed in _searchFeeds.values) {
+      feed.dispose();
+    }
     _localLibrary.dispose();
     for (final scroll in _tabScrolls) {
       scroll.dispose();
@@ -407,10 +415,11 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _searchFocusPending = true;
     if (_searchScope != 0) {
       feed.refresh();
-    } else if (!_searchStarted ||
-        (_searchFeed.page == 0 && !_searchFeed.loading)) {
+    } else if (_searchSource == SearchSource.library &&
+        (!_searchStarted ||
+            (_activeSearch.page == 0 && !_activeSearch.loading))) {
       _searchStarted = true;
-      _searchFeed.loadInitial();
+      _activeSearch.loadInitial();
     }
     setState(() {
       _searchOpen = true;
@@ -467,13 +476,11 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   void _searchSucceeded() {
-    if (_searchScope != 0 ||
-        _searchFeed.loading ||
-        _searchFeed.error != null ||
-        _searchFeed.page < 1) {
+    final feed = _activeSearch;
+    if (feed.loading || feed.error != null || feed.page < 1) {
       return;
     }
-    final query = _searchFeed.query.trim();
+    final query = feed.query.trim();
     if (query == _lastRecordedSearch) return;
     _lastRecordedSearch = query;
     unawaited(
@@ -489,7 +496,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       text: query,
       selection: TextSelection.collapsed(offset: query.length),
     );
-    _searchFeed.searchFor(query);
+    _activeSearch.searchFor(query);
     _dismissSearchKeyboard();
   }
 
@@ -921,26 +928,63 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     ],
   );
 
-  double _searchTabsHeight(BuildContext context) =>
-      math.max(48, MediaQuery.textScalerOf(context).scale(14) * 1.4 + 12) + 16;
+  double _searchTabsHeight(BuildContext context) {
+    final row = math.max(
+      44,
+      MediaQuery.textScalerOf(context).scale(13) * 1.4 + 10,
+    );
+    return row * 2 + 22;
+  }
 
   Widget _searchTabs(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 4, bottom: 4),
-    child: AppControls.segments<BookSearchField>(
-      context,
-      key: const ValueKey('home-search-tabs'),
-      groupValue: _activeSearch.searchField,
-      children: {
-        BookSearchField.title: Text(appText(context, '书名')),
-        BookSearchField.author: Text(appText(context, '作者')),
-        BookSearchField.tags: Text(appText(context, '标签')),
-        BookSearchField.id: Text(appText(context, 'ID')),
-      },
-      onValueChanged: (field) {
-        if (field != null) _selectSearchField(field);
-      },
+    padding: const EdgeInsets.only(top: 2, bottom: 2),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppControls.segments<SearchSource>(
+          context,
+          key: const ValueKey('home-search-source-tabs'),
+          groupValue: _searchSource,
+          children: {
+            for (final source in SearchSource.values)
+              source: Text(appText(context, source.label)),
+          },
+          onValueChanged: (source) {
+            if (source != null) _selectSearchSource(source);
+          },
+        ),
+        const SizedBox(height: 4),
+        AppControls.segments<BookSearchField>(
+          context,
+          key: const ValueKey('home-search-tabs'),
+          groupValue: _activeSearch.searchField,
+          children: {
+            BookSearchField.title: Text(appText(context, '书名')),
+            BookSearchField.author: Text(appText(context, '作者')),
+            BookSearchField.tags: Text(appText(context, '标签')),
+            BookSearchField.id: Text(appText(context, 'ID')),
+          },
+          onValueChanged: (field) {
+            if (field != null) _selectSearchField(field);
+          },
+        ),
+      ],
     ),
   );
+
+  Future<void> _selectSearchSource(SearchSource source) async {
+    if (_searchSource == source) return;
+    _dismissSearchKeyboard();
+    final query = _searchText.text.trim();
+    setState(() => _searchSource = source);
+    final feed = _activeSearch;
+    feed.setBlockedTags(widget.state.blockedTags);
+    if (query.isNotEmpty) {
+      await feed.searchFor(query);
+    } else if (source == SearchSource.library && feed.page == 0) {
+      await feed.loadInitial();
+    }
+  }
 
   Future<void> _selectSearchField(BookSearchField field) async {
     if (_activeSearch.searchField == field) return;
@@ -2926,12 +2970,18 @@ class _ShelfPageState extends State<ShelfPage>
       builder: (menuContext) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (book?.remoteUrl != null)
+            GlassMenuItem(
+              label: '书籍设置',
+              onPressed: () => Navigator.pop(menuContext, 'edit'),
+            ),
           GlassMenuItem(
+            order: book?.remoteUrl != null ? 1 : 0,
             label: '移至分类',
             onPressed: () => Navigator.pop(menuContext, 'category'),
           ),
           GlassMenuItem(
-            order: 1,
+            order: book?.remoteUrl != null ? 2 : 1,
             label: !state.contains(id)
                 ? '加入收藏书架'
                 : book?.remoteUrl != null
@@ -2946,6 +2996,14 @@ class _ShelfPageState extends State<ShelfPage>
       ),
     );
     if (!mounted) return;
+    if (action == 'edit' && book != null) {
+      await pushNovelPage<Novel>(
+        context,
+        OnlineBookEditor(book: book, library: state),
+        reduceMotion: state.reduceMotion,
+      );
+      return;
+    }
     if (action == 'add') {
       try {
         await state.setShelfMembership(id, true, novel: book);
@@ -4454,6 +4512,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
   bool _shelfChanging = false;
   bool _cacheOpen = false;
   bool _catalogueOrderSaving = false;
+  Novel? _editedNovel;
   bool _summaryExpanded = false;
   late bool _catalogueReversed = state
       .readerPreferencesFor(novel.id)
@@ -4507,7 +4566,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
       isLocalBook(widget.novel.id) && repository is OfflineNovelRepository
       ? (repository as OfflineNovelRepository).local?.book(widget.novel.id) ??
             widget.novel
-      : widget.novel;
+      : _editedNovel ?? widget.novel;
   LibraryState get state => widget.state;
   NovelRepository get repository => widget.repository;
   Object? get coverHeroTag => widget.coverHeroTag;
@@ -5702,6 +5761,13 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
       style: TextStyle(fontSize: 18, height: 1.2, fontWeight: FontWeight.w700),
     ),
     actions: [
+      if (!isLocalBook(novel.id) && novel.remoteUrl != null)
+        GlassIconButton(
+          key: const ValueKey('detail-online-settings'),
+          icon: CupertinoIcons.gear_alt,
+          label: '书籍设置',
+          onPressed: _editOnlineBook,
+        ),
       if (!isLocalBook(novel.id))
         GlassIconButton(
           key: const ValueKey('detail-cache'),
@@ -5717,6 +5783,17 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
         ),
     ],
   );
+
+  Future<void> _editOnlineBook() async {
+    final updated = await pushNovelPage<Novel>(
+      context,
+      OnlineBookEditor(book: novel, library: state),
+      reduceMotion: _reduceMotion,
+    );
+    if (!mounted || updated == null) return;
+    setState(() => _editedNovel = updated);
+    showNovelFeedback(context, '书籍信息已保存');
+  }
 
   Future<void> _openCache() async {
     if (_cacheOpen || repository is! OfflineNovelRepository) return;

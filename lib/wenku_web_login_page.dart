@@ -18,7 +18,6 @@ class WenkuWebLoginPage extends StatefulWidget {
 class _WenkuWebLoginPageState extends State<WenkuWebLoginPage> {
   InAppWebViewController? _web;
   bool _capturing = false;
-  bool _autoTried = false;
   String? _error;
 
   bool _isLoginPage(Uri? uri) {
@@ -41,16 +40,22 @@ class _WenkuWebLoginPageState extends State<WenkuWebLoginPage> {
     try {
       final probe = current ?? WebUri(Wenku8Client.webLoginPageUrl);
       final cookies = await CookieManager.instance().getCookies(url: probe);
+      final loggedIn = cookies.any(
+        (cookie) =>
+            cookie.name.toLowerCase() == 'jieqiuserinfo' &&
+            cookie.value.trim().isNotEmpty,
+      );
+      if (!loggedIn) {
+        if (mounted && !automatic) {
+          setState(() => _error = '还没有检测到文库登录成功。请确认账号已登录并跳到文库页面，再点“完成”。');
+        }
+        return;
+      }
       final header = cookies
           .where((cookie) => cookie.value.isNotEmpty)
           .map((cookie) => '${cookie.name}=${cookie.value}')
           .join('; ');
-      if (header.isEmpty) {
-        if (mounted) {
-          setState(() => _error = '还没有读到登录 Cookie，请先在网页里完成登录再点“完成”');
-        }
-        return;
-      }
+      if (header.isEmpty) return;
       if (mounted) Navigator.pop(context, header);
     } catch (failure) {
       if (mounted) setState(() => _error = '读取登录 Cookie 失败：$failure');
@@ -59,16 +64,28 @@ class _WenkuWebLoginPageState extends State<WenkuWebLoginPage> {
     }
   }
 
-  void _considerAutoCapture(Uri? uri) {
-    if (_autoTried || _capturing || _isLoginPage(uri)) return;
-    _autoTried = true;
-    // 给站点一点时间把登录后的 Set-Cookie 写进 WebView。
-    unawaited(
-      Future<void>.delayed(
-        const Duration(milliseconds: 900),
-        () => _capture(automatic: true),
-      ),
-    );
+  Future<void> _considerAutoCapture(Uri? uri) async {
+    if (_capturing || _isLoginPage(uri)) return;
+    final web = _web;
+    if (web == null) return;
+    try {
+      final cookies = await CookieManager.instance().getCookies(
+        url: uri == null
+            ? WebUri(Wenku8Client.webLoginPageUrl)
+            : WebUri(uri.toString()),
+      );
+      final loggedIn = cookies.any(
+        (cookie) =>
+            cookie.name.toLowerCase() == 'jieqiuserinfo' &&
+            cookie.value.trim().isNotEmpty,
+      );
+      if (!loggedIn) return;
+      // 给站点一点时间把登录后的 Set-Cookie 写进 WebView。
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      await _capture(automatic: true);
+    } catch (_) {
+      /* 自动读取失败时不覆盖手动“完成”入口。 */
+    }
   }
 
   @override
@@ -115,8 +132,9 @@ class _WenkuWebLoginPageState extends State<WenkuWebLoginPage> {
                 thirdPartyCookiesEnabled: true,
                 mediaPlaybackRequiresUserGesture: false,
               ),
-              onLoadStop: (_, uri) => _considerAutoCapture(uri),
-              onUpdateVisitedHistory: (_, uri, _) => _considerAutoCapture(uri),
+              onLoadStop: (_, uri) => unawaited(_considerAutoCapture(uri)),
+              onUpdateVisitedHistory: (_, uri, _) =>
+                  unawaited(_considerAutoCapture(uri)),
             ),
           ),
         ],

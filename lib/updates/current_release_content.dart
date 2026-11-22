@@ -13,37 +13,24 @@ const releaseRightsNotice =
     '小说、封面和插图归各自权利人所有。请仅使用有权访问的内容，遵守来源网站规则，不得绕过访问限制、破解 DRM，或未经许可传播、出售内容。';
 const releaseReadingNotice = '**在线内容以轻小说文库开放状态为准，不提供因版权限制而停止开放的在线书籍阅读。**';
 const releaseMaintenanceNotice = '项目继续以稳定维护为主；账号、登录与阅读链路的明确问题仍会修复。';
-const _lanzou = '蓝奏云改为账号登录：点账号打开官网，登录后自动保存 Cookie，直接浏览账号全部文件夹，不再要求粘贴浏览链接或直链。';
-const _quark = '夸克网盘同样改为点账号官网扫码/验证码登录，自动识别登录态，不再手动粘贴 Cookie。';
-const _search = '原有搜索框和搜索按钮现在会同时搜索本地书库与已登录网盘账号的全部目录，结果统一显示来源，不需要另开一套搜索界面。';
-const _browse = '网盘目录按账号文件树浏览，支持进入子文件夹、全盘递归搜索、勾选导入与在线阅读。';
-const _icons =
-    '网盘文件补齐电子书、PDF、TXT、ZIP 和文件夹图标，标题、扩展名与大小分开显示；书架封面继续使用本地渐变封面，不依赖远程图源。';
-const _online = '点网盘书直接在线阅读；点书不再自动加入书架，是否收藏由用户另行操作。';
-const _booklist =
-    '“导入到书单”只保存在线阅读记录，不下载到本机；加入后书架和全局搜索显示具体来源：本地 / 夸克 / 蓝奏 / WebDAV / S3。';
-const _delete =
-    '删除改成两个独立勾选项：删除本机文件、删除网盘文件；默认都不强删，按需勾选。WebDAV / S3 勾选后直接删原文件，其他账号源会提示到网页端删除。';
+const _cloudShelf =
+    '网盘书新增独立的“加入书架（不下载）”：勾选后直接写入书架，不复制文件；加入后与普通在线书一致，详情页齿轮和书架菜单都能进入“书籍设置”，编辑书名、作者、标签、简介、封面地址和分类，也可移出书架并保留阅读进度。';
+const _threeSearch =
+    '主搜索框拆成“文库搜索 / 网盘搜索 / 书源搜索”三个来源，支持书名、作者、标签、ID；网盘搜索覆盖所有已连接网盘（账号目录与直链），书源搜索检索 RSS/Atom，切换来源会保留当前关键词。';
+const _loginFix =
+    '修复网页登录误判：只有在网页里检测到文库登录 Cookie（jieqiuserinfo）才返回成功，普通站点 Cookie 不再被当成登录成功。';
+const _backupPick = '云端备份不再随机选网盘：点“选择网盘并备份/恢复”后弹出已连接网盘列表，手动选择目标后执行。';
 const _formats =
-    '格式扩展：DOCX、ODT、RTF、FB2、HTML、Markdown、ZIP、MOBI、PRC、AZW、AZW3；PDF 本机与网盘均可提取正文。';
-const _source = '在线书删除不再出现单一“删除本机文件”提示；本机没有文件时会明确说明。';
-const _searchfix = '主搜索框统一：发现页、书架、本地都共用同一个搜索入口，同时检索文库、本地书、已登录网盘与已配置书源，结果显示来源。';
-
+    '保留格式扩展：DOCX、ODT、RTF、FB2、HTML、Markdown、ZIP、MOBI、PRC、AZW、AZW3；PDF 本机与网盘均可提取正文。';
 const _api =
-    '保留 0.6.10 的登录接口修复：POST 带 Content-Length、接口版本 1.30/1.13 回退、长密码与登录前测试连接/保持登录/云书架入口。';
-const _links = '保留 0.6.10 的关联导入修复：iOS 符号链接与授权失效回退副本，Android 关联文件转工作副本。';
+    '保留登录接口修复：POST 带 Content-Length、接口版本 1.30/1.13 回退、长密码与登录前测试连接/保持登录/云书架入口。';
+const _links = '保留关联导入修复：iOS 符号链接与授权失效回退副本，Android 关联文件转工作副本。';
 const _changes = [
-  _searchfix,
-  _online,
-  _booklist,
-  _delete,
+  _cloudShelf,
+  _threeSearch,
+  _loginFix,
+  _backupPick,
   _formats,
-  _source,
-  _lanzou,
-  _quark,
-  _search,
-  _browse,
-  _icons,
   _api,
   _links,
 ];
@@ -69,17 +56,11 @@ $releaseReadingNotice
 
 ### 本次更新
 
-- $_searchfix
-- $_online
-- $_booklist
-- $_delete
+- $_cloudShelf
+- $_threeSearch
+- $_loginFix
+- $_backupPick
 - $_formats
-- $_source
-- $_lanzou
-- $_quark
-- $_search
-- $_browse
-- $_icons
 - $_api
 - $_links
 

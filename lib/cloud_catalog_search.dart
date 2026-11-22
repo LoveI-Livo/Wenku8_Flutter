@@ -5,6 +5,8 @@ import 'catalog.dart';
 import 'cloud_document_service.dart';
 import 'cloud_sources.dart';
 
+enum CloudSearchScope { all, netDisks, sources }
+
 /// 全局搜索里的网盘 / 书源索引。
 ///
 /// 搜索已登录的网盘账号目录和直链书源，不下载文件；
@@ -33,12 +35,22 @@ class CloudCatalogSearch {
     await _loading;
   }
 
-  Future<List<Novel>> search(String query) async {
+  Future<List<Novel>> search(
+    String query, {
+    CloudSearchScope scope = CloudSearchScope.all,
+  }) async {
     final value = query.trim();
-    if (value.length < 2) return const [];
+    if (value.isEmpty) return const [];
     await _ensureLoaded();
     final configs = settings.configs
-        .where((config) => config.kind.isDirectLink || config.kind.isAccount)
+        .where(
+          (config) => switch (scope) {
+            CloudSearchScope.all =>
+              config.kind.isDirectLink || config.kind.isAccount,
+            CloudSearchScope.netDisks => config.kind != CloudSourceKind.rss,
+            CloudSearchScope.sources => config.kind == CloudSourceKind.rss,
+          },
+        )
         .toList();
     if (configs.isEmpty) return const [];
     final results = <Novel>[];
@@ -115,7 +127,10 @@ class CloudCatalogSearch {
       for (final entry in listing.entries) {
         if (entry.folder) {
           pending.add(entry.id);
-        } else if (entry.isBook && entry.name.toLowerCase().contains(value)) {
+        } else if (entry.isBook &&
+            (entry.name.toLowerCase().contains(value) ||
+                entry.author.toLowerCase().contains(value) ||
+                entry.id.toLowerCase().contains(value))) {
           matches[entry.id] = entry;
         }
       }

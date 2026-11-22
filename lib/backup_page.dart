@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -27,7 +26,6 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
   LibraryBackup? _preview;
   bool _preferences = false;
   late final CloudSourceSettings _cloud = CloudSourceSettings();
-  String? _selectedCloud;
   CloudBackupReceipt? _cloudReceipt;
 
   @override
@@ -71,15 +69,6 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
     return targets;
   }
 
-  CloudSourceConfig? get _selectedCloudConfig {
-    final targets = _cloudTargets;
-    if (targets.isEmpty) return null;
-    return targets.firstWhere(
-      (config) => _cloudKey(config) == _selectedCloud,
-      orElse: () => targets.first,
-    );
-  }
-
   String _cloudLabel(CloudSourceConfig config) => switch (config.kind) {
     CloudSourceKind.webdav => 'WebDAV / OpenList',
     CloudSourceKind.s3 => 'S3 / 兼容对象存储',
@@ -105,17 +94,48 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
     );
     await _cloud.load();
     if (!mounted || config == null) return;
-    setState(() => _selectedCloud = _cloudKey(config));
     showNovelFeedback(context, '网盘连接已保存');
   }
 
-  Future<void> _cloudBackup({CloudSourceConfig? target}) async {
-    final config = target ?? _selectedCloudConfig;
-    if (config == null) {
+  Future<CloudSourceConfig?> _pickCloudTarget(String title) async {
+    final targets = _cloudTargets;
+    if (targets.isEmpty) {
       setState(() => _error = '请先连接 WebDAV 或 S3 网盘');
-      return;
+      return null;
     }
-    setState(() => _selectedCloud = _cloudKey(config));
+    return showCupertinoModalPopup<CloudSourceConfig>(
+      context: context,
+      builder: (picker) => CupertinoActionSheet(
+        title: Text(title),
+        message: const Text('选择一个已连接的网盘'),
+        actions: [
+          for (final config in targets)
+            CupertinoActionSheetAction(
+              key: ValueKey('cloud-backup-pick-${_cloudKey(config)}'),
+              onPressed: () => Navigator.pop(picker, config),
+              child: Column(
+                children: [
+                  Text(_cloudLabel(config)),
+                  const SizedBox(height: 2),
+                  Text(
+                    _cloudDetail(config),
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(picker),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cloudBackup({CloudSourceConfig? target}) async {
+    final config = target ?? await _pickCloudTarget('选择备份网盘');
+    if (config == null) return;
     await _run('正在备份到${_cloudLabel(config)}…', () async {
       final backup = await widget.state.createBackup();
       final text = await backup.encode();
@@ -126,23 +146,9 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
     });
   }
 
-  Future<void> _randomCloudBackup() async {
-    final targets = _cloudTargets;
-    if (targets.isEmpty) {
-      setState(() => _error = '请先连接 WebDAV 或 S3 网盘');
-      return;
-    }
-    final selected = targets[Random().nextInt(targets.length)];
-    setState(() => _selectedCloud = _cloudKey(selected));
-    await _cloudBackup(target: selected);
-  }
-
   Future<void> _cloudRestore() async {
-    final config = _selectedCloudConfig;
-    if (config == null) {
-      setState(() => _error = '请先连接 WebDAV 或 S3 网盘');
-      return;
-    }
+    final config = await _pickCloudTarget('选择恢复网盘');
+    if (config == null) return;
     await _run('正在读取云端备份…', () async {
       final text = await CloudBackupService().restoreLatest(config);
       if (text == null) {
@@ -314,60 +320,6 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                       ),
                     ),
                   ),
-                for (final config in _cloudTargets)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: ContentPanel(
-                      key: ValueKey('cloud-backup-target-${_cloudKey(config)}'),
-                      onTap: _busy == null
-                          ? () => setState(
-                              () => _selectedCloud = _cloudKey(config),
-                            )
-                          : null,
-                      child: Row(
-                        children: [
-                          ArchiveIcon(
-                            config.kind == CloudSourceKind.webdav
-                                ? CupertinoIcons.cloud
-                                : CupertinoIcons.archivebox,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                AppText(
-                                  _cloudLabel(config),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                AppText(
-                                  _cloudDetail(config),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (_selectedCloudConfig != null &&
-                              _cloudKey(_selectedCloudConfig!) ==
-                                  _cloudKey(config))
-                            Icon(
-                              CupertinoIcons.check_mark_circled_solid,
-                              size: 20,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
                 ContentPanel(
                   key: const ValueKey('cloud-backup-actions'),
                   child: Column(
@@ -377,7 +329,7 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                         const Padding(
                           padding: EdgeInsets.only(bottom: 12),
                           child: AppText(
-                            '还没有可备份的网盘。先连接一个 WebDAV 或 S3，之后可以手动选择，也可以随机选一个。',
+                            '还没有可备份的网盘。先连接一个 WebDAV 或 S3，之后点按钮手动选择要备份的网盘。',
                             style: TextStyle(fontSize: 13, height: 1.6),
                           ),
                         ),
@@ -387,21 +339,12 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                           onPressed: _busy == null
                               ? () => _cloudBackup()
                               : null,
-                          child: AppText(
-                            _selectedCloudConfig == null
-                                ? '备份到网盘'
-                                : '备份到 ${_cloudLabel(_selectedCloudConfig!)}',
-                          ),
-                        ),
-                        GlassTextButton(
-                          key: const ValueKey('cloud-backup-random'),
-                          onPressed: _busy == null ? _randomCloudBackup : null,
-                          child: const AppText('随机选一个已连接网盘并备份'),
+                          child: AppText('选择网盘并备份'),
                         ),
                         GlassTextButton(
                           key: const ValueKey('cloud-backup-restore'),
                           onPressed: _busy == null ? _cloudRestore : null,
-                          child: const AppText('从所选网盘恢复最近备份'),
+                          child: const AppText('选择网盘并恢复最近备份'),
                         ),
                         const Divider(height: 24),
                       ],

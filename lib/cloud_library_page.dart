@@ -17,6 +17,8 @@ typedef AddCloudBook =
       CloudSourceConfig config,
       String? groupId,
     );
+typedef AddCloudShelf =
+    Future<void> Function(CloudBookEntry entry, CloudSourceConfig config);
 typedef ImportCloudBatch =
     Future<({int imported, int failed})> Function(String name, String path);
 typedef ReadCloudBook =
@@ -33,6 +35,7 @@ class CloudLibraryPage extends StatelessWidget {
     required this.onImport,
     this.onImportBatch,
     this.onAddCloud,
+    this.onAddShelf,
     this.onReadCloud,
     this.booklists = const {},
     this.reduceMotion = false,
@@ -41,6 +44,7 @@ class CloudLibraryPage extends StatelessWidget {
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
   final AddCloudBook? onAddCloud;
+  final AddCloudShelf? onAddShelf;
   final ReadCloudBook? onReadCloud;
   final Map<String, String> booklists;
   final bool reduceMotion;
@@ -93,6 +97,7 @@ class CloudLibraryPage extends StatelessWidget {
           onImport: onImport,
           onImportBatch: onImportBatch,
           onAddCloud: onAddCloud,
+          onAddShelf: onAddShelf,
           onReadCloud: onReadCloud,
           booklists: booklists,
         ),
@@ -111,7 +116,7 @@ class CloudLibraryPage extends StatelessWidget {
           const SizedBox(height: 12),
           const AppText(
             '点账号登录后直接浏览网盘；点书即在线读取，只把正文读进内存，'
-            '不下载到本机。书单和书架统一用主界面的搜索框检索。',
+            '不下载到本机。主搜索框切到“网盘搜索”可检索全部已连接网盘。',
             style: TextStyle(fontSize: 13, height: 1.65),
           ),
           const SizedBox(height: 24),
@@ -759,6 +764,7 @@ class CloudBookBrowser extends StatefulWidget {
     required this.onImport,
     this.onImportBatch,
     this.onAddCloud,
+    this.onAddShelf,
     this.onReadCloud,
     this.booklists = const {},
     this.client,
@@ -768,6 +774,7 @@ class CloudBookBrowser extends StatefulWidget {
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
   final AddCloudBook? onAddCloud;
+  final AddCloudShelf? onAddShelf;
   final ReadCloudBook? onReadCloud;
   final Map<String, String> booklists;
   final CloudBookClient? client;
@@ -1081,8 +1088,8 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                     const SizedBox(height: 12),
                     AppText(
                       widget.config.kind.isDirectLink
-                          ? '直链书籍可直接加入书单在线阅读，不下载原文件。搜索统一使用主界面的搜索框。'
-                          : '点书直接在线读取，不下载到本机；勾选后点“导入到书单（不下载）”，搜索统一使用主界面的搜索框。',
+                          ? '直链书籍可加入书架或书单在线阅读，不下载原文件。搜索请用主界面并切到“网盘搜索”。'
+                          : '点书直接在线读取，不下载到本机；勾选后可“加入书架”或“导入到书单”。搜索请用主界面并切到“网盘搜索”。',
                       style: const TextStyle(height: 1.65),
                     ),
                     const SizedBox(height: 16),
@@ -1107,47 +1114,108 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                         child: const AppText('取消导入'),
                       ),
                     ] else if (_selected.isNotEmpty) ...[
-                      if (widget.onAddCloud != null) ...[
+                      if (widget.onAddShelf != null) ...[
                         GlassPillButton(
                           icon: CupertinoIcons.book,
+                          label: '加入书架（不下载）',
+                          onPressed: _importing
+                              ? null
+                              : () async {
+                                  setState(() => _importing = true);
+                                  try {
+                                    await Future.wait([
+                                      for (final entry in _selected.values)
+                                        widget.onAddShelf!(
+                                          entry,
+                                          widget.config,
+                                        ),
+                                    ]);
+                                    if (!mounted) return;
+                                    _selected.clear();
+                                    showNovelFeedback(
+                                      context,
+                                      '已加入书架 · ${widget.config.kind.label}，点开即在线阅读',
+                                    );
+                                  } catch (_) {
+                                    if (mounted) {
+                                      showNovelFeedback(
+                                        context,
+                                        '加入书架未完成，请重试；已成功的书不会重复写入',
+                                      );
+                                    }
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() => _importing = false);
+                                    }
+                                  }
+                                },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (widget.onAddCloud != null) ...[
+                        GlassPillButton(
+                          icon: CupertinoIcons.book_fill,
                           label: '导入到书单（不下载）',
-                          onPressed: () async {
-                            String? groupId;
-                            if (widget.booklists.isNotEmpty) {
-                              groupId = await showCupertinoModalPopup<String>(
-                                context: context,
-                                builder: (_) => CupertinoActionSheet(
-                                  title: const Text('加入哪个书单'),
-                                  actions: [
-                                    for (final entry
-                                        in widget.booklists.entries)
-                                      CupertinoActionSheetAction(
-                                        onPressed: () =>
-                                            Navigator.pop(context, entry.key),
-                                        child: Text(entry.value),
-                                      ),
-                                  ],
-                                  cancelButton: CupertinoActionSheetAction(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('取消'),
-                                  ),
-                                ),
-                              );
-                            }
-                            if (groupId == null) return;
-                            for (final entry in _selected.values) {
-                              await widget.onAddCloud!(
-                                entry,
-                                widget.config,
-                                groupId,
-                              );
-                            }
-                            if (!mounted) return;
-                            showNovelFeedback(
-                              context,
-                              '已导入书单 · ${widget.config.kind.label}，点开即在线阅读，不下载到本地',
-                            );
-                          },
+                          onPressed: _importing
+                              ? null
+                              : () async {
+                                  String? groupId;
+                                  if (widget.booklists.isNotEmpty) {
+                                    groupId =
+                                        await showCupertinoModalPopup<String>(
+                                          context: context,
+                                          builder: (_) => CupertinoActionSheet(
+                                            title: const Text('加入哪个书单'),
+                                            actions: [
+                                              for (final entry
+                                                  in widget.booklists.entries)
+                                                CupertinoActionSheetAction(
+                                                  onPressed: () =>
+                                                      Navigator.pop(
+                                                        context,
+                                                        entry.key,
+                                                      ),
+                                                  child: Text(entry.value),
+                                                ),
+                                            ],
+                                            cancelButton:
+                                                CupertinoActionSheetAction(
+                                                  onPressed: () =>
+                                                      Navigator.pop(context),
+                                                  child: const Text('取消'),
+                                                ),
+                                          ),
+                                        );
+                                    if (groupId == null) return;
+                                  }
+                                  setState(() => _importing = true);
+                                  try {
+                                    for (final entry in _selected.values) {
+                                      await widget.onAddCloud!(
+                                        entry,
+                                        widget.config,
+                                        groupId,
+                                      );
+                                    }
+                                    if (!mounted) return;
+                                    _selected.clear();
+                                    showNovelFeedback(
+                                      context,
+                                      '已导入书单 · ${widget.config.kind.label}，点开即在线阅读，不下载到本地',
+                                    );
+                                  } catch (_) {
+                                    if (mounted) {
+                                      showNovelFeedback(
+                                        context,
+                                        '导入书单未完成，请重试；已成功的书不会重复写入',
+                                      );
+                                    }
+                                  } finally {
+                                    if (mounted) {
+                                      setState(() => _importing = false);
+                                    }
+                                  }
+                                },
                         ),
                         const SizedBox(height: 12),
                       ],

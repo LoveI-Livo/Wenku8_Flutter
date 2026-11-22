@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库 · 改版版';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.7.2';
-const modEditionBuild = 3013;
+const modEditionVersion = '0.7.3';
+const modEditionBuild = 3014;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -58,9 +58,19 @@ class ModChange {
 /// 改动清单，显示在「关于 → 改版说明」。
 const modEditionChanges = <ModChange>[
   ModChange(
+    '网盘书加入书架',
+    '网盘书可独立“加入书架”，不下载原文件；加入后与普通在线书一致，'
+        '可在书籍设置中编辑书名、作者、标签、简介、封面和分类。',
+  ),
+  ModChange(
+    '三类搜索',
+    '主搜索框分为文库搜索、网盘搜索、书源搜索；支持书名、作者、标签和 ID，'
+        '网盘搜索覆盖所有已连接网盘。',
+  ),
+  ModChange(
     '云端备份与恢复',
-    '「备份与恢复」支持把本地备份 JSON 上传到已连接的 WebDAV 或 S3；可手动选择，'
-        '也可随机选一个已连接网盘，读取时恢复最近一份。备份不含账号信息。',
+    '「备份与恢复」支持把本地备份 JSON 上传到已连接的 WebDAV 或 S3；'
+        '点备份或恢复后弹出网盘列表手动选择，读取时恢复最近一份。备份不含账号信息。',
   ),
   ModChange(
     '中文字体扩充',

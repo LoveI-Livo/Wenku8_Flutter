@@ -163,6 +163,36 @@ class Novel {
         .toSet(),
   );
 
+  /// Editable metadata for books that have no local file record, such as
+  /// books browsed directly from a cloud drive. Remote reading fields are
+  /// preserved so saving a title never breaks online playback.
+  Novel withMetadata({
+    String? title,
+    String? author,
+    String? genre,
+    String? summary,
+    String? coverUrl,
+  }) => Novel(
+    id: id,
+    title: title ?? this.title,
+    author: author ?? this.author,
+    genre: genre ?? this.genre,
+    summary: summary ?? this.summary,
+    colors: colors,
+    chapters: chapters,
+    isComplete: isComplete,
+    coverUrl: coverUrl ?? this.coverUrl,
+    lastUpdate: lastUpdate,
+    chapterCount: chapterCount,
+    navigation: navigation,
+    remoteUrl: remoteUrl,
+    remoteCookie: remoteCookie,
+    remoteAuthorization: remoteAuthorization,
+    sourceLabel: sourceLabel,
+    remoteEntryId: remoteEntryId,
+    remoteKind: remoteKind,
+  );
+
   Novel withGenre(String value) => Novel(
     id: id,
     title: title,

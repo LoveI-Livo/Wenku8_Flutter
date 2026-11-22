@@ -4,7 +4,6 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import 'catalog.dart';
-import 'cloud_catalog_search.dart';
 import 'cloud_document_service.dart';
 import 'book_search.dart';
 import 'offline_cache.dart';
@@ -172,53 +171,12 @@ class OfflineNovelRepository extends FrameChangeNotifier
     bool refresh = false,
   }) async {
     if (!offline) {
-      final remotePage = await remote.searchFilteredPage(
+      return remote.searchFilteredPage(
         query,
         field: field,
         page: page,
         refresh: refresh,
       );
-      if (page != 1 ||
-          query.trim().length < 2 ||
-          (field != BookSearchField.title && field != BookSearchField.all)) {
-        return remotePage;
-      }
-      try {
-        final cloud = await CloudCatalogSearch.instance.search(query);
-        if (cloud.isEmpty) return remotePage;
-        final ids = {for (final book in remotePage.items) book.id};
-        final pattern = BookSearch(query, field: field);
-        final localMatches = [
-          for (final book in local?.books ?? const <Novel>[])
-            if (pattern.matches(
-              title: book.title,
-              author: book.author,
-              tags: book.genre,
-              summary: book.summary,
-              id: '${book.id}',
-            ))
-              book,
-        ];
-        final merged = [
-          ...remotePage.items,
-          for (final book in localMatches)
-            if (ids.add(book.id)) book,
-          for (final book in cloud)
-            if (ids.add(book.id)) book,
-        ];
-        return NovelPage(
-          items: List.unmodifiable(merged),
-          page: 1,
-          totalPages: remotePage.totalPages,
-          totalItems:
-              (remotePage.totalItems ?? remotePage.items.length) +
-              (merged.length - remotePage.items.length),
-          searchFailures: remotePage.searchFailures,
-        );
-      } catch (_) {
-        // A broken cloud source must not take down the Wenku8 search result.
-        return remotePage;
-      }
     }
     await cache.load();
     final pattern = BookSearch(query, field: field);

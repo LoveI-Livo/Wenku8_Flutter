@@ -550,6 +550,13 @@ class LocalBookImporter extends ChangeNotifier {
             settings: _cloud,
             onImport: importFile,
             booklists: library.organization.groups,
+            onAddShelf: (entry, config) async {
+              final novel = CloudDocumentService.instance.cloudBook(
+                entry,
+                config,
+              );
+              await library.setShelfMembership(novel.id, true, novel: novel);
+            },
             onAddCloud: (entry, config, groupId) async {
               final novel = CloudDocumentService.instance.cloudBook(
                 entry,
