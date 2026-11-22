@@ -27,7 +27,7 @@ class CloudBackupReceipt {
 class CloudBackupService {
   static const folder = 'wenku8-backups';
   static const _maxBytes = 4 * 1024 * 1024;
-  static const _webDavUserAgent = 'Wenku8/0.6.10 WebDAV backup';
+  static const _webDavUserAgent = 'Wenku8/0.7.0 WebDAV backup';
 
   Future<CloudBackupReceipt> backup(
     CloudSourceConfig config,

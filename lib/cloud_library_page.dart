@@ -6,6 +6,7 @@ import 'app_ui.dart';
 import 'app_interactions.dart';
 import 'catalog.dart';
 import 'cloud_sources.dart';
+import 'cloud_catalog_search.dart';
 import 'offline_cache.dart' show formatCacheBytes;
 import 'source_login_page.dart';
 
@@ -42,6 +43,34 @@ class CloudLibraryPage extends StatelessWidget {
       reduceMotion: reduceMotion,
     );
     if (context.mounted && config != null) await _browse(context, config);
+  }
+
+  Future<void> _loginAccount(BuildContext context, CloudSourceKind kind) async {
+    final address = kind == CloudSourceKind.quark
+        ? 'https://pan.quark.cn/'
+        : 'https://pc.woozooo.com/mydisk.php?item=files&action=index';
+    final cookie = await pushNovelPage<String>(
+      context,
+      SourceLoginPage(
+        address: address,
+        title: kind == CloudSourceKind.quark ? '登录夸克网盘' : '登录蓝奏云',
+        autoCookieNames: kind == CloudSourceKind.quark
+            ? const ['__puus']
+            : const ['phpdisk_info'],
+      ),
+      reduceMotion: reduceMotion,
+    );
+    if (cookie == null || !context.mounted) return;
+    try {
+      final config = CloudSourceConfig(kind: kind, cookie: cookie);
+      config.validate();
+      await settings.save(kind, config);
+      await CloudCatalogSearch.instance.reload();
+      if (context.mounted) await _browse(context, config);
+    } catch (error) {
+      if (context.mounted)
+        showNovelFeedback(context, cloudFailureMessage(error));
+    }
   }
 
   Future<void> _browse(BuildContext context, CloudSourceConfig config) =>
@@ -82,6 +111,11 @@ class CloudLibraryPage extends StatelessWidget {
           for (final kind in CloudSourceKind.values) ...[
             ContentPanel(
               key: ValueKey('cloud-source-${kind.name}'),
+              onTap: !kind.isWebLogin
+                  ? null
+                  : settings[kind] == null
+                  ? () => _loginAccount(context, kind)
+                  : () => _browse(context, settings[kind]!),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -90,7 +124,9 @@ class CloudLibraryPage extends StatelessWidget {
                       Expanded(
                         child: AppText(
                           kind == CloudSourceKind.quark
-                              ? '夸克网盘 · 实验性'
+                              ? '夸克网盘 · 扫码登录'
+                              : kind == CloudSourceKind.lanzou
+                              ? '蓝奏云 · 账号登录'
                               : kind.label,
                           style: const TextStyle(
                             fontSize: 16,
@@ -111,10 +147,12 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.webdav =>
                       '连接 OpenList、AList、NAS 或其他 WebDAV 服务。百度网盘等可先在 OpenList 挂载。',
                     CloudSourceKind.quark =>
-                      '使用本人网页 Cookie 直连，无需另搭服务。接口变化或登录失效时需要重新配置。',
+                      '点账号打开夸克官网，扫码或验证码登录后自动保存会话，直接浏览全盘并参与全局搜索。',
                     CloudSourceKind.s3 => '连接 Amazon S3 或 S3 兼容存储，按文件夹浏览并导入书籍。',
-                    CloudSourceKind.lanzou || CloudSourceKind.lanzouPro =>
-                      '蓝奏云普通版 / 优享版：复制文件下载直链，流式读取，不保存账号 Cookie。',
+                    CloudSourceKind.lanzou =>
+                      '点账号打开蓝奏云官网登录，自动保存 Cookie，直接浏览账号全部文件夹并参与全局搜索。',
+                    CloudSourceKind.lanzouPro =>
+                      '蓝奏云优享版暂按直链读取；普通版已支持账号登录和全盘搜索。',
                     CloudSourceKind.xunlei => '迅雷云盘：复制文件的下载直链，流式读取，不经过本地下载目录。',
                     CloudSourceKind.aliyun => '阿里云盘：复制分享文件的下载直链，流式读取。',
                     CloudSourceKind.baidu => '百度网盘：复制文件的下载直链（需带有效签名）。',
@@ -129,9 +167,10 @@ class CloudLibraryPage extends StatelessWidget {
                   if (settings[kind] case final config?) ...[
                     AppText(
                       switch (kind) {
-                        CloudSourceKind.quark => '已保存本机连接',
+                        CloudSourceKind.quark => '已登录夸克账号 · 可浏览全盘',
+                        CloudSourceKind.lanzou when config.cookie.isNotEmpty =>
+                          '已登录蓝奏云账号 · 可浏览全盘',
                         _ => '已保存直链',
-                        _ => config.endpoint.host,
                       },
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -141,14 +180,18 @@ class CloudLibraryPage extends StatelessWidget {
                     GlassPillButton(
                       key: ValueKey('cloud-browse-${kind.name}'),
                       icon: CupertinoIcons.folder_open,
-                      label: '浏览书籍',
+                      label: kind.isAccount ? '浏览全盘' : '浏览书籍',
                       onPressed: () => _browse(context, config),
                     ),
                     Wrap(
                       spacing: 12,
                       children: [
                         GlassTextButton(
-                          onPressed: () => _edit(context, kind),
+                          onPressed:
+                              kind == CloudSourceKind.quark ||
+                                  kind == CloudSourceKind.lanzou
+                              ? () => _loginAccount(context, kind)
+                              : () => _edit(context, kind),
                           child: const AppText('修改连接'),
                         ),
                         GlassTextButton(
@@ -174,8 +217,8 @@ class CloudLibraryPage extends StatelessWidget {
                       icon: CupertinoIcons.plus,
                       label: switch (kind) {
                         CloudSourceKind.webdav => '添加 WebDAV 连接',
-                        CloudSourceKind.quark => '配置夸克 Cookie',
-                        CloudSourceKind.lanzou ||
+                        CloudSourceKind.quark => '登录夸克网盘',
+                        CloudSourceKind.lanzou => '登录蓝奏云',
                         CloudSourceKind.lanzouPro ||
                         CloudSourceKind.xunlei ||
                         CloudSourceKind.aliyun ||
@@ -186,7 +229,9 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.rss => '添加其他书源',
                         CloudSourceKind.s3 => '添加 S3 连接',
                       },
-                      onPressed: () => _edit(context, kind),
+                      onPressed: kind.isWebLogin
+                          ? () => _loginAccount(context, kind)
+                          : () => _edit(context, kind),
                     ),
                 ],
               ),
@@ -605,6 +650,83 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
       ),
     ),
   );
+}
+
+class _CloudEntryArt extends StatelessWidget {
+  const _CloudEntryArt({required this.entry});
+  final CloudBookEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (entry.folder) {
+      return Container(
+        width: 42,
+        height: 48,
+        decoration: BoxDecoration(
+          color: const Color(0xFF2F6FEB).withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(
+          CupertinoIcons.folder_fill,
+          color: Color(0xFF2F6FEB),
+          size: 24,
+        ),
+      );
+    }
+    final extension = entry.name.contains('.')
+        ? entry.name.split('.').last.toUpperCase()
+        : 'FILE';
+    final (icon, color) = switch (extension) {
+      'EPUB' ||
+      'MOBI' ||
+      'AZW' ||
+      'AZW3' => (CupertinoIcons.book_fill, const Color(0xFF8A5CF6)),
+      'PDF' => (CupertinoIcons.doc_plaintext, const Color(0xFFE05B4F)),
+      'TXT' ||
+      'MD' ||
+      'HTML' ||
+      'HTM' => (CupertinoIcons.doc_text, const Color(0xFF3A8F68)),
+      'ZIP' ||
+      'RAR' ||
+      '7Z' => (CupertinoIcons.archivebox_fill, const Color(0xFFB07A35)),
+      'JPG' ||
+      'JPEG' ||
+      'PNG' ||
+      'WEBP' => (CupertinoIcons.photo_fill, const Color(0xFF2980B9)),
+      _ => (CupertinoIcons.doc, const Color(0xFF5D6D7E)),
+    };
+    return Container(
+      width: 42,
+      height: 52,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color.withOpacity(0.22), color.withOpacity(0.08)],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.22)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color, size: 21),
+          const SizedBox(height: 2),
+          Text(
+            extension,
+            maxLines: 1,
+            overflow: TextOverflow.fade,
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .4,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class CloudBookBrowser extends StatefulWidget {
@@ -1052,12 +1174,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                       padding: const EdgeInsets.symmetric(vertical: 5),
                       child: Row(
                         children: [
-                          ArchiveIcon(
-                            entry.folder
-                                ? CupertinoIcons.folder
-                                : CupertinoIcons.doc_text,
-                            size: 24,
-                          ),
+                          _CloudEntryArt(entry: entry),
                           const SizedBox(width: 14),
                           Expanded(
                             child: JellyTapSurface(

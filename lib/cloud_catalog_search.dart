@@ -7,7 +7,7 @@ import 'cloud_sources.dart';
 
 /// 全局搜索里的网盘 / 书源索引。
 ///
-/// 只搜索已保存的直链型来源（蓝奏、迅雷、RSS 等），不下载文件；
+/// 搜索已登录的网盘账号目录和直链书源，不下载文件；
 /// 命中的条目以远程书元数据返回，可直接加入书单并在线阅读。
 class CloudCatalogSearch {
   CloudCatalogSearch._();
@@ -15,6 +15,11 @@ class CloudCatalogSearch {
   final CloudSourceSettings settings = CloudSourceSettings();
   DateTime? _loadedAt;
   Future<void>? _loading;
+
+  Future<void> reload() async {
+    _loadedAt = null;
+    await _ensureLoaded();
+  }
 
   Future<void> _ensureLoaded() async {
     if (_loadedAt != null &&
@@ -33,34 +38,48 @@ class CloudCatalogSearch {
     if (value.length < 2) return const [];
     await _ensureLoaded();
     final configs = settings.configs
-        .where((config) => config.kind.isDirectLink)
+        .where((config) => config.kind.isDirectLink || config.kind.isAccount)
         .toList();
     if (configs.isEmpty) return const [];
     final results = <Novel>[];
-    await Future.wait(configs.map((config) async {
-      CloudBookClient? client;
-      try {
-        client = CloudBookClient(config);
-        final matches = await _searchClient(client, value)
-            .timeout(const Duration(seconds: 10));
-        for (final entry in matches.take(40)) {
-          results.add(CloudDocumentService.instance.metadata(
-            entry.name,
-            entry.id,
-            author: entry.author.isEmpty ? null : entry.author,
-            cookie: config.cookie,
-            authorization: config.username.trim().isEmpty
-                ? null
-                : 'Basic ' + base64Encode(utf8.encode(
-                    '${config.username.trim()}:${config.password}')),
-          ));
+    await Future.wait(
+      configs.map((config) async {
+        CloudBookClient? client;
+        try {
+          client = CloudBookClient(config);
+          final matches = await _searchClient(
+            client,
+            value,
+          ).timeout(const Duration(seconds: 10));
+          for (final entry in matches.take(40)) {
+            final url = await client.directLink(entry);
+            if (url == null || url.isEmpty) continue;
+            results.add(
+              CloudDocumentService.instance.metadata(
+                entry.name,
+                url,
+                author: entry.author.isEmpty
+                    ? '${config.kind.label} · 全盘搜索'
+                    : entry.author,
+                cookie: config.cookie,
+                authorization: config.username.trim().isEmpty
+                    ? null
+                    : 'Basic ' +
+                          base64Encode(
+                            utf8.encode(
+                              '${config.username.trim()}:${config.password}',
+                            ),
+                          ),
+              ),
+            );
+          }
+        } catch (_) {
+          // 单个来源超时或未登录不影响其他来源。
+        } finally {
+          client?.close();
         }
-      } catch (_) {
-        // 单个来源超时或未登录不影响其他来源。
-      } finally {
-        client?.close();
-      }
-    }));
+      }),
+    );
     return results;
   }
 

@@ -13,28 +13,16 @@ const releaseRightsNotice =
     '小说、封面和插图归各自权利人所有。请仅使用有权访问的内容，遵守来源网站规则，不得绕过访问限制、破解 DRM，或未经许可传播、出售内容。';
 const releaseReadingNotice = '**在线内容以轻小说文库开放状态为准，不提供因版权限制而停止开放的在线书籍阅读。**';
 const releaseMaintenanceNotice = '项目继续以稳定维护为主；账号、登录与阅读链路的明确问题仍会修复。';
-const _apiBody =
-    '修复登录时接口请求被服务器直接断开：所有接口 POST 现在都带 Content-Length，登录、账号资料和云书架不会再报 Connection closed before full header。';
-const _appver = 'App 接口版本对齐原版 1.30，并保留 1.13 兼容回退，避免版本不一致导致认证失败。';
-const _longPassword = '登录密码输入不再截断到 30 位，长密码可以完整提交。';
-const _alwaysTools = '未登录也能看到“测试连接 NET/WEB”“保持登录”和“云书架”入口，不再等功能出现。';
-const _iosLink =
-    '修复 iOS「关联到 App」手动导入：文件提供方返回的符号链接不再被拒绝；无法长期授权时自动保留可读副本，关联书籍不会变成死引用。';
-const _androidLink =
-    '修复 Android「关联到 App」导入 PDF、MOBI、ZIP 等需要路径解析的格式：补齐关联文件转工作副本，和复制模式一样可以正常导入。';
-const _quarkLogin =
-    '夸克网盘支持在 App 内打开官网扫码或验证码登录，识别到 __puus 后自动保存 Cookie，不再要求手动粘贴。';
-const _keep = '0.6.9 的网页登录、会话保留、字体、云端备份、内置插画、缓存清理全部保留。';
-const _changes = [
-  _apiBody,
-  _appver,
-  _longPassword,
-  _alwaysTools,
-  _iosLink,
-  _androidLink,
-  _quarkLogin,
-  _keep,
-];
+const _lanzou = '蓝奏云改为账号登录：点账号打开官网，登录后自动保存 Cookie，直接浏览账号全部文件夹，不再要求粘贴浏览链接或直链。';
+const _quark = '夸克网盘同样改为点账号官网扫码/验证码登录，自动识别登录态，不再手动粘贴 Cookie。';
+const _search = '原有搜索框和搜索按钮现在会同时搜索本地书库与已登录网盘账号的全部目录，结果统一显示来源，不需要另开一套搜索界面。';
+const _browse = '网盘目录按账号文件树浏览，支持进入子文件夹、全盘递归搜索、勾选导入与在线阅读。';
+const _icons =
+    '网盘文件补齐电子书、PDF、TXT、ZIP、图片和文件夹图标，标题、扩展名与大小分开显示；书架封面继续使用本地渐变封面，不依赖远程图源。';
+const _api =
+    '保留 0.6.10 的登录接口修复：POST 带 Content-Length、接口版本 1.30/1.13 回退、长密码与登录前测试连接/保持登录/云书架入口。';
+const _links = '保留 0.6.10 的关联导入修复：iOS 符号链接与授权失效回退副本，Android 关联文件转工作副本。';
+const _changes = [_lanzou, _quark, _search, _browse, _icons, _api, _links];
 
 const _androidInstall = '**Android**：直接覆盖更新，不要先卸载旧版。';
 const _iosInstall = '**iOS**：提供未签名包，主应用与小组件均需自行签名。';
@@ -57,14 +45,13 @@ $releaseReadingNotice
 
 ### 本次更新
 
-- $_apiBody
-- $_appver
-- $_longPassword
-- $_alwaysTools
-- $_iosLink
-- $_androidLink
-- $_quarkLogin
-- $_keep
+- $_lanzou
+- $_quark
+- $_search
+- $_browse
+- $_icons
+- $_api
+- $_links
 
 ### 后续维护
 

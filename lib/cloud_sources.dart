@@ -9,6 +9,7 @@ import 'package:xml/xml.dart';
 import 'package:crypto/crypto.dart';
 import 'book_import_limits.dart';
 part 'cloud_s3.dart';
+part 'cloud_lanzou.dart';
 
 enum CloudSourceKind {
   webdav('OpenList / WebDAV'),
@@ -29,7 +30,6 @@ enum CloudSourceKind {
 
   /// 这些来源都通过「文件下载直链」流式读取，不保存账号 Cookie。
   bool get isDirectLink => switch (this) {
-    lanzou ||
     lanzouPro ||
     xunlei ||
     aliyun ||
@@ -38,6 +38,18 @@ enum CloudSourceKind {
     uc ||
     direct ||
     rss => true,
+    _ => false,
+  };
+
+  /// Sources that expose a logged-in folder tree instead of a pasted link.
+  bool get isAccount => switch (this) {
+    quark || lanzou || webdav || s3 => true,
+    _ => false,
+  };
+
+  /// Sources whose login is performed on the provider's own website.
+  bool get isWebLogin => switch (this) {
+    quark || lanzou => true,
     _ => false,
   };
 }
@@ -80,6 +92,26 @@ class CloudSourceConfig {
           (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp)) ||
           address.length > 4096) {
         throw CloudSourceFailure('请填写${kind.label}的 HTTPS 文件下载直链');
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.lanzou) {
+      final legacy = cookie.trim().isEmpty && address.trim().isNotEmpty;
+      if (!legacy &&
+          (cookie.trim().isEmpty ||
+              cookie.length > 16384 ||
+              RegExp(r'[\r\n\x00]').hasMatch(cookie) ||
+              !RegExp(r'(?:^|;\s*)phpdisk_info=[^;]+').hasMatch(cookie))) {
+        throw const CloudSourceFailure('请先登录蓝奏云账号，Cookie 需要包含 phpdisk_info');
+      }
+      if (legacy) {
+        final uri = Uri.tryParse(address.trim());
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
+          throw const CloudSourceFailure('蓝奏云登录已失效，请重新登录账号');
+        }
       }
       return;
     }
@@ -345,7 +377,10 @@ abstract class CloudBookClient {
   }) => switch (config.kind) {
     CloudSourceKind.webdav => WebDavBookClient(config),
     CloudSourceKind.quark => QuarkBookClient(config, settings: settings),
-    CloudSourceKind.lanzou ||
+    CloudSourceKind.lanzou =>
+      config.cookie.trim().isEmpty
+          ? DirectLinkBookClient(config)
+          : LanzouBookClient(config, settings: settings),
     CloudSourceKind.lanzouPro ||
     CloudSourceKind.xunlei ||
     CloudSourceKind.aliyun ||
@@ -358,6 +393,10 @@ abstract class CloudBookClient {
   };
   String get root;
   Future<CloudBookListing> list(String folder, {int page = 1});
+
+  /// A URL that the in-memory reader can fetch. Most clients store the URL
+  /// itself as the entry id; account clients resolve a fresh signed URL.
+  Future<String?> directLink(CloudBookEntry entry) async => entry.id;
   Future<void> download(
     CloudBookEntry entry,
     File target, {
@@ -554,6 +593,8 @@ class WebDavBookClient implements CloudBookClient {
   final CloudHttp http;
   @override
   String get root => config.endpoint.toString();
+  @override
+  Future<String?> directLink(CloudBookEntry entry) async => entry.id;
   Uri _resource(String id) {
     final uri = Uri.parse(id).normalizePath(),
         base = config.endpoint.normalizePath();
@@ -808,14 +849,7 @@ class QuarkBookClient implements CloudBookClient {
   }
 
   @override
-  Future<void> download(
-    CloudBookEntry entry,
-    File target, {
-    void Function(int, int?)? onProgress,
-  }) async {
-    if (!entry.isBook) {
-      throw const CloudSourceFailure('请选择支持的电子书或文档');
-    }
+  Future<String?> directLink(CloudBookEntry entry) async {
     final value = await _call(
       '/file/download',
       body: {
@@ -827,9 +861,25 @@ class QuarkBookClient implements CloudBookClient {
         rows.isEmpty ||
         rows.first is! Map ||
         rows.first['download_url'] is! String) {
+      return null;
+    }
+    return rows.first['download_url'] as String;
+  }
+
+  @override
+  Future<void> download(
+    CloudBookEntry entry,
+    File target, {
+    void Function(int, int?)? onProgress,
+  }) async {
+    if (!entry.isBook) {
+      throw const CloudSourceFailure('请选择支持的电子书或文档');
+    }
+    final url = await directLink(entry);
+    if (url == null) {
       throw const CloudSourceFailure('夸克没有返回可用的下载地址');
     }
-    final uri = Uri.parse(rows.first['download_url']);
+    final uri = Uri.parse(url);
     CloudHttp.validateUrl(uri);
     final res = await http.request(
       'GET',
@@ -873,6 +923,8 @@ class DirectLinkBookClient implements CloudBookClient {
 
   @override
   String get root => config.address.trim();
+  @override
+  Future<String?> directLink(CloudBookEntry entry) async => entry.id;
 
   Uri get _uri {
     final uri = Uri.tryParse(root);

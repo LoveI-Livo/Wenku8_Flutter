@@ -263,6 +263,8 @@ class S3BookClient implements CloudBookClient {
   final _tokens = <(String, int), String>{};
   @override
   String get root => _s3Root(config);
+  @override
+  Future<String?> directLink(CloudBookEntry entry) async => entry.id;
   Uri _uri(String key, [Map<String, String>? query]) {
     if (query == null && !key.startsWith(root)) {
       throw const CloudSourceFailure('文件不在已配置的 S3 目录内');
