@@ -41,6 +41,7 @@ final class ReadingWidgetsPlugin: NSObject, FlutterPlugin {
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "cardsSupported": result(true)
+    case "requestPinWidget": result(false)
     case "completeConfiguration": result(nil) // WidgetKit owns the system configuration result.
     case "publishCards":
       do {

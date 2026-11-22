@@ -68,6 +68,19 @@ class _WidgetCardsPageState extends State<ReadingWidgetSettingsPage> {
     }
   }
 
+  Future<void> _addToSystemHome() async {
+    if (LocalPlatform.android) {
+      final requested = await ReadingWidgetBridge.requestPinWidget();
+      if (!mounted) return;
+      showNovelFeedback(
+        context,
+        requested ? '已请求添加到桌面，请在系统弹窗确认' : '请长按桌面空白处，选择“小组件”后添加',
+      );
+    } else {
+      showNovelFeedback(context, '长按桌面空白处，点左上角“+”，搜索“轻小说文库”即可添加系统小组件');
+    }
+  }
+
   Future<void> _add() async {
     final design = await showJellySheet<ReadingWidgetDesign>(
       context: context,
@@ -177,6 +190,11 @@ class _WidgetCardsPageState extends State<ReadingWidgetSettingsPage> {
                 GlassTextButton(
                   onPressed: _bindingCard == null ? _add : null,
                   child: const AppText('新建小组件'),
+                ),
+                GlassTextButton(
+                  key: const ValueKey('widget-add-system'),
+                  onPressed: _bindingCard == null ? _addToSystemHome : null,
+                  child: const AppText('添加到系统桌面'),
                 ),
                 if (cards.error != null)
                   GlassTextButton(

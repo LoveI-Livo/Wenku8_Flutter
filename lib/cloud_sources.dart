@@ -29,7 +29,15 @@ enum CloudSourceKind {
 
   /// 这些来源都通过「文件下载直链」流式读取，不保存账号 Cookie。
   bool get isDirectLink => switch (this) {
-    lanzou || lanzouPro || xunlei || aliyun || baidu || pan123 || uc || direct || rss => true,
+    lanzou ||
+    lanzouPro ||
+    xunlei ||
+    aliyun ||
+    baidu ||
+    pan123 ||
+    uc ||
+    direct ||
+    rss => true,
     _ => false,
   };
 }
@@ -408,6 +416,7 @@ class CloudHttp {
               .addStream(bodyFile.openRead())
               .timeout(const Duration(minutes: 10));
         } else if (body != null) {
+          req.contentLength = body.length;
           req.add(body);
         }
         final res = await req.close().timeout(const Duration(seconds: 25));
@@ -837,7 +846,6 @@ class QuarkBookClient implements CloudBookClient {
   void close() => http.close();
 }
 
-
 /// 蓝奏云 / 迅雷等网盘的直链客户端。
 ///
 /// 用户从网盘网页复制文件的下载直链（带 sign 的临时地址）粘贴进来，
@@ -855,7 +863,9 @@ class DirectLinkBookClient implements CloudBookClient {
       headers[HttpHeaders.cookieHeader] = config.cookie.trim();
     }
     if (config.username.trim().isNotEmpty && config.password.isNotEmpty) {
-      final token = base64Encode(utf8.encode('${config.username.trim()}:${config.password}'));
+      final token = base64Encode(
+        utf8.encode('${config.username.trim()}:${config.password}'),
+      );
       headers[HttpHeaders.authorizationHeader] = 'Basic $token';
     }
     return headers;
@@ -910,7 +920,6 @@ class DirectLinkBookClient implements CloudBookClient {
   void close() => _http.close();
 }
 
-
 /// RSS / Atom 书源：一个订阅地址就是一套书源，条目里的链接就是书页。
 ///
 /// 只读取公开订阅，不登录站点，不抓取需要 Cookie 的私有内容。
@@ -925,7 +934,8 @@ class RssBookClient extends DirectLinkBookClient {
       'GET',
       uri,
       headers: (_) => {
-        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+        'Accept':
+            'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
         ...authHeaders,
       },
       redirects: true,
@@ -933,21 +943,26 @@ class RssBookClient extends DirectLinkBookClient {
       redirectMessage: '书源地址发生跳转，请填写最终 RSS/Atom 地址',
     );
     final bytes = await CloudHttp().bytes(res, limit: 4 * 1024 * 1024);
-    final document = XmlDocument.parse(utf8.decode(bytes, allowMalformed: true));
+    final document = XmlDocument.parse(
+      utf8.decode(bytes, allowMalformed: true),
+    );
     final items = document.findAllElements('item');
     final entries = document.findAllElements('entry');
     final result = <CloudBookEntry>[];
     void add(String title, String? link, String summary, [String author = '']) {
       if (title.trim().isEmpty || link == null || link.trim().isEmpty) return;
       final resolved = Uri.parse(root).resolve(link.trim()).toString();
-      result.add(CloudBookEntry(
-        id: resolved,
-        name: title.trim(),
-        folder: false,
-        size: 0,
-        author: author.trim(),
-      ));
+      result.add(
+        CloudBookEntry(
+          id: resolved,
+          name: title.trim(),
+          folder: false,
+          size: 0,
+          author: author.trim(),
+        ),
+      );
     }
+
     for (final item in items) {
       final title = _child(item, 'title');
       var link = _child(item, 'link');
@@ -962,7 +977,10 @@ class RssBookClient extends DirectLinkBookClient {
       String link = '';
       for (final node in item.findElements('link')) {
         final href = node.getAttribute('href');
-        if (href != null) { link = href; break; }
+        if (href != null) {
+          link = href;
+          break;
+        }
       }
       final author = _child(item, 'author').isNotEmpty
           ? _child(item, 'author')

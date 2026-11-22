@@ -150,13 +150,15 @@ Future<void> main() async {
   // 网络监听、系列信息归并都不参与首帧：晚一点执行，避免和书架读取抢主线程。
   unawaited(Future<void>.delayed(const Duration(seconds: 1), network.start));
   if (needsSeriesReconcile) {
-    unawaited(Future<void>.delayed(const Duration(seconds: 2), () {
-      final offline = repository;
-      if (offline is OfflineNovelRepository && offline.local != null) {
-        return reconcileLocalSeries(offline.local!, state);
-      }
-      return Future<void>.value();
-    }));
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        final offline = repository;
+        if (offline is OfflineNovelRepository && offline.local != null) {
+          return reconcileLocalSeries(offline.local!, state);
+        }
+        return Future<void>.value();
+      }),
+    );
   }
   if (listening != null) {
     // Register media commands without allocating a player or blocking the first
@@ -221,10 +223,9 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
     _updateNavigation.addListener(_queueStartupReading);
     updates?.addListener(_queueStartupReading);
     if (!_startupReadingConsumed) unawaited(_prepareStartupReading());
-    unawaited(Future<void>.delayed(
-      const Duration(seconds: 3),
-      _prepareLanSync,
-    ));
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 3), _prepareLanSync),
+    );
     unawaited(
       _readingWidgets.attach().then((_) {
         if (mounted) return _widgetCards.attach();
@@ -595,7 +596,8 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
       return;
     }
     setState(() => _lanSync = sync);
-    await sync.initialize();
+    // 默认不监听局域网；用户在本机开关页开启并授予系统权限后才绑定端口。
+    await sync.restore();
   }
 
   @override
@@ -653,10 +655,12 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
         lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.inactive ||
         lifecycle == AppLifecycleState.hidden) {
-      unawaited(Future<void>.delayed(
-        Duration.zero,
-        () => _readingWidgets.publish(force: false),
-      ));
+      unawaited(
+        Future<void>.delayed(
+          Duration.zero,
+          () => _readingWidgets.publish(force: false),
+        ),
+      );
     }
     if (lifecycle == AppLifecycleState.resumed &&
         state.appPalette.source == AppPaletteSource.system) {

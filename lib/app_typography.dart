@@ -12,7 +12,13 @@ enum AppTypeface {
   sourceHanSerifTW('思源宋体 · 繁体', 'WenkuSourceHanSerifTW'),
   sourceHanSansTW('思源黑体 · 繁体', 'WenkuSourceHanSansTW'),
   lxgwWenKaiTC('霞鹜文楷 TC', 'WenkuLXGWWenKaiTC'),
-  openHuninn('jf open 粉圆', 'WenkuOpenHuninn');
+  openHuninn('jf open 粉圆', 'WenkuOpenHuninn'),
+  lxgwNeoXiHei('霞鹜新晰黑', 'WenkuLXGWNeoXiHei'),
+  lxgwNeoZhiSong('霞鹜新致宋', 'WenkuLXGWNeoZhiSong'),
+  lxgwXiHei('霞鹜晰黑', 'WenkuLXGWXiHei'),
+  lxgwZhiSong('霞鹜致宋', 'WenkuLXGWZhiSong'),
+  lxgw975Yuan('975 圆体', 'Wenku975Yuan'),
+  lxgw975Hei('975 黑体', 'Wenku975Hei');
 
   const AppTypeface(this.label, this.family);
   final String label;

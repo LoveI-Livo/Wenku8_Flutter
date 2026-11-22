@@ -54,7 +54,8 @@ class ReadingExportTheme {
   bool get isDark => background.computeLuminance() < .15;
   bool get hasCharacter =>
       identity != ReadingVisualTheme.shelf &&
-      identity != ReadingVisualTheme.ink;
+      identity != ReadingVisualTheme.ink &&
+      identity != ReadingVisualTheme.dawn;
 }
 
 ReadingExportTheme readingExportTheme(ReadingVisualTheme theme) =>
@@ -153,5 +154,54 @@ ReadingExportTheme readingExportTheme(ReadingVisualTheme theme) =>
         foregroundValue: 0xff273e47,
         mutedValue: 0xff697776,
         accentValue: 0xffb96f44,
+      ),
+      ReadingVisualTheme.autumn => const ReadingExportTheme(
+        identity: ReadingVisualTheme.autumn,
+        label: '秋叶书签',
+        description: '金色落叶 · 树下静读',
+        artAsset: 'assets/report/char_autumn_reading.webp',
+        portraitArtAsset: 'assets/report/char_autumn_reading.webp',
+        backgroundValue: 0xfff8f1e4,
+        foregroundValue: 0xff2d241b,
+        mutedValue: 0xff7f6a51,
+        accentValue: 0xffb96e35,
+        previewAlignment: Alignment.centerRight,
+      ),
+      ReadingVisualTheme.twilight => const ReadingExportTheme(
+        identity: ReadingVisualTheme.twilight,
+        label: '黄昏列车',
+        description: '暮色车窗 · 旅途书简',
+        artAsset: 'assets/report/char_twilight_train.webp',
+        portraitArtAsset: 'assets/report/char_twilight_train.webp',
+        backgroundValue: 0xfffaece1,
+        foregroundValue: 0xff33241f,
+        mutedValue: 0xff805d4d,
+        accentValue: 0xffd27943,
+        previewAlignment: Alignment.center,
+      ),
+      ReadingVisualTheme.dawn => const ReadingExportTheme(
+        identity: ReadingVisualTheme.dawn,
+        label: '晨山云海',
+        description: '云海晨光 · 山间书斋',
+        artAsset: 'assets/report/scene_dawn_study.webp',
+        portraitArtAsset: 'assets/report/scene_dawn_study.webp',
+        backgroundValue: 0xffedf5f6,
+        foregroundValue: 0xff24363a,
+        mutedValue: 0xff61787a,
+        accentValue: 0xff4e8c86,
+        previewAlignment: Alignment.center,
+        prefersSerif: true,
+      ),
+      ReadingVisualTheme.spring => const ReadingExportTheme(
+        identity: ReadingVisualTheme.spring,
+        label: '春雨窗边',
+        description: '细雨新绿 · 窗前阅读',
+        artAsset: 'assets/report/char_spring_rain.webp',
+        portraitArtAsset: 'assets/report/char_spring_rain.webp',
+        backgroundValue: 0xfff0f5ed,
+        foregroundValue: 0xff26352a,
+        mutedValue: 0xff687b6a,
+        accentValue: 0xff5f8a5e,
+        previewAlignment: Alignment.centerRight,
       ),
     };

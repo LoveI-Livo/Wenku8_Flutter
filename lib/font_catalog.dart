@@ -164,6 +164,60 @@ const downloadableFonts = [
       'https://github.com/justfont/open-huninn-font/releases/download/v2.1/jf-openhuninn-2.1.ttf',
     ],
   ),
+  DownloadableFont(
+    typeface: AppTypeface.lxgwNeoXiHei,
+    fileName: 'LXGWNeoXiHei-1.309.ttf',
+    bytes: 7475784,
+    description: '简体黑体 · 屏读清晰，字形更紧致',
+    sourceUrls: [
+      'https://github.com/lxgw/LxgwNeoXiHei/releases/download/v1.309/LXGWNeoXiHei.ttf',
+    ],
+  ),
+  DownloadableFont(
+    typeface: AppTypeface.lxgwNeoZhiSong,
+    fileName: 'LXGWNeoZhiSong-1.071.ttf',
+    bytes: 10483620,
+    description: '简体宋体 · 新致宋，长文阅读耐看',
+    sourceUrls: [
+      'https://github.com/lxgw/LxgwNeoZhiSong/releases/download/v1.071/LXGWNeoZhiSong.ttf',
+    ],
+  ),
+  DownloadableFont(
+    typeface: AppTypeface.lxgwXiHei,
+    fileName: 'LXGWXiHei-1.003.ttf',
+    bytes: 6332428,
+    description: '简体黑体 · 晰黑，笔画干净利落',
+    sourceUrls: [
+      'https://github.com/lxgw/LxgwXiHei/releases/download/v1.003/LXGWXiHeiCL.ttf',
+    ],
+  ),
+  DownloadableFont(
+    typeface: AppTypeface.lxgwZhiSong,
+    fileName: 'LXGWZhiSong-1.003.ttf',
+    bytes: 8780042,
+    description: '简体宋体 · 致宋，正文排印感',
+    sourceUrls: [
+      'https://github.com/lxgw/LxgwZhiSong/releases/download/v1.003/LXGWZhiSongCL.ttf',
+    ],
+  ),
+  DownloadableFont(
+    typeface: AppTypeface.lxgw975Yuan,
+    fileName: 'LXGW975Yuan-26.07.26.ttf',
+    bytes: 14525950,
+    description: '简体圆体 · 975 圆体，柔和但清楚',
+    sourceUrls: [
+      'https://github.com/lxgw/975Yuan/releases/download/26.07.26/LXGW975YuanSC-400W.ttf',
+    ],
+  ),
+  DownloadableFont(
+    typeface: AppTypeface.lxgw975Hei,
+    fileName: 'LXGW975Hei-26.06.20.ttf',
+    bytes: 10527274,
+    description: '简体黑体 · 975 黑体，正文更清爽',
+    sourceUrls: [
+      'https://github.com/lxgw/975Hei/releases/download/26.06.20/LXGW975HeiSC-400W.ttf',
+    ],
+  ),
 ];
 
 DownloadableFont? downloadableFont(String id) =>

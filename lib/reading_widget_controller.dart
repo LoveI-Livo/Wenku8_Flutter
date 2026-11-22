@@ -131,6 +131,20 @@ abstract final class ReadingWidgetBridge {
   }
 
   static void stop() => channel.setMethodCallHandler(null);
+
+  /// Android can ask the launcher to pin a widget; iOS/WidgetKit requires the
+  /// user to add it from the home-screen gallery, so that path returns false.
+  static Future<bool> requestPinWidget() async {
+    if (!supported) return false;
+    try {
+      return await channel.invokeMethod<bool>('requestPinWidget') ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   static Future<void> publish(
     ReadingWidgetSnapshot snapshot, {
     Map<String, String>? desktopImages,
@@ -254,123 +268,123 @@ class ReadingWidgetController extends ChangeNotifier {
     }
     _publishing = true;
     try {
-    _debounce?.cancel();
-    var value = snapshot;
-    final signature = _visualSignature(value);
-    if (!force && signature == _lastVisualSignature) return;
-    final completion = value.latestCompletion;
-    final needsCover =
-        value.design == ReadingWidgetDesign.classic ||
-        value.design == ReadingWidgetDesign.memory &&
-            value.skin == ReadingWidgetSkin.original;
-    final coverKey = completion == null
-        ? null
-        : (completion.bookId, completion.completedAt, completion.coverPath);
-    if (!needsCover && completion != null) {
-      value = value.styled(
-        theme: value.theme,
-        showBookDetails: value.showBookDetails,
-        completion: completion.withCover(null),
-      );
-    } else if (value.showBookDetails &&
-        completion != null &&
-        coverKey == _preparedCoverFor &&
-        _preparedCoverPath != null) {
-      // Reuse only this event's prepared cover. Repeated reading updates then
-      // need one host write/refresh instead of clearing and restoring the image.
-      value = value.styled(
-        theme: value.theme,
-        showBookDetails: true,
-        completion: completion.withCover(_preparedCoverPath),
-      );
-    } else if (completion != null &&
-        isReadingMomentCoverReference(completion.coverPath)) {
-      // Stored locators are portable, not native file paths. Publish the totals
-      // first, then add only the resolved absolute owned file below.
-      value = value.styled(
-        theme: value.theme,
-        showBookDetails: value.showBookDetails,
-        completion: completion.withCover(null),
-      );
-    }
-    final ticket = ++_ticket;
-    final referenceFace =
-        ReadingWidgetBridge.supported &&
-        value.design != ReadingWidgetDesign.classic &&
-        value.skin != ReadingWidgetSkin.original;
-    try {
-      // Reading totals reach the host immediately, including on backgrounding;
-      // preparing an optional cover must not delay the measured snapshot.
-      if (!referenceFace ||
-          !value.showBookDetails && _lastPublishedDetails != false) {
-        await ReadingWidgetBridge.publish(value);
-        _lastPublishedDetails = value.showBookDetails;
-      }
-      if (_disposed || ticket != _ticket) return;
-      if (needsCover && value.showBookDetails && completion != null) {
-        final path = await cachedReadingWidgetCover(state, completion);
-        if (_disposed || ticket != _ticket) return;
-        _preparedCoverFor = coverKey;
-        _preparedCoverPath = path;
-        if (path != value.latestCompletion!.coverPath) {
-          value = value.styled(
-            theme: value.theme,
-            showBookDetails: true,
-            completion: completion.withCover(path),
-          );
-          if (!referenceFace) await ReadingWidgetBridge.publish(value);
-        }
-      }
-      if (_disposed || ticket != _ticket) return;
-      if (referenceFace) {
-        final images = await renderReadingDesktopCards(value);
-        if (_disposed || ticket != _ticket) return;
-        final folder = await (await getTemporaryDirectory()).createTemp(
-          'reading-desktop-',
+      _debounce?.cancel();
+      var value = snapshot;
+      final signature = _visualSignature(value);
+      if (!force && signature == _lastVisualSignature) return;
+      final completion = value.latestCompletion;
+      final needsCover =
+          value.design == ReadingWidgetDesign.classic ||
+          value.design == ReadingWidgetDesign.memory &&
+              value.skin == ReadingWidgetSkin.original;
+      final coverKey = completion == null
+          ? null
+          : (completion.bookId, completion.completedAt, completion.coverPath);
+      if (!needsCover && completion != null) {
+        value = value.styled(
+          theme: value.theme,
+          showBookDetails: value.showBookDetails,
+          completion: completion.withCover(null),
         );
-        try {
-          final paths = <String, String>{};
-          for (final entry in images.entries) {
-            final file = File('${folder.path}/${entry.key}.png');
-            await file.writeAsBytes(entry.value, flush: true);
-            paths[entry.key] = file.path;
-          }
-          if (_disposed || ticket != _ticket) return;
-          await ReadingWidgetBridge.publish(value, desktopImages: paths);
-        } finally {
-          await folder.delete(recursive: true);
-        }
+      } else if (value.showBookDetails &&
+          completion != null &&
+          coverKey == _preparedCoverFor &&
+          _preparedCoverPath != null) {
+        // Reuse only this event's prepared cover. Repeated reading updates then
+        // need one host write/refresh instead of clearing and restoring the image.
+        value = value.styled(
+          theme: value.theme,
+          showBookDetails: true,
+          completion: completion.withCover(_preparedCoverPath),
+        );
+      } else if (completion != null &&
+          isReadingMomentCoverReference(completion.coverPath)) {
+        // Stored locators are portable, not native file paths. Publish the totals
+        // first, then add only the resolved absolute owned file below.
+        value = value.styled(
+          theme: value.theme,
+          showBookDetails: value.showBookDetails,
+          completion: completion.withCover(null),
+        );
       }
-      if (_disposed || ticket != _ticket) return;
-      _lastVisualSignature = signature;
-      _lastPublishedDetails = value.showBookDetails;
-      if (error != null) {
-        error = null;
+      final ticket = ++_ticket;
+      final referenceFace =
+          ReadingWidgetBridge.supported &&
+          value.design != ReadingWidgetDesign.classic &&
+          value.skin != ReadingWidgetSkin.original;
+      try {
+        // Reading totals reach the host immediately, including on backgrounding;
+        // preparing an optional cover must not delay the measured snapshot.
+        if (!referenceFace ||
+            !value.showBookDetails && _lastPublishedDetails != false) {
+          await ReadingWidgetBridge.publish(value);
+          _lastPublishedDetails = value.showBookDetails;
+        }
+        if (_disposed || ticket != _ticket) return;
+        if (needsCover && value.showBookDetails && completion != null) {
+          final path = await cachedReadingWidgetCover(state, completion);
+          if (_disposed || ticket != _ticket) return;
+          _preparedCoverFor = coverKey;
+          _preparedCoverPath = path;
+          if (path != value.latestCompletion!.coverPath) {
+            value = value.styled(
+              theme: value.theme,
+              showBookDetails: true,
+              completion: completion.withCover(path),
+            );
+            if (!referenceFace) await ReadingWidgetBridge.publish(value);
+          }
+        }
+        if (_disposed || ticket != _ticket) return;
+        if (referenceFace) {
+          final images = await renderReadingDesktopCards(value);
+          if (_disposed || ticket != _ticket) return;
+          final folder = await (await getTemporaryDirectory()).createTemp(
+            'reading-desktop-',
+          );
+          try {
+            final paths = <String, String>{};
+            for (final entry in images.entries) {
+              final file = File('${folder.path}/${entry.key}.png');
+              await file.writeAsBytes(entry.value, flush: true);
+              paths[entry.key] = file.path;
+            }
+            if (_disposed || ticket != _ticket) return;
+            await ReadingWidgetBridge.publish(value, desktopImages: paths);
+          } finally {
+            await folder.delete(recursive: true);
+          }
+        }
+        if (_disposed || ticket != _ticket) return;
+        _lastVisualSignature = signature;
+        _lastPublishedDetails = value.showBookDetails;
+        if (error != null) {
+          error = null;
+          notifyListeners();
+        }
+      } on PlatformException catch (failure) {
+        if (_disposed || ticket != _ticket) return;
+        error = failure.code == 'WIDGET_GROUP_UNAVAILABLE'
+            ? '桌面组件共享空间尚未启用，请使用已启用共享空间的安装版本'
+            : '桌面组件暂未更新，打开此页后可重试';
+        notifyListeners();
+      } on MissingPluginException {
+        if (_disposed || ticket != _ticket) return;
+        error = '当前安装版本未提供桌面组件';
+        notifyListeners();
+      } catch (failure, stack) {
+        assert(() {
+          debugPrintStack(
+            label: 'Reading widget render failed: $failure',
+            stackTrace: stack,
+          );
+          return true;
+        }());
+        if (_disposed || ticket != _ticket) return;
+        _lastVisualSignature = null;
+        error = '小组件图片暂未更新，请重试';
         notifyListeners();
       }
-    } on PlatformException catch (failure) {
-      if (_disposed || ticket != _ticket) return;
-      error = failure.code == 'WIDGET_GROUP_UNAVAILABLE'
-          ? '桌面组件共享空间尚未启用，请使用已启用共享空间的安装版本'
-          : '桌面组件暂未更新，打开此页后可重试';
-      notifyListeners();
-    } on MissingPluginException {
-      if (_disposed || ticket != _ticket) return;
-      error = '当前安装版本未提供桌面组件';
-      notifyListeners();
-    } catch (failure, stack) {
-      assert(() {
-        debugPrintStack(
-          label: 'Reading widget render failed: $failure',
-          stackTrace: stack,
-        );
-        return true;
-      }());
-      if (_disposed || ticket != _ticket) return;
-      _lastVisualSignature = null;
-      error = '小组件图片暂未更新，请重试';
-      notifyListeners();
-    }
     } finally {
       _publishing = false;
       if (_publishPending && !_disposed) {

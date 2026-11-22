@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库 · 改版版';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.6.7';
-const modEditionBuild = 3007;
+const modEditionVersion = '0.6.8';
+const modEditionBuild = 3008;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -57,6 +57,26 @@ class ModChange {
 
 /// 改动清单，显示在「关于 → 改版说明」。
 const modEditionChanges = <ModChange>[
+  ModChange(
+    '云端备份与恢复',
+    '「备份与恢复」支持把本地备份 JSON 上传到已连接的 WebDAV 或 S3；可手动选择，'
+        '也可随机选一个已连接网盘，读取时恢复最近一份。备份不含账号信息。',
+  ),
+  ModChange(
+    '中文字体扩充',
+    '字体列表增加到 20 款，新增霞鹜新晰黑、霞鹜新致宋、霞鹜晰黑、霞鹜致宋、'
+        '975 圆体与 975 黑体；全部固定版本、校验文件长度后才启用。',
+  ),
+  ModChange(
+    '桌面组件入口',
+    '小组件设置新增「添加到系统桌面」；Android 使用系统固定请求，'
+        'iOS 按系统限制提示长按桌面添加。',
+  ),
+  ModChange(
+    '内置阅读插画',
+    '阅读纪念新增秋叶书签、黄昏列车、晨山云海、春雨窗边 4 张内置插画，'
+        '图片随安装包提供，不依赖远程图源。',
+  ),
   ModChange(
     '在线组件与账号登录',
     '「文库账号」不再提示源码构建缺少在线组件：账号密码登录、云端书架、在线书目搜索、'

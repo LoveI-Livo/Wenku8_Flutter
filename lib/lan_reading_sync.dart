@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -64,7 +65,8 @@ class LanHandoffService extends ChangeNotifier {
     final source = state;
     final store = books;
     final repo = repository;
-    Novel? book = source?.cachedNovel(receipt.bookId) ?? store?.book(receipt.bookId);
+    Novel? book =
+        source?.cachedNovel(receipt.bookId) ?? store?.book(receipt.bookId);
     if (book == null && repo != null) {
       try {
         book = await repo.find(receipt.bookId);
@@ -113,7 +115,8 @@ class LanHandoffService extends ChangeNotifier {
       final source = state;
       final store = books;
       final repo = repository;
-      Novel? book = source?.cachedNovel(receipt.bookId) ?? store?.book(receipt.bookId);
+      Novel? book =
+          source?.cachedNovel(receipt.bookId) ?? store?.book(receipt.bookId);
       if (book == null && repo != null) book = await repo.find(receipt.bookId);
       if (book == null) return;
       offer(receipt);
@@ -142,11 +145,15 @@ class LanReadingSync {
   final LocalBookStore? books;
   final NovelRepository repository;
 
-  late final LanHandoffService handoff =
-      LanHandoffService(state: state, books: books, repository: repository);
+  late final LanHandoffService handoff = LanHandoffService(
+    state: state,
+    books: books,
+    repository: repository,
+  );
   static const bool supported = true;
   static const int port = 45871;
   static const String _appTag = 'qingxiaoshuo-lan-v1';
+  static const String enabledKey = 'lan_reading_enabled_v1';
   static const String _deviceKey = 'lan_reading_device_id_v1';
   static const String _nameKey = 'lan_reading_device_name_v1';
 
@@ -159,8 +166,9 @@ class LanReadingSync {
   String get deviceName => _deviceName;
   bool get listening => _socket != null;
 
-  Future<void> initialize() async {
-    _deviceId = preferences.getString(_deviceKey) ??
+  Future<void> prepareIdentity() async {
+    _deviceId =
+        preferences.getString(_deviceKey) ??
         '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${Random().nextInt(1 << 30).toRadixString(36)}';
     if (preferences.getString(_deviceKey) == null) {
       await preferences.setString(_deviceKey, _deviceId);
@@ -168,6 +176,40 @@ class LanReadingSync {
     _deviceName = preferences.getString(_nameKey)?.trim().isNotEmpty == true
         ? preferences.getString(_nameKey)!.trim()
         : '我的设备';
+  }
+
+  /// Starts listening only after the user explicitly enables LAN sync. The
+  /// platform permission sheet is requested before the UDP socket is bound.
+  Future<bool> enable() async {
+    if (_socket != null) {
+      await preferences.setBool(enabledKey, true);
+      return true;
+    }
+    final granted = await LanPermissionBridge.requestLocalNetwork();
+    if (!granted) return false;
+    await initialize();
+    if (_socket == null) return false;
+    await preferences.setBool(enabledKey, true);
+    return true;
+  }
+
+  Future<void> disable() async {
+    await preferences.setBool(enabledKey, false);
+    _expiry?.cancel();
+    _socket?.close();
+    _socket = null;
+    _expiry = null;
+  }
+
+  /// Used at app start: restore the saved state without showing a permission
+  /// sheet on launch. The sheet is only triggered by [enable].
+  Future<void> restore() async {
+    await prepareIdentity();
+    if (preferences.getBool(enabledKey) ?? false) await initialize();
+  }
+
+  Future<void> initialize() async {
+    await prepareIdentity();
     try {
       _socket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
@@ -198,7 +240,9 @@ class LanReadingSync {
       final parsed = ReadingPosition.fromJson(position);
       final receipt = LanHandoffReceipt(
         deviceId: id,
-        deviceName: raw['deviceName'] is String && (raw['deviceName'] as String).trim().isNotEmpty
+        deviceName:
+            raw['deviceName'] is String &&
+                (raw['deviceName'] as String).trim().isNotEmpty
             ? (raw['deviceName'] as String).trim()
             : '附近的设备',
         bookId: bookId,
@@ -218,19 +262,21 @@ class LanReadingSync {
   Future<bool> send(Novel book, ReadingPosition position) async {
     final socket = _socket;
     if (socket == null) return false;
-    final payload = utf8.encode(jsonEncode({
-      'app': _appTag,
-      'v': 1,
-      'deviceId': _deviceId,
-      'deviceName': _deviceName,
-      'book': {
-        'id': book.id,
-        'title': book.title,
-        'author': book.author,
-        if (book.remoteUrl != null) 'online': book.remoteUrl,
-      },
-      'position': position.toJson(),
-    }));
+    final payload = utf8.encode(
+      jsonEncode({
+        'app': _appTag,
+        'v': 1,
+        'deviceId': _deviceId,
+        'deviceName': _deviceName,
+        'book': {
+          'id': book.id,
+          'title': book.title,
+          'author': book.author,
+          if (book.remoteUrl != null) 'online': book.remoteUrl,
+        },
+        'position': position.toJson(),
+      }),
+    );
     var sent = false;
     for (var i = 0; i < 5; i++) {
       try {
@@ -250,6 +296,24 @@ class LanReadingSync {
   }
 }
 
+/// Wraps the small native bridge that makes the platform show its own local
+/// network permission sheet. iOS uses a Bonjour browser; Android requests the
+/// runtime permission from the current activity.
+abstract final class LanPermissionBridge {
+  static const _android = MethodChannel('org.mewx.wenku8/lan_permission');
+  static const _ios = MethodChannel('org.mewx.wenku8/lan_discovery');
+
+  static Future<bool> requestLocalNetwork() async {
+    final channel = Platform.isAndroid ? _android : _ios;
+    try {
+      return await channel.invokeMethod<bool>('requestLocalNetwork') ?? true;
+    } on MissingPluginException {
+      return true;
+    } on PlatformException {
+      return false;
+    }
+  }
+}
 
 class LanSyncScope extends InheritedWidget {
   const LanSyncScope({super.key, required this.sync, required super.child});

@@ -13,18 +13,21 @@ const releaseRightsNotice =
     '小说、封面和插图归各自权利人所有。请仅使用有权访问的内容，遵守来源网站规则，不得绕过访问限制、破解 DRM，或未经许可传播、出售内容。';
 const releaseReadingNotice = '**在线内容以轻小说文库开放状态为准，不提供因版权限制而停止开放的在线书籍阅读。**';
 const releaseMaintenanceNotice = '项目以稳定维护为主，后续非必要不再发版。';
-const _interruption = '「文库账号」已接入在线组件：账号密码登录、云端书架、在线书目与章节正文。';
-const _cache = '缓存与存储补全分类：正文插图、网页与应用缓存、临时文件、小组件图片、图片内存，全部可清理。';
-const _retry = '关于页版本更新改为按版本折叠，点版本标题展开，完整保留从 v0.6.0 起的每条修改与修复。';
-const _resources = '修复缓存页顶部遮挡与下滑回弹；清理后重新统计，已删除的小组件图片不会马上重写回来。';
-const _performance = '性能优化：小组件渲染、旧缓存扫描、更新检查、局域网初始化和系列归并移出首帧，启动与阅读中不再被后台 I/O 抢占主线程。';
+const _fonts = '新增 6 款可下载中文字体：霞鹜新晰黑、霞鹜新致宋、霞鹜晰黑、霞鹜致宋、975 圆体、975 黑体，共 20 款。';
+const _widgets = '小组件设置新增「添加到系统桌面」：Android 请求系统固定组件，iOS 按系统限制提示长按桌面添加。';
+const _cloud = '备份与恢复新增云端备份：可选 WebDAV 或 S3，也可随机选一个已连接网盘上传备份 JSON。';
+const _images = '阅读纪念新增 4 张内置插画：秋叶书签、黄昏列车、晨山云海、春雨窗边，全部打包进安装包。';
+const _cache = '缓存与存储继续按真实目录统计并真正清理：正文插图、网页与应用缓存、临时文件、小组件图片与图片内存。';
+const _lan = '局域网续读改为手动开启；开启时弹出系统本地网络权限，未授权不会监听。';
+const _performance = '启动与运行性能不回退：云备份配置只在备份页加载，图片全部本地读取，保留延迟初始化与 debounce。';
 const _changes = [
-  _interruption,
+  _fonts,
+  _widgets,
+  _cloud,
+  _images,
   _cache,
-  _retry,
-  _resources,
+  _lan,
   _performance,
-  '在线封面与插图恢复加载，不再显示空白。',
 ];
 const _androidInstall = '**Android**：直接覆盖更新，不要先卸载旧版。';
 const _iosInstall = '**iOS**：提供未签名包，主应用与小组件均需自行签名。';
@@ -47,10 +50,12 @@ $releaseReadingNotice
 
 ### 本次更新
 
-- $_interruption
+- $_fonts
+- $_widgets
+- $_cloud
+- $_images
 - $_cache
-- $_retry
-- $_resources
+- $_lan
 - $_performance
 
 ### 后续维护

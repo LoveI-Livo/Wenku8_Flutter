@@ -126,6 +126,10 @@ String _s3Root(CloudSourceConfig config) => config.prefix.isEmpty
     ? config.prefix
     : '${config.prefix}/';
 
+/// Resolve a backup object relative to the configured prefix.
+Uri s3UriForObject(CloudSourceConfig config, String relative) =>
+    _s3Uri(config, '${_s3Root(config)}$relative');
+
 Uri _s3Uri(CloudSourceConfig config, String key, [Map<String, String>? query]) {
   final endpoint = config.endpoint;
   final base = endpoint.pathSegments.toList();

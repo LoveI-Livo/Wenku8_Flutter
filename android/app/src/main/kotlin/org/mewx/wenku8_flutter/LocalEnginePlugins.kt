@@ -1,6 +1,8 @@
 package org.mewx.wenku8_flutter
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import java.io.File
 import io.flutter.embedding.engine.FlutterEngine
@@ -32,6 +34,8 @@ class WenkuHostPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRes
     private var bookOpens: BookOpenRequests? = null
     private var documentsChannel: MethodChannel? = null
     private var activityBinding: ActivityPluginBinding? = null
+    private var lanChannel: MethodChannel? = null
+    private var lanPending: MethodChannel.Result? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         val resolver = binding.applicationContext.contentResolver
@@ -44,6 +48,12 @@ class WenkuHostPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRes
                 val attached = tools
                 if (attached != null) attached.onMethodCall(call, result)
                 else result.error("NO_ACTIVITY", "This action needs the app page", null)
+            }
+        }
+        lanChannel = MethodChannel(binding.binaryMessenger, "org.mewx.wenku8/lan_permission").also {
+            it.setMethodCallHandler { call, result ->
+                if (call.method == "requestLocalNetwork") requestLanPermission(result)
+                else result.notImplemented()
             }
         }
         documentsChannel = MethodChannel(binding.binaryMessenger, "org.mewx.wenku8/book_documents").also {
@@ -61,6 +71,10 @@ class WenkuHostPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRes
         bookOpens = null
         toolsChannel?.setMethodCallHandler(null)
         documentsChannel?.setMethodCallHandler(null)
+        lanChannel?.setMethodCallHandler(null)
+        lanChannel = null
+        lanPending?.success(false)
+        lanPending = null
     }
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activityBinding = binding
@@ -77,6 +91,8 @@ class WenkuHostPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRes
         activityBinding?.removeRequestPermissionsResultListener(this)
         activityBinding?.removeOnNewIntentListener(this)
         activityBinding = null
+        lanPending?.success(false)
+        lanPending = null
         tools?.close(); tools = null
         documents?.close(); documents = null
     }
@@ -94,6 +110,40 @@ class WenkuHostPlugin : FlutterPlugin, ActivityAware, PluginRegistry.ActivityRes
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean =
         (tools?.onActivityResult(requestCode, resultCode, data) ?: false) ||
             (documents?.onActivityResult(requestCode, resultCode, data) ?: false)
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray): Boolean =
-        documents?.onRequestPermissionsResult(requestCode) ?: false
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray): Boolean {
+        if (requestCode == lanPermissionRequest) {
+            val pending = lanPending
+            lanPending = null
+            pending?.success(grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+            return true
+        }
+        return documents?.onRequestPermissionsResult(requestCode) ?: false
+    }
+
+    private fun requestLanPermission(result: MethodChannel.Result) {
+        val activity = activityBinding?.activity
+        if (activity == null) {
+            result.error("NO_ACTIVITY", "请在应用页面请求本地网络权限", null)
+            return
+        }
+        val permission = when {
+            android.os.Build.VERSION.SDK_INT >= 37 -> "android.permission.ACCESS_LOCAL_NETWORK"
+            android.os.Build.VERSION.SDK_INT >= 33 -> "android.permission.NEARBY_WIFI_DEVICES"
+            else -> null
+        }
+        if (permission == null || activity.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+            result.success(true)
+            return
+        }
+        if (lanPending != null) {
+            result.success(false)
+            return
+        }
+        lanPending = result
+        activity.requestPermissions(arrayOf(permission), lanPermissionRequest)
+    }
+
+    private companion object {
+        const val lanPermissionRequest = 4901
+    }
 }

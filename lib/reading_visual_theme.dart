@@ -74,6 +74,42 @@ enum ReadingVisualTheme {
     0xff566f7d,
     0xffe47843,
     0xffaecedf,
+  ),
+  autumn(
+    '秋叶书签',
+    '金色落叶 · 树下静读',
+    0xfff8f1e4,
+    0xff2d241b,
+    0xff7f6a51,
+    0xffb96e35,
+    0xffe1c49c,
+  ),
+  twilight(
+    '黄昏列车',
+    '暮色车窗 · 旅途书简',
+    0xfffaece1,
+    0xff33241f,
+    0xff805d4d,
+    0xffd27943,
+    0xffedc6a5,
+  ),
+  dawn(
+    '晨山云海',
+    '云海晨光 · 山间书斋',
+    0xffedf5f6,
+    0xff24363a,
+    0xff61787a,
+    0xff4e8c86,
+    0xffbcdad5,
+  ),
+  spring(
+    '春雨窗边',
+    '细雨新绿 · 窗前阅读',
+    0xfff0f5ed,
+    0xff26352a,
+    0xff687b6a,
+    0xff5f8a5e,
+    0xffc7ddc2,
   );
 
   const ReadingVisualTheme(

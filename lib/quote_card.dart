@@ -517,6 +517,28 @@ class QuoteCardLayout {
         for (var x = 32.0; x < 448; x += 13) {
           line(x, 333, 5, color: s.muted.withValues(alpha: .55));
         }
+      case ReadingVisualTheme.autumn:
+      case ReadingVisualTheme.spring:
+        sceneHeader();
+        date(const Offset(48, 290));
+        line(48, 318, 384, color: s.accent.withValues(alpha: .4));
+      case ReadingVisualTheme.twilight:
+      case ReadingVisualTheme.dawn:
+        art(
+          const Rect.fromLTWH(24, 32, 432, 270),
+          full: true,
+          alignment: Alignment.center,
+        );
+        _label(
+          canvas,
+          '摘录',
+          const Offset(44, 286),
+          color: s.foreground,
+          size: 13,
+          spacing: 1,
+        );
+        date(const Offset(300, 288), maxWidth: 136);
+        line(32, 338, 448, color: s.accent.withValues(alpha: .5));
     }
     _label(
       canvas,
@@ -625,6 +647,10 @@ class _QuoteGeometry {
       fontSize: 25,
     ),
     ReadingVisualTheme.festival => const _QuoteGeometry(48, 370, 384, 920),
+    ReadingVisualTheme.autumn ||
+    ReadingVisualTheme.twilight ||
+    ReadingVisualTheme.dawn ||
+    ReadingVisualTheme.spring => const _QuoteGeometry(48, 370, 384, 920),
   };
 }
 

@@ -124,6 +124,10 @@ class _MomentComposition {
       ReadingVisualTheme.score => film(),
       ReadingVisualTheme.ink => mountain(),
       ReadingVisualTheme.festival => postcard(),
+      ReadingVisualTheme.autumn => seasons(),
+      ReadingVisualTheme.twilight => film(),
+      ReadingVisualTheme.dawn => mountain(),
+      ReadingVisualTheme.spring => seasons(),
     },
   );
 

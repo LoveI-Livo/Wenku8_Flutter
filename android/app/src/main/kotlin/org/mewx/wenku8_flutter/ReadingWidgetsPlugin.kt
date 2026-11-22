@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.View
@@ -103,6 +104,13 @@ class ReadingWidgetsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "cardsSupported" -> result.success(true)
+            "requestPinWidget" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val manager = AppWidgetManager.getInstance(context)
+                    val provider = ComponentName(context, ReadingMediumWidget::class.java)
+                    result.success(manager.isRequestPinAppWidgetSupported && manager.requestPinAppWidget(provider, null, null))
+                } else result.success(false)
+            }
             "completeConfiguration" -> try {
                 val id = requireNotNull(call.argument<String>("widgetId")).toInt()
                 val handled = ReadingWidgetConfigureActivity.complete(context, id, call.argument<Boolean>("confirmed") == true)

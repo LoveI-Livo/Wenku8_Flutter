@@ -1,9 +1,15 @@
+import 'dart:io';
+import 'dart:math';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_interactions.dart';
 import 'app_ui.dart';
+import 'cloud_backup.dart';
+import 'cloud_library_page.dart';
+import 'cloud_sources.dart';
 import 'library_backup.dart';
 import 'library_state.dart';
 import 'local_platform.dart';
@@ -20,6 +26,137 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
   String? _error;
   LibraryBackup? _preview;
   bool _preferences = false;
+  late final CloudSourceSettings _cloud = CloudSourceSettings();
+  String? _selectedCloud;
+  CloudBackupReceipt? _cloudReceipt;
+
+  @override
+  void initState() {
+    super.initState();
+    _cloud.addListener(_cloudChanged);
+    _cloud.load();
+  }
+
+  @override
+  void dispose() {
+    _cloud
+      ..removeListener(_cloudChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _cloudChanged() {
+    if (mounted) setState(() {});
+  }
+
+  static String _cloudKey(CloudSourceConfig config) =>
+      '${config.kind.name}|${config.address}|${config.bucket}';
+
+  List<CloudSourceConfig> get _cloudTargets {
+    final targets = <CloudSourceConfig>[];
+    void add(CloudSourceConfig? config) {
+      if (config == null ||
+          config.kind != CloudSourceKind.webdav &&
+              config.kind != CloudSourceKind.s3 ||
+          targets.any((other) => _cloudKey(other) == _cloudKey(config))) {
+        return;
+      }
+      targets.add(config);
+    }
+
+    for (final config in _cloud.configs) {
+      add(config);
+    }
+    add(_cloud.s3Sync?.config);
+    return targets;
+  }
+
+  CloudSourceConfig? get _selectedCloudConfig {
+    final targets = _cloudTargets;
+    if (targets.isEmpty) return null;
+    return targets.firstWhere(
+      (config) => _cloudKey(config) == _selectedCloud,
+      orElse: () => targets.first,
+    );
+  }
+
+  String _cloudLabel(CloudSourceConfig config) => switch (config.kind) {
+    CloudSourceKind.webdav => 'WebDAV / OpenList',
+    CloudSourceKind.s3 => 'S3 / 兼容对象存储',
+    _ => config.kind.label,
+  };
+
+  String _cloudDetail(CloudSourceConfig config) => switch (config.kind) {
+    CloudSourceKind.webdav =>
+      Uri.tryParse(config.address)?.host ?? config.address,
+    CloudSourceKind.s3 => [
+      if (config.bucket.isNotEmpty) config.bucket,
+      config.region,
+      if (config.prefix.isNotEmpty) config.prefix,
+    ].join(' · '),
+    _ => config.address,
+  };
+
+  Future<void> _connectCloud(CloudSourceKind kind) async {
+    final config = await pushNovelPage<CloudSourceConfig>(
+      context,
+      CloudConnectionPage(settings: _cloud, kind: kind),
+      reduceMotion: widget.state.reduceMotion,
+    );
+    await _cloud.load();
+    if (!mounted || config == null) return;
+    setState(() => _selectedCloud = _cloudKey(config));
+    showNovelFeedback(context, '网盘连接已保存');
+  }
+
+  Future<void> _cloudBackup({CloudSourceConfig? target}) async {
+    final config = target ?? _selectedCloudConfig;
+    if (config == null) {
+      setState(() => _error = '请先连接 WebDAV 或 S3 网盘');
+      return;
+    }
+    setState(() => _selectedCloud = _cloudKey(config));
+    await _run('正在备份到${_cloudLabel(config)}…', () async {
+      final backup = await widget.state.createBackup();
+      final text = await backup.encode();
+      final receipt = await CloudBackupService().backup(config, text);
+      if (!mounted) return;
+      setState(() => _cloudReceipt = receipt);
+      showNovelFeedback(context, '已备份到网盘：${receipt.fileName}');
+    });
+  }
+
+  Future<void> _randomCloudBackup() async {
+    final targets = _cloudTargets;
+    if (targets.isEmpty) {
+      setState(() => _error = '请先连接 WebDAV 或 S3 网盘');
+      return;
+    }
+    final selected = targets[Random().nextInt(targets.length)];
+    setState(() => _selectedCloud = _cloudKey(selected));
+    await _cloudBackup(target: selected);
+  }
+
+  Future<void> _cloudRestore() async {
+    final config = _selectedCloudConfig;
+    if (config == null) {
+      setState(() => _error = '请先连接 WebDAV 或 S3 网盘');
+      return;
+    }
+    await _run('正在读取云端备份…', () async {
+      final text = await CloudBackupService().restoreLatest(config);
+      if (text == null) {
+        throw const FormatException('这个网盘里还没有备份，请先上传一次');
+      }
+      final backup = await LibraryBackup.parse(text);
+      if (!mounted) return;
+      setState(() {
+        _preview = backup;
+        _preferences = false;
+      });
+      showNovelFeedback(context, '已读取云端最新备份');
+    });
+  }
 
   Future<void> _run(String label, Future<void> Function() action) async {
     if (_busy != null) return;
@@ -33,8 +170,12 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
       await action();
     } on FormatException catch (error) {
       if (mounted) setState(() => _error = error.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = '操作未完成，请检查文件或本地存储后重试');
+    } on CloudSourceFailure catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on SocketException catch (_) {
+      if (mounted) setState(() => _error = '无法连接网盘，请检查网络、地址和证书');
+    } catch (error) {
+      if (mounted) setState(() => _error = cloudFailureMessage(error));
     } finally {
       if (mounted) setState(() => _busy = null);
     }
@@ -150,6 +291,158 @@ class _LibraryBackupPageState extends State<LibraryBackupPage> {
                             ? () => _import(clipboard: true)
                             : null,
                         child: const AppText('从剪贴板读取备份'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                sectionHeader(context, '云端备份', 'CLOUD / BACKUP'),
+                const SizedBox(height: 14),
+                const AppText(
+                  '除了导出文件，也可以直接备份到已连接的 WebDAV 或 S3。'
+                  '连接信息保存在本机加密存储，备份文件只包含书架、进度、书签、历史和偏好。',
+                  style: TextStyle(fontSize: 13, height: 1.65),
+                ),
+                const SizedBox(height: 14),
+                if (_cloud.error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: AppText(
+                      _cloud.error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                for (final config in _cloudTargets)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: ContentPanel(
+                      key: ValueKey('cloud-backup-target-${_cloudKey(config)}'),
+                      onTap: _busy == null
+                          ? () => setState(
+                              () => _selectedCloud = _cloudKey(config),
+                            )
+                          : null,
+                      child: Row(
+                        children: [
+                          ArchiveIcon(
+                            config.kind == CloudSourceKind.webdav
+                                ? CupertinoIcons.cloud
+                                : CupertinoIcons.archivebox,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                AppText(
+                                  _cloudLabel(config),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                AppText(
+                                  _cloudDetail(config),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_selectedCloudConfig != null &&
+                              _cloudKey(_selectedCloudConfig!) ==
+                                  _cloudKey(config))
+                            Icon(
+                              CupertinoIcons.check_mark_circled_solid,
+                              size: 20,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ContentPanel(
+                  key: const ValueKey('cloud-backup-actions'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_cloudTargets.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: AppText(
+                            '还没有可备份的网盘。先连接一个 WebDAV 或 S3，之后可以手动选择，也可以随机选一个。',
+                            style: TextStyle(fontSize: 13, height: 1.6),
+                          ),
+                        ),
+                      if (_cloudTargets.isNotEmpty) ...[
+                        GlassTextButton(
+                          key: const ValueKey('cloud-backup-now'),
+                          onPressed: _busy == null
+                              ? () => _cloudBackup()
+                              : null,
+                          child: AppText(
+                            _selectedCloudConfig == null
+                                ? '备份到网盘'
+                                : '备份到 ${_cloudLabel(_selectedCloudConfig!)}',
+                          ),
+                        ),
+                        GlassTextButton(
+                          key: const ValueKey('cloud-backup-random'),
+                          onPressed: _busy == null ? _randomCloudBackup : null,
+                          child: const AppText('随机选一个已连接网盘并备份'),
+                        ),
+                        GlassTextButton(
+                          key: const ValueKey('cloud-backup-restore'),
+                          onPressed: _busy == null ? _cloudRestore : null,
+                          child: const AppText('从所选网盘恢复最近备份'),
+                        ),
+                        const Divider(height: 24),
+                      ],
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          GlassTextButton(
+                            key: const ValueKey('cloud-connect-webdav'),
+                            onPressed: _busy == null
+                                ? () => _connectCloud(CloudSourceKind.webdav)
+                                : null,
+                            compact: true,
+                            child: const AppText('连接 WebDAV'),
+                          ),
+                          GlassTextButton(
+                            key: const ValueKey('cloud-connect-s3'),
+                            onPressed: _busy == null
+                                ? () => _connectCloud(CloudSourceKind.s3)
+                                : null,
+                            compact: true,
+                            child: const AppText('连接 S3'),
+                          ),
+                        ],
+                      ),
+                      if (_cloudReceipt case final receipt?) ...[
+                        const SizedBox(height: 12),
+                        AppText(
+                          '最近上传：${receipt.fileName} · ${(receipt.bytes / 1024).ceil()} KB',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      const AppText(
+                        'WebDAV 会写入 wenku8-backups 目录，每次保留带日期的文件；S3 会覆盖 wenku8-backups/latest.json。恢复时读取最近一次。',
+                        style: TextStyle(fontSize: 12, height: 1.55),
                       ),
                     ],
                   ),
