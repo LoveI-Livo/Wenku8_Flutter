@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app_interactions.dart';
@@ -83,12 +82,14 @@ class LocalBookImporter extends ChangeNotifier {
     required this.library,
     BookDocuments? documents,
     CloudSourceSettings? cloudSettings,
+    this.openCloudBook,
   }) : documents = documents ?? BookDocuments(),
        _cloud = cloudSettings ?? CloudSourceSettings(),
        _ownsCloud = cloudSettings == null;
   final LocalBookStore books;
   final LibraryState library;
   final BookDocuments documents;
+  final void Function(BuildContext, Novel)? openCloudBook;
   final CloudSourceSettings _cloud;
   final bool _ownsCloud;
   bool busy = false, _disposed = false;
@@ -369,8 +370,18 @@ class LocalBookImporter extends ChangeNotifier {
         // Its immediate write/failure contract remains unchanged.
         final categories = fromScan ? null : _ImportedCategoryBatch();
         try {
+          final preparedSources = <BookDocumentSelection>[];
+          for (final source in sources) {
+            final values = await documents.prepareBook(source);
+            preparedSources.addAll(values);
+            for (final value in values) {
+              if (!identical(value, source) && value.path != null) {
+                staged.add(value);
+              }
+            }
+          }
           final imported = await importLocalDocuments(
-            selections: sources,
+            selections: preparedSources,
             documents: documents,
             books: books,
             importFile: (name, path) =>
@@ -540,20 +551,22 @@ class LocalBookImporter extends ChangeNotifier {
             onImport: importFile,
             booklists: library.organization.groups,
             onAddCloud: (entry, config, groupId) async {
-              final novel = CloudDocumentService.instance.metadata(
-                entry.name,
-                entry.id,
-                author: entry.author.isEmpty ? null : entry.author,
-                cookie: config.cookie,
-                authorization: config.username.trim().isEmpty
-                    ? null
-                    : 'Basic ' + base64Encode(utf8.encode(
-                        '${config.username.trim()}:${config.password}')),
+              final novel = CloudDocumentService.instance.cloudBook(
+                entry,
+                config,
               );
-              await library.toggleShelf(novel.id, novel: novel);
+              await library.setShelfMembership(novel.id, true, novel: novel);
               if (groupId != null) {
                 await library.organization.assignMany([novel.id], groupId);
               }
+            },
+            onReadCloud: (context, entry, config) async {
+              final novel = CloudDocumentService.instance.cloudBook(
+                entry,
+                config,
+              );
+              await library.setShelfMembership(novel.id, true, novel: novel);
+              openCloudBook?.call(context, novel);
             },
             onImportBatch: (name, path) async {
               final batch = await importPrepared([

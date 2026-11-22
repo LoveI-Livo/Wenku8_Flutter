@@ -104,6 +104,7 @@ class LocalLibraryPage extends StatefulWidget {
     required this.state,
     required this.onOpen,
     this.onOpenWithCover,
+    this.onReadRemote,
     this.showHeader = true,
     this.compactMainPageControls = false,
     this.controller,
@@ -115,6 +116,7 @@ class LocalLibraryPage extends StatefulWidget {
   final LibraryState state;
   final void Function(BuildContext, Novel) onOpen;
   final void Function(BuildContext, Novel, Object)? onOpenWithCover;
+  final void Function(BuildContext, Novel)? onReadRemote;
   final bool showHeader;
   final bool compactMainPageControls;
   final LocalLibraryController? controller;
@@ -138,6 +140,8 @@ class _LocalLibraryPageState extends State<LocalLibraryPage>
     library: widget.state,
     documents: _documents,
     cloudSettings: _cloudSources,
+    openCloudBook: (context, novel) =>
+        (widget.onReadRemote ?? widget.onOpen)(context, novel),
   );
   final _search = TextEditingController();
   final _searchFocus = FocusNode(debugLabel: 'local-library-search');

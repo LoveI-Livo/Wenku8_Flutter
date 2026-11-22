@@ -4,12 +4,12 @@ import Foundation
 enum BookImportFormatPolicy {
   static let extensions: Set<String> = [
     "txt", "epub", "mobi", "azw", "azw3", "prc", "fb2", "pdf",
-    "doc", "docx", "rtf", "html", "htm", "xhtml", "md", "markdown", "zip",
+    "docx", "odt", "rtf", "html", "htm", "xhtml", "md", "markdown", "zip",
   ]
   static func byteLimit(_ ext: String) -> Int {
     switch ext.lowercased() {
     case "zip": return 512 * 1024 * 1024
-    case "epub", "pdf", "docx": return 512 * 1024 * 1024
+    case "epub", "pdf", "docx", "odt": return 512 * 1024 * 1024
     case "mobi", "azw", "azw3", "prc": return 256 * 1024 * 1024
     case "html", "htm", "xhtml", "md", "markdown": return 32 * 1024 * 1024
     default: return 128 * 1024 * 1024

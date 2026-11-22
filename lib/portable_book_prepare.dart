@@ -139,9 +139,11 @@ class PortableBookPreparer {
   ) async {
     final extract = extractPdf;
     if (extract == null) {
+      final native = await convert(label, path);
+      if (native.isNotEmpty) return native;
       return [(name: label, path: null, error: '当前设备无法转换 PDF 格式：$label')];
     }
-    final output = await _reserve();
+    final output = await _reserve('.txt');
     await extract(label, path, output);
     return _collect(label, output, 'PDF');
   }
@@ -155,18 +157,21 @@ class PortableBookPreparer {
     final produced = File(output);
     final size = await produced.exists() ? await produced.length() : 0;
     if (size > 0) {
-      return [(name: _epubName(label), path: output, error: null)];
+      final extension = output.toLowerCase().endsWith('.txt')
+          ? '.txt'
+          : '.epub';
+      return [(name: _stem(label) + extension, path: output, error: null)];
     }
     await _discard(output);
     return [(name: label, path: null, error: '无法从 $format 文件取出可读内容：$label')];
   }
 
   /// Reserves an unused path inside [directory] for a host produced EPUB.
-  Future<String> _reserve() async {
+  Future<String> _reserve([String extension = '.epub']) async {
     await directory.create(recursive: true);
     _sequence += 1;
     final stamp = DateTime.now().microsecondsSinceEpoch;
-    return '${_root()}$stamp-$_sequence.$_epubExtension';
+    return '${_root()}$stamp-$_sequence$extension';
   }
 
   Future<void> _discard(String path) async {
@@ -199,10 +204,7 @@ String _extension(String name) {
   return name.substring(dot + 1).toLowerCase();
 }
 
-String _epubName(String label) {
-  final dot = label.lastIndexOf('.');
-  final base = dot > 0 ? label.substring(0, dot) : label;
-  return '$base.$_epubExtension';
+String _stem(String name) {
+  final dot = name.lastIndexOf('.');
+  return dot > 0 ? name.substring(0, dot) : name;
 }
-
-const _epubExtension = 'epub';

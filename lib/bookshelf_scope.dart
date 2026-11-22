@@ -2,6 +2,7 @@ import 'library_state.dart';
 import 'offline_repository.dart';
 import 'local_library_preferences.dart';
 import 'catalog.dart';
+import 'cloud_document_service.dart';
 
 /// The shelf contains saved books and, when merged, imported originals.
 /// Cached trial chapters provide offline availability, never membership.
@@ -73,7 +74,29 @@ String bookshelfSourceLabel(String source) => switch (source) {
   _ => '全部来源',
 };
 
-String bookshelfSource(int id, OfflineNovelRepository? offline) {
+String bookshelfSource(
+  int id,
+  OfflineNovelRepository? offline, {
+  Novel? book,
+}) {
   if (offline?.local?.book(id) != null) return '本地';
+  final known =
+      book ??
+      offline?.cache.book(id)?.novel ??
+      CloudDocumentService.instance.known(id);
+  final label = known?.sourceLabel?.trim() ?? '';
+  if (label.isNotEmpty) return label;
+  final remote = known?.remoteUrl ?? '';
+  if (remote.startsWith('cloud://')) {
+    final kind = Uri.tryParse(remote)?.host ?? '';
+    return switch (kind) {
+      'quark' => '夸克网盘',
+      'lanzou' => '蓝奏云',
+      'webdav' => 'WebDAV',
+      's3' => 'S3',
+      _ => '网盘',
+    };
+  }
+  if (remote.startsWith('http')) return '网盘';
   return offline?.availableOffline(id) == true ? '缓存' : '在线';
 }

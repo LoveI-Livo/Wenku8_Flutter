@@ -21,6 +21,7 @@ class Novel {
     this.remoteUrl,
     this.remoteCookie,
     this.remoteAuthorization,
+    this.sourceLabel,
   });
 
   final int id;
@@ -38,6 +39,9 @@ class Novel {
 
   /// 网盘直链书籍的远程地址；有值时正文按需从网络读取，不落盘。
   final String? remoteUrl;
+
+  /// 书架来源名称（本地导入、夸克网盘、蓝奏云、WebDAV 等）。
+  final String? sourceLabel;
 
   /// 私有书源登录后保存的请求头；只随书架元数据保存在本机。
   final String? remoteCookie;
@@ -168,6 +172,7 @@ class Novel {
     remoteUrl: remoteUrl,
     remoteCookie: remoteCookie,
     remoteAuthorization: remoteAuthorization,
+    sourceLabel: sourceLabel,
   );
 
   Novel withChapters(List<NovelChapter> items) => Novel(
@@ -186,6 +191,7 @@ class Novel {
     remoteUrl: remoteUrl,
     remoteCookie: remoteCookie,
     remoteAuthorization: remoteAuthorization,
+    sourceLabel: sourceLabel,
   );
 
   Map<String, Object?> toSnapshot() => {
@@ -203,6 +209,7 @@ class Novel {
     if (remoteUrl != null) 'remoteUrl': remoteUrl,
     if (remoteCookie != null) 'remoteCookie': remoteCookie,
     if (remoteAuthorization != null) 'remoteAuthorization': remoteAuthorization,
+    if (sourceLabel != null) 'sourceLabel': sourceLabel,
   };
 
   factory Novel.fromSnapshot(Map<String, dynamic> value) {
@@ -234,6 +241,7 @@ class Novel {
       remoteUrl: value['remoteUrl'] is String ? value['remoteUrl'] as String : null,
       remoteCookie: value['remoteCookie'] is String ? value['remoteCookie'] as String : null,
       remoteAuthorization: value['remoteAuthorization'] is String ? value['remoteAuthorization'] as String : null,
+      sourceLabel: value['sourceLabel'] is String ? value['sourceLabel'] as String : null,
     );
   }
 }

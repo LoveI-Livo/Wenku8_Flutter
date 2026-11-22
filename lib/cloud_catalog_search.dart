@@ -82,6 +82,7 @@ class CloudCatalogSearch {
                               '${config.username.trim()}:${config.password}',
                             ),
                           ),
+                sourceLabel: config.kind.label,
               ),
             );
           }

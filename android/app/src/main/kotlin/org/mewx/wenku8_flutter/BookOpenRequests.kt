@@ -217,7 +217,6 @@ internal object BookOpenNames {
         "application/x-fictionbook+xml" to "fb2", "application/fb2+xml" to "fb2",
         "application/pdf" to "pdf", "application/rtf" to "rtf", "text/rtf" to "rtf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" to "docx",
-        "application/msword" to "doc",
         "text/html" to "html", "application/xhtml+xml" to "xhtml",
         "text/markdown" to "md", "text/x-markdown" to "md",
         "application/zip" to "zip", "application/x-zip-compressed" to "zip",

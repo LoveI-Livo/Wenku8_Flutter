@@ -9,6 +9,7 @@ import 'package:html/parser.dart' as html;
 
 import 'catalog.dart';
 import 'cloud_sources.dart';
+import 'portable_book_text.dart';
 
 /// 把网盘直链当作“远程书籍”读取：只在内存里解析，不落地保存原文件。
 ///
@@ -38,6 +39,7 @@ class CloudDocumentService {
     String? author,
     String? cookie,
     String? authorization,
+    String? sourceLabel,
   }) {
     final id = idForUrl(url);
     _urls[id] = url;
@@ -52,6 +54,7 @@ class CloudDocumentService {
       remoteUrl: url,
       remoteCookie: cookie,
       remoteAuthorization: authorization,
+      sourceLabel: sourceLabel,
     );
     _metadata[id] = book;
     return book;
@@ -59,7 +62,44 @@ class CloudDocumentService {
 
   bool handles(int id) => _urls.containsKey(id);
 
+  /// Drops in-memory text after the user removes an online shelf record.
+  void forget(int id) {
+    _urls.remove(id);
+    _metadata.remove(id);
+    _documents.remove(id);
+  }
+
   Novel? known(int id) => _metadata[id];
+
+  /// Builds online-only shelf metadata for a file picked inside a cloud
+  /// browser. Nothing is downloaded or written locally at this point.
+  Novel cloudBook(CloudBookEntry entry, CloudSourceConfig config) {
+    final url = switch (config.kind) {
+      CloudSourceKind.quark || CloudSourceKind.lanzou => Uri(
+        scheme: 'cloud',
+        host: config.kind.name,
+        pathSegments: [entry.id],
+      ).toString(),
+      CloudSourceKind.s3 => s3PresignedUrl(config, entry.id),
+      _ => entry.id,
+    };
+    final authorization = config.username.trim().isEmpty
+        ? null
+        : 'Basic ' +
+              base64Encode(
+                utf8.encode('${config.username.trim()}:${config.password}'),
+              );
+    return metadata(
+      entry.name,
+      url,
+      author: entry.author.isEmpty
+          ? '${config.kind.label} · 在线阅读'
+          : entry.author,
+      cookie: config.cookie,
+      authorization: authorization,
+      sourceLabel: config.kind.label,
+    );
+  }
 
   /// 打开书架里的网盘书时调用：拉取一次原文件，在内存里解析成章节。
   Future<Novel> detail(Novel novel) async {
@@ -188,6 +228,21 @@ class CloudDocumentService {
   }
 
   _CloudDocument _parse(int id, String name, String url, Uint8List bytes) {
+    if (PortableBookText.handles(name)) {
+      try {
+        final text = PortableBookText.extract(name, bytes);
+        if (text != null && text.trim().isNotEmpty) {
+          return _parseText(
+            id,
+            name.replaceFirst(RegExp(r'\.[^.]+$'), ''),
+            url,
+            Uint8List.fromList(utf8.encode(text)),
+          );
+        }
+      } catch (_) {
+        // A malformed container falls through to the EPUB/text parser.
+      }
+    }
     final head = utf8
         .decode(bytes.take(512).toList(), allowMalformed: true)
         .toLowerCase();
@@ -407,6 +462,7 @@ class CloudDocumentService {
     remoteUrl: source.remoteUrl ?? parsed.remoteUrl,
     remoteCookie: source.remoteCookie,
     remoteAuthorization: source.remoteAuthorization,
+    sourceLabel: source.sourceLabel,
   );
 
   Novel _novel(

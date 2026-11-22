@@ -19,6 +19,12 @@ typedef AddCloudBook =
     );
 typedef ImportCloudBatch =
     Future<({int imported, int failed})> Function(String name, String path);
+typedef ReadCloudBook =
+    Future<void> Function(
+      BuildContext context,
+      CloudBookEntry entry,
+      CloudSourceConfig config,
+    );
 
 class CloudLibraryPage extends StatelessWidget {
   const CloudLibraryPage({
@@ -27,6 +33,7 @@ class CloudLibraryPage extends StatelessWidget {
     required this.onImport,
     this.onImportBatch,
     this.onAddCloud,
+    this.onReadCloud,
     this.booklists = const {},
     this.reduceMotion = false,
   });
@@ -34,6 +41,7 @@ class CloudLibraryPage extends StatelessWidget {
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
   final AddCloudBook? onAddCloud;
+  final ReadCloudBook? onReadCloud;
   final Map<String, String> booklists;
   final bool reduceMotion;
   Future<void> _edit(BuildContext context, CloudSourceKind kind) async {
@@ -85,14 +93,15 @@ class CloudLibraryPage extends StatelessWidget {
           onImport: onImport,
           onImportBatch: onImportBatch,
           onAddCloud: onAddCloud,
+          onReadCloud: onReadCloud,
           booklists: booklists,
         ),
         reduceMotion: reduceMotion,
       );
   @override
   Widget build(BuildContext context) => _CloudScaffold(
-    title: '网盘导入',
-    code: 'LOCAL / CLOUD SOURCES',
+    title: '网盘在线阅读',
+    code: 'ONLINE / CLOUD SOURCES',
     child: AnimatedBuilder(
       animation: settings,
       builder: (context, _) => Column(
@@ -101,8 +110,8 @@ class CloudLibraryPage extends StatelessWidget {
           const ArchiveSection(title: '网盘来源', code: 'BOOKS / DOCUMENTS'),
           const SizedBox(height: 12),
           const AppText(
-            '浏览网盘或直链，选择书籍导入书架；导入过程只使用临时缓存，'
-            '完成后由书架保存，不会在下载目录留下副本。',
+            '点账号登录后直接浏览网盘；点书即在线读取，只把正文读进内存，'
+            '不下载到本地。需要离线保存时再手动勾选导入。',
             style: TextStyle(fontSize: 13, height: 1.65),
           ),
           const SizedBox(height: 24),
@@ -688,10 +697,17 @@ class _CloudEntryArt extends StatelessWidget {
       'AZW' ||
       'AZW3' => (CupertinoIcons.book_fill, const Color(0xFF8A5CF6)),
       'PDF' => (CupertinoIcons.doc_plaintext, const Color(0xFFE05B4F)),
+      'DOC' ||
+      'DOCX' ||
+      'ODT' => (CupertinoIcons.doc_plaintext, const Color(0xFFE08A3C)),
+      'FB2' => (CupertinoIcons.book, const Color(0xFF7D5BBE)),
+      'RTF' => (CupertinoIcons.doc_text, const Color(0xFF9A7B4F)),
       'TXT' ||
       'MD' ||
+      'MARKDOWN' ||
       'HTML' ||
-      'HTM' => (CupertinoIcons.doc_text, const Color(0xFF3A8F68)),
+      'HTM' ||
+      'XHTML' => (CupertinoIcons.doc_text, const Color(0xFF3A8F68)),
       'ZIP' ||
       'RAR' ||
       '7Z' => (CupertinoIcons.archivebox_fill, const Color(0xFFB07A35)),
@@ -743,6 +759,7 @@ class CloudBookBrowser extends StatefulWidget {
     required this.onImport,
     this.onImportBatch,
     this.onAddCloud,
+    this.onReadCloud,
     this.booklists = const {},
     this.client,
   });
@@ -751,6 +768,7 @@ class CloudBookBrowser extends StatefulWidget {
   final ImportCloudBook onImport;
   final ImportCloudBatch? onImportBatch;
   final AddCloudBook? onAddCloud;
+  final ReadCloudBook? onReadCloud;
   final Map<String, String> booklists;
   final CloudBookClient? client;
   @override
@@ -762,6 +780,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
   final _folders = <({String id, String name})>[];
   final _selected = <String, CloudBookEntry>{};
   final _imported = <String>{};
+  String? _readingOnline;
   List<CloudBookEntry> _entries = [];
   int? _next;
   bool _loading = true,
@@ -896,6 +915,21 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
       _next = null;
     });
     _load();
+  }
+
+  Future<void> _readOnline(CloudBookEntry entry) async {
+    final reader = widget.onReadCloud;
+    if (reader == null || _importing || _loading || _readingOnline != null) {
+      return;
+    }
+    setState(() => _readingOnline = entry.id);
+    try {
+      await reader(context, entry, widget.config);
+    } catch (error) {
+      if (mounted) showNovelFeedback(context, cloudFailureMessage(error));
+    } finally {
+      if (mounted) setState(() => _readingOnline = null);
+    }
   }
 
   Future<void> _import(List<CloudBookEntry> entries) async {
@@ -1062,7 +1096,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                           ? '搜索「$_query」：找到 ${_entries.length} 本'
                           : widget.config.kind.isDirectLink
                           ? '直链书籍可直接加入书单在线阅读，不下载原文件；也可以选择传统导入保存到本机。'
-                          : '支持电子书与常见文档，可勾选批量导入；ZIP 内的分卷会一起识别。',
+                          : '点书直接在线读取，不下载到本地；勾选后可批量导入本地，ZIP 内的分卷会一起识别。',
                       style: const TextStyle(height: 1.65),
                     ),
                     const SizedBox(height: 16),
@@ -1087,11 +1121,10 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                         child: const AppText('取消导入'),
                       ),
                     ] else if (_selected.isNotEmpty) ...[
-                      if (widget.onAddCloud != null &&
-                          widget.config.kind.isDirectLink) ...[
+                      if (widget.onAddCloud != null) ...[
                         GlassPillButton(
                           icon: CupertinoIcons.book,
-                          label: '加入书单 · 在线读 ${_selected.length} 本',
+                          label: '加入书单 · 在线阅读 ${_selected.length} 本',
                           onPressed: () async {
                             String? groupId;
                             if (widget.booklists.isNotEmpty) {
@@ -1124,7 +1157,10 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                               );
                             }
                             if (!mounted) return;
-                            showNovelFeedback(context, '已加入书单，点开即在线阅读，不下载原文件');
+                            showNovelFeedback(
+                              context,
+                              '已加入书单 · ${widget.config.kind.label}，点开即在线阅读，不下载到本地',
+                            );
                           },
                         ),
                         const SizedBox(height: 12),
@@ -1184,10 +1220,15 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                           const SizedBox(width: 14),
                           Expanded(
                             child: JellyTapSurface(
-                              onTap: _importing || _loading
+                              onTap:
+                                  _importing ||
+                                      _loading ||
+                                      _readingOnline != null
                                   ? null
                                   : () => entry.folder
                                         ? _enter(entry)
+                                        : widget.onReadCloud != null
+                                        ? _readOnline(entry)
                                         : _import([entry]),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
@@ -1206,10 +1247,12 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                                     if (!entry.folder)
                                       AppText(
                                         _imported.contains(entry.id)
-                                            ? '已导入'
+                                            ? '已导入本地'
+                                            : _readingOnline == entry.id
+                                            ? '正在打开在线阅读…'
                                             : entry.size > 0
-                                            ? formatCacheBytes(entry.size)
-                                            : '大小未知',
+                                            ? '${formatCacheBytes(entry.size)} · 点开在线读'
+                                            : '点开在线读，不下载到本地',
                                         style: TextStyle(
                                           fontSize: 12,
                                           height: 1.6,

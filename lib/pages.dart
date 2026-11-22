@@ -43,6 +43,7 @@ import 'book_source_badge.dart';
 import 'book_search.dart';
 import 'blocked_tags_controls.dart';
 import 'catalog.dart';
+import 'cloud_document_service.dart';
 import 'glass_dock.dart';
 import 'home_navigation.dart';
 import 'library_state.dart';
@@ -296,6 +297,16 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               widget.state,
               widget.repository,
               entry: ReadingEntry.local,
+            ),
+            onReadRemote: (page, book) => pushNovelPage<void>(
+              page,
+              ReaderLoaderPage(
+                novel: book,
+                state: widget.state,
+                repository: widget.repository,
+              ),
+              reduceMotion: widget.state.reduceMotion,
+              slot: ('reader-entry', book.id),
             ),
             onOpenWithCover: (page, book, tag) => openDetail(
               page,
@@ -1569,6 +1580,22 @@ void openDetail(
   bool forceDetails = false,
   ReadingEntry entry = ReadingEntry.discovery,
 }) {
+  if (novel.remoteUrl != null && !forceDetails) {
+    unawaited(
+      pushNovelPage<void>(
+        context,
+        ReaderLoaderPage(
+          novel: novel,
+          state: state,
+          repository: repository,
+          fromCache: false,
+        ),
+        reduceMotion: state.reduceMotion,
+        slot: ('reader-entry', novel.id),
+      ),
+    );
+    return;
+  }
   if (state.directReadingOn(entry) && !forceDetails) {
     unawaited(
       pushNovelPage<void>(
@@ -1920,6 +1947,16 @@ class ShelfPage extends StatefulWidget {
                         repository,
                         entry: ReadingEntry.local,
                       ),
+                      onReadRemote: (page, book) => pushNovelPage<void>(
+                        page,
+                        ReaderLoaderPage(
+                          novel: book,
+                          state: state,
+                          repository: repository,
+                        ),
+                        reduceMotion: state.reduceMotion,
+                        slot: ('reader-entry', book.id),
+                      ),
                       onOpenWithCover: (page, book, tag) => openDetail(
                         page,
                         book,
@@ -2166,9 +2203,7 @@ class _ShelfPageState extends State<ShelfPage>
       reduceMotion: state.reduceMotion,
       animateEntrance: true,
       repeatFill: state.shelfPreferences.repeatFill,
-      sourceLabel: state.combinedShelf
-          ? (book) => bookshelfSource(book.id, _offline)
-          : null,
+      sourceLabel: (book) => bookshelfSource(book.id, _offline, book: book),
       onOpen: (book, tag) => openDetail(
         context,
         book,
@@ -2707,9 +2742,7 @@ class _ShelfPageState extends State<ShelfPage>
   Widget _gridRow(BuildContext context, Novel book) => BookGridTile(
     key: ValueKey('shelf-grid-book-${book.id}'),
     book: book,
-    sourceLabel: state.combinedShelf
-        ? bookshelfSource(book.id, _offline)
-        : null,
+    sourceLabel: bookshelfSource(book.id, _offline, book: book),
     coverHeroTag: CoverHeroTag(this, book.id),
     progress: _progressLabel(book),
     onTap: () => openDetail(
@@ -2737,9 +2770,7 @@ class _ShelfPageState extends State<ShelfPage>
   Widget _row(BuildContext context, Novel book) => NovelRow(
     key: ValueKey('shelf-book-${book.id}'),
     novel: book,
-    sourceLabel: state.combinedShelf
-        ? bookshelfSource(book.id, _offline)
-        : null,
+    sourceLabel: bookshelfSource(book.id, _offline, book: book),
     coverHeroTag: CoverHeroTag(this, book.id),
     onTap: () => openDetail(
       context,
@@ -2927,7 +2958,11 @@ class _ShelfPageState extends State<ShelfPage>
           ),
           GlassMenuItem(
             order: 1,
-            label: !state.contains(id) ? '加入收藏书架' : '移出书架',
+            label: !state.contains(id)
+                ? '加入收藏书架'
+                : book?.remoteUrl != null
+                ? '删除在线阅读记录'
+                : '移出书架',
             onPressed: () => Navigator.pop(
               menuContext,
               state.contains(id) ? 'remove' : 'add',
@@ -2962,9 +2997,21 @@ class _ShelfPageState extends State<ShelfPage>
       return;
     }
     if (action != 'remove' || !state.contains(id)) return;
+    final remote = book?.remoteUrl != null && !isLocalBook(id);
+    if (remote &&
+        !await confirmNovelAction(
+          this.context,
+          title: '删除此小说记录？',
+          message: '只会删除书架里的这本在线书记录，网盘原文件不会被删除，也不会下载到本地。',
+          confirmLabel: '删除记录',
+          reduceMotion: state.reduceMotion,
+        )) {
+      return;
+    }
     final addedAt = state.addedAt(id);
     try {
       await state.setShelfMembership(id, false);
+      if (remote) CloudDocumentService.instance.forget(id);
     } catch (_) {
       if (context.mounted) showNovelFeedback(context, '书架操作保存失败，请重试');
       return;
@@ -2973,7 +3020,11 @@ class _ShelfPageState extends State<ShelfPage>
     if (!mounted) return;
     showNovelFeedback(
       this.context,
-      _offline?.availableOffline(id) == true ? '已移出书架，缓存和阅读进度保留' : '已移出书架',
+      remote
+          ? '已删除在线阅读记录，网盘原文件保留'
+          : _offline?.availableOffline(id) == true
+          ? '已移出书架，缓存和阅读进度保留'
+          : '已移出书架',
       actionLabel: '撤销',
       action: () async {
         if (!state.contains(id) && state.shelfRevision(id) == revision) {
@@ -3905,12 +3956,14 @@ class InlineSearchResults extends StatelessWidget {
                                 book.id,
                               )),
                               novel: book,
-                              sourceLabel: showSources
+                              sourceLabel:
+                                  showSources || book.sourceLabel != null
                                   ? bookshelfSource(
                                       book.id,
                                       repository is OfflineNovelRepository
                                           ? repository as OfflineNovelRepository
                                           : null,
+                                      book: book,
                                     )
                                   : null,
                               coverHeroTag: hero,
@@ -4136,12 +4189,13 @@ class InlineSearchResults extends StatelessWidget {
               placeholder: const BookRowSkeleton(),
               child: NovelRow(
                 novel: book,
-                sourceLabel: showSources
+                sourceLabel: showSources || book.sourceLabel != null
                     ? bookshelfSource(
                         book.id,
                         repository is OfflineNovelRepository
                             ? repository as OfflineNovelRepository
                             : null,
+                        book: book,
                       )
                     : null,
                 coverHeroTag: CoverHeroTag(context, book.id),
@@ -4991,7 +5045,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                 () => AppText(
                   loadError != null
                       ? '目录暂未载入'
-                      : '${novel.isComplete ? '已完结' : '连载中'} · ${bookshelfSource(novel.id, repository is OfflineNovelRepository ? repository as OfflineNovelRepository : null)}',
+                      : '${novel.isComplete ? '已完结' : '连载中'} · ${bookshelfSource(novel.id, repository is OfflineNovelRepository ? repository as OfflineNovelRepository : null, book: novel)}',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontSize: 13,
@@ -7218,9 +7272,15 @@ class _ReaderPageState extends State<ReaderPage>
   }
 
   void _prefetchAdjacent() {
-    _automaticContent.removeWhere((index, _) => (index - _chapter).abs() > modPrefetchRadius);
-    _preparedContent.removeWhere((index, _) => (index - _chapter).abs() > modPrefetchRadius);
-    _preparedDisplay.removeWhere((index, _) => (index - _chapter).abs() > modPrefetchRadius);
+    _automaticContent.removeWhere(
+      (index, _) => (index - _chapter).abs() > modPrefetchRadius,
+    );
+    _preparedContent.removeWhere(
+      (index, _) => (index - _chapter).abs() > modPrefetchRadius,
+    );
+    _preparedDisplay.removeWhere(
+      (index, _) => (index - _chapter).abs() > modPrefetchRadius,
+    );
     // The continuous view owns its next/previous slots and inline retry state.
     if (!_paginated && !_readerPreferences.chapterEntrance) {
       _scrollStream.prepareAdjacent();

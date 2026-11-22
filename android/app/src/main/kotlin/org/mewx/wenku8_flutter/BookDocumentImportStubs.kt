@@ -1,40 +1,62 @@
 package org.mewx.wenku8_flutter
 
 import android.app.Activity
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 
 /**
  * 公开源码构建的文档转换占位实现。
  *
- * 上游公开仓库未包含 archive/markup/PDF 转换模块，这里提供可编译、
- * 可运行的降级实现：把原文件复制进应用暂存目录并返回，不进行格式转换。
+ * 公开构建保留纯 Dart 转换；这里只补齐 PDF 的文本提取和暂存回退。
  */
-internal class BookPdfImport(@Suppress("UNUSED_PARAMETER") activity: Activity,
-                             @Suppress("UNUSED_PARAMETER") root: File) {
-    fun read(@Suppress("UNUSED_PARAMETER") file: File): String? = null
+internal class BookPdfImport(activity: Activity,
+                            @Suppress("UNUSED_PARAMETER") root: File) {
+    init {
+        PDFBoxResourceLoader.init(activity.applicationContext)
+    }
+
+    fun read(file: File): String? = try {
+        PDDocument.load(file).use { document ->
+            PDFTextStripper().getText(document).trim().ifEmpty { null }
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 internal class BookMarkupImport(@Suppress("UNUSED_PARAMETER") root: File,
-                                @Suppress("UNUSED_PARAMETER") reader: (File) -> String?) {
-    @Suppress("UNUSED_PARAMETER")
-    fun convert(source: File, target: File): Boolean = false
+                                private val reader: (File) -> String?) {
+    fun convert(source: File, target: File): Boolean {
+        if (source.extension.lowercase() != "pdf") return false
+        val text = reader(source)?.trim().orEmpty()
+        if (text.isEmpty()) return false
+        return try {
+            target.parentFile?.mkdirs()
+            target.writeText(text)
+            target.length() > 0
+        } catch (_: Exception) {
+            false
+        }
+    }
 }
 
 internal class BookArchiveImport(private val root: File) {
-    var documents: Any? = null
+    var documents: BookMarkupImport? = null
 
     companion object {
         const val MAX_ARCHIVE: Long = 512L * 1024L * 1024L
         val supportedExtensions = setOf(
             "txt", "epub", "mobi", "azw", "azw3", "prc", "fb2", "pdf",
-            "doc", "docx", "rtf", "html", "htm", "xhtml", "md", "markdown", "zip",
+            "docx", "odt", "rtf", "html", "htm", "xhtml", "md", "markdown", "zip",
         )
 
         fun supported(name: String): Boolean =
             name.substringAfterLast('.', "").lowercase() in supportedExtensions
 
         fun limit(name: String): Long = when (name.substringAfterLast('.', "").lowercase()) {
-            "epub", "pdf", "docx", "zip" -> 512L * 1024L * 1024L
+            "epub", "pdf", "docx", "odt", "zip" -> 512L * 1024L * 1024L
             "mobi", "azw", "azw3", "prc" -> 256L * 1024L * 1024L
             "html", "htm", "xhtml", "md", "markdown" -> 32L * 1024L * 1024L
             else -> 128L * 1024L * 1024L
@@ -50,8 +72,16 @@ internal class BookArchiveImport(private val root: File) {
         if (source == null || !source.isFile) {
             return listOf(mapOf("name" to name, "path" to null, "error" to "源文件不可读取"))
         }
+        val safe = name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         return try {
-            val target = File(root, name.replace(Regex("[\\\\/:*?\"<>|]"), "_")).apply { parentFile?.mkdirs() }
+            if (source.extension.equals("pdf", ignoreCase = true) && documents != null) {
+                val target = File(root, safe.substringBeforeLast('.', safe) + ".txt")
+                if (documents!!.convert(source, target)) {
+                    return listOf(mapOf("name" to target.name, "path" to target.path, "error" to null))
+                }
+                return listOf(mapOf("name" to name, "path" to null, "error" to "PDF 没有可提取的文字"))
+            }
+            val target = File(root, safe).apply { parentFile?.mkdirs() }
             source.copyTo(target, overwrite = true)
             listOf(mapOf("name" to name, "path" to target.path, "error" to null))
         } catch (error: Exception) {

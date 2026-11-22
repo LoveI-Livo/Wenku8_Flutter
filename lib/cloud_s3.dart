@@ -79,6 +79,63 @@ Map<String, String> s3SignedHeaders(
   };
 }
 
+/// Creates a short-lived SigV4 query URL so an online reader can fetch one
+/// object without replaying the S3 secret as an HTTP header.
+String s3PresignedUrl(
+  CloudSourceConfig config,
+  String key, {
+  Duration ttl = const Duration(hours: 12),
+}) {
+  final uri = _s3Uri(config, key);
+  final utc = DateTime.now().toUtc();
+  String two(int v) => '$v'.padLeft(2, '0');
+  final day = '${utc.year}${two(utc.month)}${two(utc.day)}';
+  final stamp = '${day}T${two(utc.hour)}${two(utc.minute)}${two(utc.second)}Z';
+  final scope = '${day}/${config.region}/s3/aws4_request';
+  final params = <String, String>{
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': '${config.username}/$scope',
+    'X-Amz-Date': stamp,
+    'X-Amz-Expires': '${ttl.inSeconds}',
+    'X-Amz-SignedHeaders': 'host',
+    if (config.sessionToken.isNotEmpty)
+      'X-Amz-Security-Token': config.sessionToken,
+  };
+  final canonicalQuery =
+      (params.entries.map((e) => (s3Encode(e.key), s3Encode(e.value))).toList()
+            ..sort(
+              (a, b) =>
+                  a.$1 == b.$1 ? a.$2.compareTo(b.$2) : a.$1.compareTo(b.$1),
+            ))
+          .map((e) => '${e.$1}=${e.$2}')
+          .join('&');
+  final canonicalRequest =
+      'GET\n${uri.path.isEmpty ? '/' : uri.path}\n$canonicalQuery\n'
+      'host:${uri.authority}\n\nhost\nUNSIGNED-PAYLOAD';
+  final stringToSign =
+      'AWS4-HMAC-SHA256\n$stamp\n$scope\n'
+      '${sha256.convert(utf8.encode(canonicalRequest))}';
+  List<int> hmac(List<int> key, String value) =>
+      Hmac(sha256, key).convert(utf8.encode(value)).bytes;
+  var signing = hmac(utf8.encode('AWS4${config.password}'), day);
+  for (final part in [config.region, 's3', 'aws4_request']) {
+    signing = hmac(signing, part);
+  }
+  final signature = Hmac(
+    sha256,
+    signing,
+  ).convert(utf8.encode(stringToSign)).toString();
+  return uri
+      .replace(
+        queryParameters: {
+          ...uri.queryParameters,
+          ...params,
+          'X-Amz-Signature': signature,
+        },
+      )
+      .toString();
+}
+
 class S3SyncConnection {
   const S3SyncConnection({
     required this.config,
@@ -264,7 +321,8 @@ class S3BookClient implements CloudBookClient {
   @override
   String get root => _s3Root(config);
   @override
-  Future<String?> directLink(CloudBookEntry entry) async => entry.id;
+  Future<String?> directLink(CloudBookEntry entry) async =>
+      s3PresignedUrl(config, entry.id);
   Uri _uri(String key, [Map<String, String>? query]) {
     if (query == null && !key.startsWith(root)) {
       throw const CloudSourceFailure('文件不在已配置的 S3 目录内');

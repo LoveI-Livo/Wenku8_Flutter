@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'book_import_limits.dart';
 import 'local_platform.dart';
 import 'portable_book_prepare.dart';
+import 'portable_book_text.dart';
 
 class BookDocumentSelection {
   const BookDocumentSelection({
@@ -437,8 +438,9 @@ class BookDocuments {
     if (failure != null) Error.throwWithStackTrace(failure, failureStack!);
   }
 
-  /// Existing TXT/EPUB callers keep their original, platform-independent path.
-  /// MOBI is reconstructed as EPUB and ZIP yields a batch of staged originals.
+  /// Existing TXT/EPUB callers keep their original path. Formats the public
+  /// build can read in pure Dart are converted to disposable TXT files; the
+  /// remaining containers use the native fallback.
   Future<List<BookDocumentSelection>> prepareBook(
     BookDocumentSelection book,
   ) async {
@@ -447,58 +449,56 @@ class BookDocuments {
         RegExp(r'\.(txt|epub)$', caseSensitive: false).hasMatch(book.name)) {
       return [book];
     }
+    BookDocumentSelection? working;
     try {
-      final portableFormat =
-          RegExp(
-            r'\.(zip|html?|xhtml|md|markdown|fb2|docx|rtf|mobi|azw|azw3|prc|pdf)$',
-            caseSensitive: false,
-          ).hasMatch(book.name) &&
-          (_preparer != null || Platform.isIOS || LocalPlatform.harmony);
-      BookDocumentSelection? working;
-      try {
-        if (portableFormat && book.reference != null) {
-          working = BookDocumentSelection.fromMap(
-            (await channel.invokeMapMethod<String, dynamic>(
-              'stageLinkedDocument',
-              {'reference': book.reference},
-            ))!,
-          );
-        }
-        final List<PreparedBookDocument> values;
-        if (portableFormat) {
-          values = await (await _portablePreparer()).prepare(
-            book.name,
-            working?.path ?? book.path!,
-          );
-        } else if (book.reference != null) {
-          final converted = await channel.invokeListMethod<dynamic>(
-            'prepareLinkedDocument',
-            {'name': book.name, 'reference': book.reference},
-          );
-          values = [
-            for (final value in converted ?? const [])
-              (
-                name: value['name'] as String,
-                path: value['path'] as String?,
-                error: value['error'] as String?,
-              ),
-          ];
-        } else {
-          values = await _prepareNative(book.name, book.path!);
-        }
+      if (book.reference != null) {
+        working = BookDocumentSelection.fromMap(
+          (await channel.invokeMapMethod<String, dynamic>(
+            'stageLinkedDocument',
+            {'reference': book.reference},
+          ))!,
+        );
+      }
+      final source = working ?? book;
+      final path = source.path;
+      if (path == null) return [book];
+      if (PortableBookText.handles(book.name)) {
+        final cache = await getTemporaryDirectory();
+        final directory = Directory('${cache.path}/portable-text-import');
+        final values = await PortableBookText.prepare(
+          book.name,
+          path,
+          directory,
+        );
         return [
           for (final value in values)
             BookDocumentSelection(
               name: value.name,
               path: value.path,
               error: value.error,
-              originReference: book.reference,
-              originName: book.reference == null ? null : book.name,
             ),
         ];
-      } finally {
-        if (working != null) await releaseBooks([working]);
       }
+      final portableFormat =
+          RegExp(
+            r'\.(zip|html?|xhtml|md|markdown|fb2|docx|odt|rtf|mobi|azw|azw3|prc|pdf)$',
+            caseSensitive: false,
+          ).hasMatch(book.name) &&
+          (_preparer != null || Platform.isIOS || LocalPlatform.harmony);
+      final List<PreparedBookDocument> values;
+      if (portableFormat) {
+        values = await (await _portablePreparer()).prepare(book.name, path);
+      } else {
+        values = await _prepareNative(book.name, path);
+      }
+      return [
+        for (final value in values)
+          BookDocumentSelection(
+            name: value.name,
+            path: value.path,
+            error: value.error,
+          ),
+      ];
     } on PlatformException catch (failure) {
       return [
         BookDocumentSelection(
@@ -506,6 +506,8 @@ class BookDocuments {
           error: failure.message ?? '无法解析这本书',
         ),
       ];
+    } finally {
+      if (working != null) await releaseBooks([working]);
     }
   }
 
