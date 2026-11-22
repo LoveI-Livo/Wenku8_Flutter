@@ -9,7 +9,7 @@ import 'reading_widget_snapshot.dart';
 
 /// Physical pixels per logical pixel for the PNG payloads. Native hosts ask for
 /// the same three sizes at this scale, so one constant keeps them consistent.
-const double readingWidgetReferencePixelRatio = 3;
+const double readingWidgetReferencePixelRatio = 2.2;
 
 /// Renders one card face to PNG bytes.
 ///

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_ui.dart';
 import 'lan_reading_sync.dart';
 
 class LanReadingPage extends StatelessWidget {
@@ -20,17 +21,42 @@ class LanReadingPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          const Text('当前构建未启用局域网续读', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          Text(
-            '在同一 Wi-Fi 下的设备之间接着上次的位置继续阅读，依赖原工程未公开的模块。'
-            '本改版补回了接口，因此工程可以编译，但这一功能本身暂不可用。',
-            style: TextStyle(fontSize: 13, height: 1.7, color: muted),
+          Row(
+            children: [
+              Icon(
+                sync.listening ? Icons.wifi_tethering : Icons.wifi_off,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  sync.listening ? '局域网续读已开启' : '局域网续读未能启动',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Text(
-            '不影响：书架、阅读进度、书签、听书、本地导入、网盘导入、统计与备份恢复。',
+            '本机：${sync.deviceName}\n'
+            '两台设备连同一个 Wi-Fi，不需要登录、不需要服务器。'
+            '在阅读器里打开「发送到我的设备」，另一台设备会自动弹出续读卡片。',
             style: TextStyle(fontSize: 13, height: 1.7, color: muted),
+          ),
+          const SizedBox(height: 20),
+          const Text('要求', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Text(
+            '· 两台设备都已安装本 App，并允许本地网络权限\n'
+            '· 两台设备在同一 Wi-Fi，且不是访客网络隔离\n'
+            '· 接收方已导入或缓存同一本书\n'
+            '· 续读只传章节与阅读位置，不传账号、Cookie、书源密码或整本书',
+            style: TextStyle(fontSize: 13, height: 1.8, color: muted),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            '如果系统没有弹出本地网络授权，请到系统设置中允许本 App 访问本地网络。',
+            style: TextStyle(fontSize: 12, height: 1.7, color: muted),
           ),
         ],
       ),

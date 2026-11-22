@@ -106,8 +106,10 @@ class ReadingWidgetCards extends ChangeNotifier {
 
   Future<void> attach() => _loading ??= _load();
   Future<void> _load() async {
+    await _cleanStaleCache();
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(preferenceKey);
+    final hadStoredCards = stored != null;
     if (stored != null) {
       try {
         _cards = (jsonDecode(stored) as List)
@@ -116,21 +118,31 @@ class ReadingWidgetCards extends ChangeNotifier {
             .toList();
       } catch (_) {}
     }
-    if (_cards.isEmpty) {
+    // 旧版首次安装会生成五张默认卡片；未改动过的默认组合收敛为一张。
+    if (_cards.length == designs.length &&
+        _cards.every((card) {
+          final design = designs.firstWhere((d) => d.name == card.id, orElse: () => ReadingWidgetDesign.focus);
+          return card.id == design.name && card.label == design.label;
+        })) {
+      final focus = _cards.firstWhere((card) => card.id == ReadingWidgetDesign.focus.name);
+      _cards = [focus];
+      await _save();
+    }
+    if (_cards.isEmpty && !hadStoredCards) {
       final oldSkin = ReadingWidgetSkin.fromId(
         prefs.getString('reading_widgets_skin_v1'),
       );
+      // 默认只创建一张，避免首次安装就为五种主题生成几十张 PNG。
       _cards = [
-        for (final design in designs)
-          ReadingWidgetCardConfig(
-            id: design.name,
-            design: design,
-            skin: oldSkin == ReadingWidgetSkin.original
-                ? ReadingWidgetSkin.seasons
-                : oldSkin,
-            showBookDetails:
-                prefs.getBool('reading_widgets_book_details_v1') ?? false,
-          ),
+        ReadingWidgetCardConfig(
+          id: ReadingWidgetDesign.focus.name,
+          design: ReadingWidgetDesign.focus,
+          skin: oldSkin == ReadingWidgetSkin.original
+              ? ReadingWidgetSkin.seasons
+              : oldSkin,
+          showBookDetails:
+              prefs.getBool('reading_widgets_book_details_v1') ?? false,
+        ),
       ];
       await _save();
     }
@@ -140,6 +152,20 @@ class ReadingWidgetCards extends ChangeNotifier {
     state.bookmarkChanges.addListener(_changed);
     notifyListeners();
     await publish();
+  }
+
+  Future<void> _cleanStaleCache() async {
+    try {
+      final root = await getTemporaryDirectory();
+      await for (final entity in root.list(followLinks: false)) {
+        if (entity is Directory &&
+            entity.path.split(Platform.pathSeparator).last.startsWith('reading-cards-')) {
+          try {
+            await entity.delete(recursive: true);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _save() async {
@@ -154,6 +180,14 @@ class ReadingWidgetCards extends ChangeNotifier {
     final index = _cards.indexWhere((v) => v.id == card.id);
     if (index < 0) throw StateError('小组件已移除');
     _cards[index] = card;
+    await _save();
+    notifyListeners();
+    await publish();
+  }
+
+  Future<void> remove(String id) async {
+    await attach();
+    _cards.removeWhere((card) => card.id == id);
     await _save();
     notifyListeners();
     await publish();

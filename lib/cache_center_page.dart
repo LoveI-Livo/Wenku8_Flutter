@@ -32,6 +32,7 @@ class CacheCenterPage extends StatefulWidget {
 }
 
 class _CacheCenterPageState extends State<CacheCenterPage> {
+  final _scroll = ScrollController();
   bool _measuring = true;
   bool _busy = false;
   int _chapterBytes = 0;
@@ -43,6 +44,12 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
   void initState() {
     super.initState();
     _measure();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
   }
 
   Future<void> _measure() async {
@@ -208,13 +215,15 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    final total = _chapterBytes + _tempBytes + _imageBytes;
+    // 图片缓存是运行期内存，不占安装存储；不计入“已占用”，避免空书架也显示二十多 MB。
+    final total = _chapterBytes + _tempBytes;
     return ArchiveFeaturePage(
       title: '缓存与存储',
       code: 'SYSTEM / CACHE',
       child: ListView(
-        key: const PageStorageKey('cache-center'),
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+        controller: _scroll,
+        key: const ValueKey('cache-center'),
+        padding: featurePadding(context),
         children: [
           ArchiveSection(title: '当前占用', code: 'STORAGE / USAGE'),
           const SizedBox(height: 14),
@@ -233,8 +242,8 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
                 const SizedBox(height: 6),
                 AppText(
                   '正文 ${formatCacheBytes(_chapterBytes)}（$_chapterBooks 本） · '
-                  '图片 ${formatCacheBytes(_imageBytes)} · '
-                  '临时 ${formatCacheBytes(_tempBytes)}',
+                  '临时 ${formatCacheBytes(_tempBytes)}\n'
+                  '图片内存 ${formatCacheBytes(_imageBytes)}（仅运行期，占存储 0 B）',
                   style: TextStyle(fontSize: 12, height: 1.6, color: muted),
                 ),
               ],
@@ -267,7 +276,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
           _row(
             icon: CupertinoIcons.photo,
             title: '图片内存缓存',
-            subtitle: '当前运行期间缓存在内存里的封面与插图，清理后不会影响已下载的文件',
+            subtitle: '运行期内存，不占安装存储；清理后重新加载封面与插图',
             trailing: formatCacheBytes(_imageBytes),
             onTap: _busy
                 ? null

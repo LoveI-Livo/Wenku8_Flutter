@@ -112,6 +112,18 @@ class _WidgetCardsPageState extends State<ReadingWidgetSettingsPage> {
             child: ListView(
               padding: featurePadding(context),
               children: [
+                if (cards.cards.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: AppText(
+                      '还没有小组件配置，点下面的「新建小组件」添加一个。',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 for (final card in cards.cards)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 20),
@@ -296,6 +308,29 @@ class _ReadingWidgetSettingsPageState extends State<ReadingWidgetCardEditor> {
     }
   }
 
+  Future<void> _delete() async {
+    if (_saving) return;
+    final confirmed = await confirmNovelAction(
+      context,
+      title: '删除这个小组件？',
+      message: '只删除「${_card.label}」这套配置，已经放到桌面的系统小组件不会自动消失，可在桌面长按移除。',
+      confirmLabel: '删除',
+      reduceMotion: widget.state.reduceMotion,
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await _cards.remove(widget.cardId);
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _saving = false);
+        showNovelFeedback(context, '删除失败，请重试');
+      }
+    }
+  }
+
   Future<void> _editGoal() async {
     final value = await showJellySheet<int>(
       context: context,
@@ -475,6 +510,19 @@ class _ReadingWidgetSettingsPageState extends State<ReadingWidgetCardEditor> {
                     const ArchiveIcon(CupertinoIcons.arrow_clockwise, size: 18),
                     const SizedBox(width: 10),
                     AppText(_saving ? '正在更新' : '更新桌面组件'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              GlassTextButton(
+                key: const ValueKey('reading-widget-delete'),
+                onPressed: _saving ? null : _delete,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ArchiveIcon(CupertinoIcons.trash, size: 18),
+                    SizedBox(width: 10),
+                    AppText('删除这个小组件'),
                   ],
                 ),
               ),

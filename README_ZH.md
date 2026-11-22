@@ -4,15 +4,6 @@
   <a href="README.md" title="Read in English"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/language-en-inactive-dark.svg" /><img src="docs/images/language-en-inactive-light.svg" width="124" height="36" alt="English" /></picture></a><a href="README_ZH.md" title="简体中文 · 当前语言"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/language-zh-active-dark.svg" /><img src="docs/images/language-zh-active-light.svg" width="124" height="36" alt="简体中文（当前语言）" /></picture></a>
 </p>
 
-<a href="https://afdian.com/a/mikufoxxx">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/sponsor-zh-dark.svg" />
-    <img src="docs/images/sponsor-zh-light.svg" width="640" alt="在爱发电请我喝杯咖啡" />
-  </picture>
-</a>
-
-赞助完全自愿，所有功能仍免费使用。
-
 [项目主页 →](https://mikufoxxx.github.io/Wenku8_Flutter/zh.html)
 
 <p align="center">
