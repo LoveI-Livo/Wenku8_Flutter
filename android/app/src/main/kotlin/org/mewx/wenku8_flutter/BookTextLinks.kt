@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -38,9 +39,17 @@ internal class BookTextLinks(private val context: Context) {
     /** Copy a linked source into the import workspace when a format must be
      *  parsed through a path (PDF/DOCX/MOBI/ZIP). Copy mode already does this;
      *  linked mode previously had no Android implementation at all. */
+    private fun displayName(uri: Uri): String {
+        if (uri.scheme == "file") return File(uri.path!!).name.ifEmpty { "书籍" }
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) return cursor.getString(0)
+        }
+        return uri.lastPathSegment?.substringAfterLast('/')?.ifEmpty { "书籍" } ?: "书籍"
+    }
+
     fun stage(reference: String, root: File): Map<String, Any?> {
         val uri = source(reference)
-        val display = name(uri, "书籍")
+        val display = displayName(uri)
         val target = File.createTempFile("import-", ".source", root)
         try {
             val limit = BookArchiveImport.limit(display)
