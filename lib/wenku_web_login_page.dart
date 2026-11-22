@@ -39,7 +39,7 @@ class _WenkuWebLoginPageState extends State<WenkuWebLoginPage> {
       _error = null;
     });
     try {
-      final probe = current ?? WebUri(Wenku8Client.webLoginUrl);
+      final probe = current ?? WebUri(Wenku8Client.webLoginPageUrl);
       final cookies = await CookieManager.instance().getCookies(url: probe);
       final header = cookies
           .where((cookie) => cookie.value.isNotEmpty)
@@ -107,7 +107,7 @@ class _WenkuWebLoginPageState extends State<WenkuWebLoginPage> {
             child: InAppWebView(
               onWebViewCreated: (controller) => _web = controller,
               initialUrlRequest: URLRequest(
-                url: WebUri(Wenku8Client.webLoginUrl),
+                url: WebUri(Wenku8Client.webLoginPageUrl),
               ),
               initialSettings: InAppWebViewSettings(
                 javaScriptEnabled: true,

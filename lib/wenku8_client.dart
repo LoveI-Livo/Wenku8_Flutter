@@ -15,6 +15,7 @@ class Wenku8Client {
 
   static const apiUrl = 'http://app.wenku8.com/android.php/';
   static const webUrl = 'http://www.wenku8.net';
+  static const webLoginPageUrl = '$webUrl/login.php';
   static const webLoginUrl = '$webUrl/login.php?do=submit';
   static const _cookieKey = 'wenku8_session_cookie_v1';
   static const _keepSessionKey = 'wenku8_keep_session_v1';
@@ -179,7 +180,7 @@ class Wenku8Client {
   /// Loads the login form first, as the site expects, so the session Cookie
   /// exists before the credential POST. Some CDN/WAF setups reject a bare POST.
   Future<void> _warmWebLogin() async {
-    final request = await _http.getUrl(Uri.parse(webLoginUrl));
+    final request = await _http.getUrl(Uri.parse(webLoginPageUrl));
     request.headers.set(HttpHeaders.userAgentHeader, _browserUa);
     final response = await request.close().timeout(const Duration(seconds: 10));
     final changed = _absorbCookies(response);
