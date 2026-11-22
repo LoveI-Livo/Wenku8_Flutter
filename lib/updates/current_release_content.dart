@@ -12,22 +12,22 @@ const releaseProjectNotice =
 const releaseRightsNotice =
     '小说、封面和插图归各自权利人所有。请仅使用有权访问的内容，遵守来源网站规则，不得绕过访问限制、破解 DRM，或未经许可传播、出售内容。';
 const releaseReadingNotice = '**在线内容以轻小说文库开放状态为准，不提供因版权限制而停止开放的在线书籍阅读。**';
-const releaseMaintenanceNotice = '项目以稳定维护为主，后续非必要不再发版。';
-const _fonts = '新增 6 款可下载中文字体：霞鹜新晰黑、霞鹜新致宋、霞鹜晰黑、霞鹜致宋、975 圆体、975 黑体，共 20 款。';
-const _widgets = '小组件设置新增「添加到系统桌面」：Android 请求系统固定组件，iOS 按系统限制提示长按桌面添加。';
-const _cloud = '备份与恢复新增云端备份：可选 WebDAV 或 S3，也可随机选一个已连接网盘上传备份 JSON。';
-const _images = '阅读纪念新增 4 张内置插画：秋叶书签、黄昏列车、晨山云海、春雨窗边，全部打包进安装包。';
-const _cache = '缓存与存储继续按真实目录统计并真正清理：正文插图、网页与应用缓存、临时文件、小组件图片与图片内存。';
-const _lan = '局域网续读改为手动开启；开启时弹出系统本地网络权限，未授权不会监听。';
-const _performance = '启动与运行性能不回退：云备份配置只在备份页加载，图片全部本地读取，保留延迟初始化与 debounce。';
+const releaseMaintenanceNotice = '项目继续以稳定维护为主；账号、登录与阅读链路的明确问题仍会修复。';
+const _webLogin = '新增 App 内网页登录：打开官网登录表单，登录后自动读取 Cookie，不需要手动复制。';
+const _session = '修复网页登录 Cookie 被 API 未登录返回清除的问题：保留网页会话，登录一次后复用，不再反复重登。';
+const _accountLoad = '修复登录后账号资料与云书架加载不出来：API 不认网页会话时自动回退官网用户页和书架读取。';
+const _controls = '账号页补齐测试连接 NET/WEB、保持登录、官网会话说明、云书架与正在同步书架状态。';
+const _error = '登录失败原因直接显示在登录框下方，不再只显示“登不上”。';
+const _polling = '启动只自动校验一次会话，去掉反复轮询与重复登录，打开目录不会再被反复取消。';
+const _keep = '0.6.8 的 20 款字体、云端备份、内置插画、真实缓存清理全部保留。';
 const _changes = [
-  _fonts,
-  _widgets,
-  _cloud,
-  _images,
-  _cache,
-  _lan,
-  _performance,
+  _webLogin,
+  _session,
+  _accountLoad,
+  _controls,
+  _error,
+  _polling,
+  _keep,
 ];
 const _androidInstall = '**Android**：直接覆盖更新，不要先卸载旧版。';
 const _iosInstall = '**iOS**：提供未签名包，主应用与小组件均需自行签名。';
@@ -50,13 +50,13 @@ $releaseReadingNotice
 
 ### 本次更新
 
-- $_fonts
-- $_widgets
-- $_cloud
-- $_images
-- $_cache
-- $_lan
-- $_performance
+- $_webLogin
+- $_session
+- $_accountLoad
+- $_controls
+- $_error
+- $_polling
+- $_keep
 
 ### 后续维护
 

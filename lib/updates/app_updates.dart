@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../legacy_transport.dart';
 
 export 'current_release_content.dart'
@@ -18,16 +19,15 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: officialUpdateRepository,
 );
-const currentAppVersion = '0.6.8';
-const currentAppBuild = 3008;
+const currentAppVersion = '0.6.9';
+const currentAppBuild = 3009;
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
   const ReleaseVersion(this.major, this.minor, this.patch, [this.build = 0]);
   final int major, minor, patch, build;
   static ReleaseVersion? parse(String value) {
-    final match = RegExp(
-      r'^v?(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?$',
-    ).firstMatch(value);
+    final match = RegExp(r'^v?(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?$')
+        .firstMatch(value);
     if (match == null) return null;
     final parts = [for (var i = 1; i <= 4; i++) int.tryParse(match[i] ?? '0')];
     if (parts.any((n) => n == null || n > 2100000000)) return null;
