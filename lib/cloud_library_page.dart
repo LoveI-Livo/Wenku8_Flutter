@@ -42,7 +42,10 @@ class CloudLibraryPage extends StatelessWidget {
       CloudConnectionPage(settings: settings, kind: kind),
       reduceMotion: reduceMotion,
     );
-    if (context.mounted && config != null) await _browse(context, config);
+    if (context.mounted && config != null) {
+      await CloudCatalogSearch.instance.reload();
+      if (context.mounted) await _browse(context, config);
+    }
   }
 
   Future<void> _loginAccount(BuildContext context, CloudSourceKind kind) async {
@@ -200,6 +203,7 @@ class CloudLibraryPage extends StatelessWidget {
                           onPressed: () async {
                             try {
                               await settings.save(kind, null);
+                              await CloudCatalogSearch.instance.reload();
                             } catch (e) {
                               if (context.mounted) {
                                 showNovelFeedback(
