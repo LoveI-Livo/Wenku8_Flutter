@@ -264,6 +264,8 @@ class ReaderIllustrationCache {
           ? await input
           : url.startsWith('wenku-local:')
           ? await LocalBookMedia.load(url)
+          : CloudBookMedia.handles(url)
+          ? await CloudBookMedia.loadCover(url)
           : CloudBookMedia.handlesMedia(url)
           ? await CloudBookMedia.loadMedia(url)
           : await offlineReader?.call(url) ?? await _request(url);
