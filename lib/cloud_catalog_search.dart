@@ -15,25 +15,10 @@ class CloudCatalogSearch {
   CloudCatalogSearch._();
   static final instance = CloudCatalogSearch._();
   final CloudSourceSettings settings = CloudSourceSettings();
-  DateTime? _loadedAt;
-  Future<void>? _loading;
 
-  Future<void> reload() async {
-    _loadedAt = null;
-    await _ensureLoaded();
-  }
-
-  Future<void> _ensureLoaded() async {
-    if (_loadedAt != null &&
-        DateTime.now().difference(_loadedAt!) < const Duration(minutes: 2)) {
-      return;
-    }
-    _loading ??= settings.load().whenComplete(() {
-      _loadedAt = DateTime.now();
-      _loading = null;
-    });
-    await _loading;
-  }
+  /// 每次搜索都重新读取当前已连接来源，新添加的网盘会自动进入搜索，
+  /// 不需要重启 App，也不依赖固定列表。
+  Future<void> reload() => settings.load();
 
   Future<List<Novel>> search(
     String query, {
@@ -41,7 +26,7 @@ class CloudCatalogSearch {
   }) async {
     final value = query.trim();
     if (value.isEmpty) return const [];
-    await _ensureLoaded();
+    await settings.load();
     final configs = settings.configs
         .where(
           (config) => switch (scope) {
