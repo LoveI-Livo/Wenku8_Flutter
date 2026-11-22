@@ -31,7 +31,6 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
   late final _title = TextEditingController(text: widget.book.title);
   late final _author = TextEditingController(text: widget.book.author);
   late final _summary = TextEditingController(text: widget.book.summary);
-  late final _cover = TextEditingController(text: widget.book.coverUrl ?? '');
   late List<String> _tags = widget.book.tags;
   LocalLibraryPreferences? _groups;
   String _group = LocalLibraryPreferences.unfiled;
@@ -49,7 +48,6 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
     _title.dispose();
     _author.dispose();
     _summary.dispose();
-    _cover.dispose();
     super.dispose();
   }
 
@@ -103,7 +101,6 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
         author: author,
         genre: _tags.join(' '),
         summary: _summary.text.trim(),
-        coverUrl: _cover.text.trim().isEmpty ? null : _cover.text.trim(),
       );
       await widget.library.setShelfMembership(
         updated.id,
@@ -235,13 +232,14 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
         maxLines: 6,
       ),
       const SizedBox(height: 20),
-      LocalBookEditField(
-        label: '封面地址（可选）',
-        controller: _cover,
-        inputKey: const ValueKey('online-edit-封面'),
-        enabled: !_busy,
-        maxLength: 500,
-        placeholder: 'https://…',
+      AppText(
+        '作者、简介和封面会在加入书架或首次打开时从原文件自动识别；'
+        '原文件始终留在网盘，不会保存到本机。',
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.55,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
       const SizedBox(height: 24),
       FeatureEntry(

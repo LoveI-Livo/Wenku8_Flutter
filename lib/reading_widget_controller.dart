@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'legacy_cover.dart';
 import 'library_state.dart';
+import 'cloud_book_media.dart';
 import 'local_book_media.dart';
 import 'local_platform.dart';
 import 'reading_moment_cover.dart';
@@ -470,7 +471,9 @@ Future<String?> cachedReadingWidgetCover(
     );
     final target = File('${directory.path}/$id.png');
     if (await target.exists()) return target.path;
-    final Uint8List bytes = url.startsWith('wenku-local:')
+    final Uint8List bytes = CloudBookMedia.handles(url)
+        ? await CloudBookMedia.loadCover(url)
+        : url.startsWith('wenku-local:')
         ? await LocalBookMedia.loadCover(url)
         : await LegacyCover.bytes(id, url: url);
     final codec = await ui.instantiateImageCodec(bytes, targetWidth: 360);

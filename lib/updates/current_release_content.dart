@@ -14,7 +14,9 @@ const releaseRightsNotice =
 const releaseReadingNotice = '**在线内容以轻小说文库开放状态为准，不提供因版权限制而停止开放的在线书籍阅读。**';
 const releaseMaintenanceNotice = '项目继续以稳定维护为主；账号、登录与阅读链路的明确问题仍会修复。';
 const _cloudShelf =
-    '网盘书新增独立的“加入书架（不下载）”：勾选后直接写入书架，不复制文件；加入后与普通在线书一致，详情页齿轮和书架菜单都能进入“书籍设置”，编辑书名、作者、标签、简介、封面地址和分类，也可移出书架并保留阅读进度。';
+    '网盘书新增独立的“加入书架（不下载）”：勾选后直接写入书架，不复制文件；加入后与普通在线书一致，详情页齿轮和书架菜单都能进入“书籍设置”，编辑书名、作者、标签、简介和分类，也可移出书架并保留阅读进度。';
+const _cloudMetadata =
+    '网盘书加入书架或首次打开时，从 EPUB / DOCX / ODT / FB2 / TXT / HTML 文件内识别书名、作者、简介、封面和 EPUB 正文插画；只缓存封面与插画，原文件仍留在网盘，不保存到本机。';
 const _threeSearch =
     '主搜索框拆成“文库搜索 / 网盘搜索 / 书源搜索”三个来源，支持书名、作者、标签、ID；网盘搜索覆盖所有已连接网盘（账号目录与直链），书源搜索检索 RSS/Atom，切换来源会保留当前关键词。';
 const _loginFix =
@@ -27,6 +29,7 @@ const _api =
 const _links = '保留关联导入修复：iOS 符号链接与授权失效回退副本，Android 关联文件转工作副本。';
 const _changes = [
   _cloudShelf,
+  _cloudMetadata,
   _threeSearch,
   _loginFix,
   _backupPick,
@@ -57,6 +60,7 @@ $releaseReadingNotice
 ### 本次更新
 
 - $_cloudShelf
+- $_cloudMetadata
 - $_threeSearch
 - $_loginFix
 - $_backupPick

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'catalog.dart';
 import 'legacy_cover.dart';
+import 'cloud_book_media.dart';
 import 'local_book_media.dart';
 import 'reading_moments.dart';
 
@@ -62,6 +63,8 @@ Future<String?> _capture(Novel book, String reference) async {
       return null;
     }
     source = LocalBookMedia.peek(url) ?? await LocalBookMedia.loadCover(url);
+  } else if (CloudBookMedia.handles(url)) {
+    source = CloudBookMedia.peek(url) ?? await CloudBookMedia.loadCover(url!);
   } else {
     source = LegacyCover.peek(book.id);
   }

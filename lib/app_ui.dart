@@ -14,6 +14,7 @@ import 'archive_icons.dart';
 import 'app_haptics.dart';
 import 'app_window_insets.dart';
 import 'catalog.dart';
+import 'cloud_book_media.dart';
 import 'local_book_media.dart';
 import 'local_book_import_warning.dart';
 import 'cover_arrival.dart';
@@ -1528,6 +1529,20 @@ class CoverHeroTag {
 int novelCoverDecodeWidth(double width, double pixelRatio) =>
     (width * pixelRatio).ceil().clamp(1, 1536);
 
+Uint8List? _coverPeek(Novel novel) =>
+    CloudBookMedia.peek(novel.coverUrl) ??
+    LocalBookMedia.peek(novel.coverUrl) ??
+    LegacyCover.peek(novel.id);
+
+Future<Uint8List> _coverLoad(Novel novel) {
+  final url = novel.coverUrl;
+  if (CloudBookMedia.handles(url)) return CloudBookMedia.loadCover(url!);
+  if (url != null && url.startsWith('wenku-local:')) {
+    return LocalBookMedia.loadCover(url);
+  }
+  return LegacyCover.bytes(novel.id, url: url);
+}
+
 class NovelCover extends StatelessWidget {
   const NovelCover(
     this.novel, {
@@ -1586,8 +1601,7 @@ class NovelCover extends StatelessWidget {
                   direction == HeroFlightDirection.push ? to : from,
                 )?.animation ??
                 animation,
-            imageProvider: switch (LocalBookMedia.peek(novel.coverUrl) ??
-                LegacyCover.peek(novel.id)) {
+            imageProvider: switch (_coverPeek(novel)) {
               final bytes? => ResizeImage.resizeIfNeeded(
                 novelCoverDecodeWidth(
                   flightWidth,
@@ -1669,12 +1683,8 @@ class NovelCover extends StatelessWidget {
               );
               return FutureBuilder<Uint8List>(
                 key: ValueKey('cover-bytes-${novel.id}'),
-                future: novel.coverUrl?.startsWith('wenku-local:') == true
-                    ? LocalBookMedia.loadCover(novel.coverUrl!)
-                    : LegacyCover.bytes(novel.id, url: novel.coverUrl),
-                initialData:
-                    LocalBookMedia.peek(novel.coverUrl) ??
-                    LegacyCover.peek(novel.id),
+                future: _coverLoad(novel),
+                initialData: _coverPeek(novel),
                 builder: (context, snapshot) {
                   final bytes = snapshot.data;
                   if (bytes == null) {
@@ -1738,13 +1748,14 @@ class CoverGlow extends StatelessWidget {
   Widget build(BuildContext context) {
     if (novel.coverUrl == null ||
         novel.coverUrl!.startsWith('wenku-local:') ||
+        CloudBookMedia.handles(novel.coverUrl) ||
         !PerformanceScope.of(context).blur) {
       return const SizedBox.shrink();
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
     final background = dark ? ArchiveDesign.darkBackground : Colors.white;
     return FutureBuilder(
-      future: LegacyCover.bytes(novel.id, url: novel.coverUrl),
+      future: _coverLoad(novel),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox.shrink();
         return ShaderMask(

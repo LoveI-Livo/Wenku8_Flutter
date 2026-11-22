@@ -1095,24 +1095,32 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                     const SizedBox(height: 16),
                     if (_importing) ...[
                       AppText(
-                        '正在导入 · $_current',
+                        _current == null
+                            ? '正在识别书名、作者、简介和封面…'
+                            : '正在导入 · $_current',
                         style: const TextStyle(height: 1.6),
                       ),
                       const SizedBox(height: 8),
-                      AppText(
-                        _committing
-                            ? '正在解析目录与插图'
-                            : '${(_received / 1024).round()} KB${_total == null ? '' : ' / ${(_total! / 1024).round()} KB'}',
-                      ),
-                      GlassTextButton(
-                        onPressed: _committing
-                            ? null
-                            : () {
-                                _cancelled = true;
-                                _client.cancel();
-                              },
-                        child: const AppText('取消导入'),
-                      ),
+                      if (_current != null) ...[
+                        AppText(
+                          _committing
+                              ? '正在解析目录与插图'
+                              : '${(_received / 1024).round()} KB${_total == null ? '' : ' / ${(_total! / 1024).round()} KB'}',
+                        ),
+                        GlassTextButton(
+                          onPressed: _committing
+                              ? null
+                              : () {
+                                  _cancelled = true;
+                                  _client.cancel();
+                                },
+                          child: const AppText('取消导入'),
+                        ),
+                      ] else
+                        const AppText(
+                          '只读取文件信息，不会把原文件保存到本机。',
+                          style: TextStyle(fontSize: 12, height: 1.5),
+                        ),
                     ] else if (_selected.isNotEmpty) ...[
                       if (widget.onAddShelf != null) ...[
                         GlassPillButton(

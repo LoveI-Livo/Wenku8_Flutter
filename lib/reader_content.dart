@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
+import 'cloud_book_media.dart';
 import 'local_book_media.dart';
 import 'local_image_layout.dart';
 import 'app_language.dart';
@@ -160,6 +161,9 @@ String? readerIllustrationUrl(String paragraph) {
   final uri = Uri.tryParse(raw);
   if (uri != null && LocalBookMedia.valid(uri)) {
     return LocalImageLayout.parseSuffix(tail) == null ? null : uri.toString();
+  }
+  if (uri != null && CloudBookMedia.handlesMedia(uri.toString())) {
+    return tail.isEmpty ? uri.toString() : null;
   }
   if (tail.isNotEmpty) return null;
   if (uri == null ||
