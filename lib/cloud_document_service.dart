@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:html/parser.dart' as html;
 
 import 'catalog.dart';
+import 'cloud_sources.dart';
 
 /// 把网盘直链当作“远程书籍”读取：只在内存里解析，不落地保存原文件。
 ///
@@ -31,8 +32,13 @@ class CloudDocumentService {
   }
 
   /// 只生成书架元数据，不联网、不下载。
-  Novel metadata(String name, String url,
-      {String? author, String? cookie, String? authorization}) {
+  Novel metadata(
+    String name,
+    String url, {
+    String? author,
+    String? cookie,
+    String? authorization,
+  }) {
     final id = idForUrl(url);
     _urls[id] = url;
     final book = Novel(
@@ -65,8 +71,13 @@ class CloudDocumentService {
       _metadata[novel.id] = cached.novel;
       return cached.novel;
     }
-    final bytes = await _fetch(url, cookie: novel.remoteCookie, authorization: novel.remoteAuthorization);
-    final parsed = _parse(novel.id, novel.title, url, bytes);
+    final resolved = await _resolveCloudUrl(url, novel);
+    final bytes = await _fetch(
+      resolved,
+      cookie: novel.remoteCookie,
+      authorization: novel.remoteAuthorization,
+    );
+    final parsed = _parse(novel.id, novel.title, resolved, bytes);
     final full = _withSource(parsed.novel, novel);
     final document = _CloudDocument(full, parsed.bodies);
     _documents[novel.id] = document;
@@ -98,7 +109,40 @@ class CloudDocumentService {
     return document;
   }
 
-  Future<Uint8List> _fetch(String url, {String? cookie, String? authorization}) async {
+  /// Resolution marker written by full-disk cloud search. The real short-lived
+  /// download URL is obtained only when the reader opens the book.
+  Future<String> _resolveCloudUrl(String url, Novel novel) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme != 'cloud') return url;
+    final kind = CloudSourceKind.values.byName(uri.host);
+    if (kind != CloudSourceKind.quark && kind != CloudSourceKind.lanzou) {
+      throw const FormatException('不支持的网盘书源');
+    }
+    final id = uri.pathSegments.isEmpty ? '' : uri.pathSegments.first;
+    final cookie = novel.remoteCookie?.trim() ?? '';
+    if (id.isEmpty || cookie.isEmpty) {
+      throw const FormatException('网盘登录已失效，请重新登录账号');
+    }
+    CloudBookClient? client;
+    try {
+      client = CloudBookClient(CloudSourceConfig(kind: kind, cookie: cookie));
+      final link = await client.directLink(
+        CloudBookEntry(id: id, name: novel.title, folder: false),
+      );
+      if (link == null || link.isEmpty) {
+        throw const FormatException('网盘没有返回下载地址');
+      }
+      return link;
+    } finally {
+      client?.close();
+    }
+  }
+
+  Future<Uint8List> _fetch(
+    String url, {
+    String? cookie,
+    String? authorization,
+  }) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 20);
     try {
@@ -111,7 +155,10 @@ class CloudDocumentService {
           request.headers.set(HttpHeaders.cookieHeader, cookie.trim());
         }
         if (authorization != null && authorization.trim().isNotEmpty) {
-          request.headers.set(HttpHeaders.authorizationHeader, authorization.trim());
+          request.headers.set(
+            HttpHeaders.authorizationHeader,
+            authorization.trim(),
+          );
         }
         final response = await request.close();
         if ({301, 302, 303, 307, 308}.contains(response.statusCode)) {
@@ -141,12 +188,13 @@ class CloudDocumentService {
   }
 
   _CloudDocument _parse(int id, String name, String url, Uint8List bytes) {
-    final head = utf8.decode(bytes.take(512).toList(), allowMalformed: true).toLowerCase();
+    final head = utf8
+        .decode(bytes.take(512).toList(), allowMalformed: true)
+        .toLowerCase();
     if (head.contains('<html') || head.contains('<!doctype html')) {
       return _parseHtml(id, name, url, bytes);
     }
-    final isZip = bytes.length > 4 &&
-        bytes[0] == 0x50 && bytes[1] == 0x4B;
+    final isZip = bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B;
     if (isZip) {
       try {
         return _parseEpub(id, name, url, bytes);
@@ -160,10 +208,15 @@ class CloudDocumentService {
   _CloudDocument _parseText(int id, String name, String url, Uint8List bytes) {
     var text = utf8.decode(bytes, allowMalformed: true);
     String? author;
-    final authorMatch = RegExp(r'(?:作者|作\s*者|Author)\s*[:：]\s*([^\n\r]{1,40})', caseSensitive: false).firstMatch(text.substring(0, text.length.clamp(0, 4000)));
+    final authorMatch = RegExp(
+      r'(?:作者|作\s*者|Author)\s*[:：]\s*([^\n\r]{1,40})',
+      caseSensitive: false,
+    ).firstMatch(text.substring(0, text.length.clamp(0, 4000)));
     if (authorMatch != null) author = authorMatch.group(1)?.trim();
     if (text.contains('\uFFFD')) {
-      try { text = latin1.decode(bytes); } catch (_) {}
+      try {
+        text = latin1.decode(bytes);
+      } catch (_) {}
     }
     text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final matches = RegExp(
@@ -195,6 +248,7 @@ class CloudDocumentService {
         index++;
         buffer = StringBuffer();
       }
+
       for (final p in paragraphs) {
         buffer.writeln(p);
         if (buffer.length > 120000) flush();
@@ -209,16 +263,23 @@ class CloudDocumentService {
   _CloudDocument _parseHtml(int id, String name, String url, Uint8List bytes) {
     final text = utf8.decode(bytes, allowMalformed: true);
     final document = html.parse(text);
-    final heading = (document.querySelector('meta[property="og:title"]')?.attributes['content'] ??
-            document.querySelector('h1')?.text ??
-            document.querySelector('title')?.text ??
-            name)
-        .trim();
-    final author = (document.querySelector('meta[name="author"]')?.attributes['content'] ??
-            document.querySelector('meta[property="article:author"]')?.attributes['content'] ??
-            '')
-        .trim();
-    final paragraphs = document.querySelectorAll('p')
+    final heading =
+        (document
+                    .querySelector('meta[property="og:title"]')
+                    ?.attributes['content'] ??
+                document.querySelector('h1')?.text ??
+                document.querySelector('title')?.text ??
+                name)
+            .trim();
+    final author =
+        (document.querySelector('meta[name="author"]')?.attributes['content'] ??
+                document
+                    .querySelector('meta[property="article:author"]')
+                    ?.attributes['content'] ??
+                '')
+            .trim();
+    final paragraphs = document
+        .querySelectorAll('p')
         .map((e) => e.text.trim())
         .where((t) => t.isNotEmpty && t.length > 1)
         .toList();
@@ -240,7 +301,10 @@ class CloudDocumentService {
     final container = files['META-INF/container.xml'];
     String opfPath = '';
     if (container != null) {
-      final xml = utf8.decode(container.content as List<int>, allowMalformed: true);
+      final xml = utf8.decode(
+        container.content as List<int>,
+        allowMalformed: true,
+      );
       final match = RegExp(r'full-path="([^"]+)"').firstMatch(xml);
       if (match != null) opfPath = match.group(1)!;
     }
@@ -255,9 +319,13 @@ class CloudDocumentService {
     if (opfFile == null) throw const FormatException('EPUB OPF 文件不存在');
     final opf = utf8.decode(opfFile.content as List<int>, allowMalformed: true);
     String meta(String name) {
-      final match = RegExp('<dc:$name[^>]*>([^<]*)</dc:$name>', caseSensitive: false).firstMatch(opf);
+      final match = RegExp(
+        '<dc:$name[^>]*>([^<]*)</dc:$name>',
+        caseSensitive: false,
+      ).firstMatch(opf);
       return match?.group(1)?.trim() ?? '';
     }
+
     final epubTitle = meta('title');
     final epubAuthor = meta('creator');
     final base = opfPath.contains('/')
@@ -286,14 +354,21 @@ class CloudDocumentService {
       final path = _normalize('$base$href');
       final file = files[path];
       if (file == null) continue;
-      final markup = utf8.decode(file.content as List<int>, allowMalformed: true);
+      final markup = utf8.decode(
+        file.content as List<int>,
+        allowMalformed: true,
+      );
       final document = html.parse(markup);
-      final heading = (document.querySelector('h1, h2, title')?.text ?? '').trim();
-      final blocks = document.querySelectorAll('p')
+      final heading = (document.querySelector('h1, h2, title')?.text ?? '')
+          .trim();
+      final blocks = document
+          .querySelectorAll('p')
           .map((e) => e.text.trim())
           .where((t) => t.isNotEmpty)
           .toList();
-      final body = blocks.isEmpty ? document.body?.text.trim() ?? '' : blocks.join('\n\n');
+      final body = blocks.isEmpty
+          ? document.body?.text.trim() ?? ''
+          : blocks.join('\n\n');
       if (body.trim().isEmpty) continue;
       final cid = chapters.length + 1;
       final title = heading.isNotEmpty
@@ -303,9 +378,14 @@ class CloudDocumentService {
       bodies[cid] = body;
     }
     if (chapters.isEmpty) throw const FormatException('EPUB 没有可读章节');
-    final novel = _novel(id, name, url, chapters,
-        title: epubTitle.isEmpty ? null : epubTitle,
-        author: epubAuthor.isEmpty ? null : epubAuthor);
+    final novel = _novel(
+      id,
+      name,
+      url,
+      chapters,
+      title: epubTitle.isEmpty ? null : epubTitle,
+      author: epubAuthor.isEmpty ? null : epubAuthor,
+    );
     return _CloudDocument(novel, bodies);
   }
 
@@ -327,32 +407,44 @@ class CloudDocumentService {
     remoteAuthorization: source.remoteAuthorization,
   );
 
-  Novel _novel(int id, String name, String url, List<NovelChapter> chapters,
-          {String? title, String? author}) =>
-      Novel(
-        id: id,
-        title: _cleanName(title?.trim().isNotEmpty == true ? title! : name),
-        author: author?.trim().isNotEmpty == true ? author! : '网盘书源',
-        genre: '在线读取',
-        summary: '来自网盘直链，在线阅读，不下载原文件。',
-        colors: const [Color(0xFF225577), Color(0xFF44AACC)],
-        chapters: chapters,
-        chapterCount: chapters.length,
-        isComplete: true,
-        remoteUrl: url,
-      );
+  Novel _novel(
+    int id,
+    String name,
+    String url,
+    List<NovelChapter> chapters, {
+    String? title,
+    String? author,
+  }) => Novel(
+    id: id,
+    title: _cleanName(title?.trim().isNotEmpty == true ? title! : name),
+    author: author?.trim().isNotEmpty == true ? author! : '网盘书源',
+    genre: '在线读取',
+    summary: '来自网盘直链，在线阅读，不下载原文件。',
+    colors: const [Color(0xFF225577), Color(0xFF44AACC)],
+    chapters: chapters,
+    chapterCount: chapters.length,
+    isComplete: true,
+    remoteUrl: url,
+  );
 
   String _normalize(String path) {
     final parts = <String>[];
     for (final part in path.split('/')) {
-      if (part == '..') { if (parts.isNotEmpty) parts.removeLast(); }
-      else if (part != '.' && part.isNotEmpty) parts.add(part);
+      if (part == '..') {
+        if (parts.isNotEmpty) parts.removeLast();
+      } else if (part != '.' && part.isNotEmpty)
+        parts.add(part);
     }
     return parts.join('/');
   }
 
   String _cleanName(String name) {
-    var value = name.replaceAll(RegExp(r'\.(txt|epub|mobi|azw3?|pdf)$', caseSensitive: false), '').trim();
+    var value = name
+        .replaceAll(
+          RegExp(r'\.(txt|epub|mobi|azw3?|pdf)$', caseSensitive: false),
+          '',
+        )
+        .trim();
     if (value.isEmpty) value = '网盘书籍';
     return _limit(value, 120);
   }

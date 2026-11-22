@@ -52,7 +52,19 @@ class CloudCatalogSearch {
             value,
           ).timeout(const Duration(seconds: 10));
           for (final entry in matches.take(40)) {
-            final url = await client.directLink(entry);
+            // Account providers resolve the real download address only when
+            // the book is opened. Resolving every search hit here would send
+            // hundreds of requests and make full-disk search unusable.
+            final lazy =
+                config.kind == CloudSourceKind.quark ||
+                config.kind == CloudSourceKind.lanzou;
+            final url = lazy
+                ? Uri(
+                    scheme: 'cloud',
+                    host: config.kind.name,
+                    pathSegments: [entry.id],
+                  ).toString()
+                : await client.directLink(entry);
             if (url == null || url.isEmpty) continue;
             results.add(
               CloudDocumentService.instance.metadata(
