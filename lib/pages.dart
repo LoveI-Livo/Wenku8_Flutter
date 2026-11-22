@@ -58,7 +58,6 @@ import 'reading_visual_theme.dart';
 import 'library_toolbar.dart';
 import 'library_workspace.dart';
 import 'library_reflow.dart';
-import 'library_search_repository.dart';
 import 'listening/controller.dart';
 import 'listening/models.dart' show hasSpeechText, ListeningPhase;
 import 'listening/widgets.dart';
@@ -180,30 +179,11 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   LocalBookStore? get _localBooks => widget.repository is OfflineNovelRepository
       ? (widget.repository as OfflineNovelRepository).local
       : null;
-  late final _shelfSearch = NovelFeedController(
-    LibrarySearchRepository(
-      source: widget.repository,
-      state: widget.state,
-      local: _localBooks,
-      cachedOnly: () => _navigation.readableShelfOnly,
-    ),
-    search: true,
-  )..searchField = BookSearchField.title;
-  late final _localSearch = NovelFeedController(
-    LibrarySearchRepository(
-      source: widget.repository,
-      state: widget.state,
-      local: _localBooks,
-      localOnly: true,
-    ),
-    search: true,
-  )..searchField = BookSearchField.title;
   int _searchScope = 0;
-  NovelFeedController get _activeSearch => switch (_searchScope) {
-    1 => _shelfSearch,
-    2 => _localSearch,
-    _ => _searchFeed,
-  };
+
+  /// One search box for the whole app: Wenku8 + local library + configured
+  /// cloud sources. The active tab only changes presentation, not coverage.
+  NovelFeedController get _activeSearch => _searchFeed;
   final _localLibrary = LocalLibraryController();
   List<Widget> _pageWidgets = const [];
   List<WidgetBuilder> _headers = const [];
@@ -368,9 +348,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       _visibleTabs = tabs;
     });
     if (next != _tab) _selectTab(next);
-    if (_searchOpen && _searchScope == 1) {
-      _shelfSearch.refresh();
-    }
+    if (_searchOpen) _searchFeed.refresh();
     _ensureCatalog();
   }
 
@@ -407,8 +385,6 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _searchFocus.dispose();
     _catalog.dispose();
     _searchFeed.dispose();
-    _shelfSearch.dispose();
-    _localSearch.dispose();
     _localLibrary.dispose();
     for (final scroll in _tabScrolls) {
       scroll.dispose();
@@ -658,12 +634,8 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                                   repository: widget.repository,
                                   onOpenBook: _dismissSearchKeyboard,
                                   allowBlockedTags: _searchScope == 0,
-                                  showSources:
-                                      _searchScope == 1 &&
-                                      widget.state.combinedShelf,
-                                  fromCache:
-                                      _searchScope == 1 &&
-                                      _navigation.readableShelfOnly,
+                                  showSources: true,
+                                  fromCache: false,
                                   onRecall: _searchScope == 0
                                       ? _recallSearch
                                       : null,

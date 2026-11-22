@@ -17,6 +17,18 @@ class ModRelease {
 /// of changelog text.
 const modReleaseHistory = <ModRelease>[
   ModRelease(
+    version: '0.7.2',
+    date: '2026-11-22',
+    summary: '主搜索框统一检索文库、本地、网盘与书源',
+    changes: [
+      '发现页、书架、本地共用同一个搜索入口，不再分页签各搜各的。',
+      '主搜索框同时检索文库在线书目、本地书、已登录网盘目录与已配置直链/书源。',
+      '搜索结果统一显示来源，点网盘结果直接在线阅读，不下载原文件。',
+      '保留 0.7.1 的网盘直读、导入书单、双勾选删除与格式扩展。',
+    ],
+  ),
+
+  ModRelease(
     version: '0.7.1',
     date: '2026-11-22',
     summary: '网盘书真正在线阅读，点书不再自动加书架',

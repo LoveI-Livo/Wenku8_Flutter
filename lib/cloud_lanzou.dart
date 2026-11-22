@@ -24,7 +24,14 @@ class LanzouBookClient implements CloudBookClient {
   String get root => '-1';
   @override
   Future<void> delete(CloudBookEntry entry) async {
-    throw const CloudSourceFailure('蓝奏云暂不支持 App 内删除，请到网页端删除原文件');
+    await _ready();
+    final result = await _post('/doupload.php', {
+      'task': '6',
+      'file_id': entry.id,
+    });
+    if (result['zt'] == 1) return;
+    final info = '${result['inf'] ?? result['info'] ?? ''}'.trim();
+    throw CloudSourceFailure(info.isEmpty ? '蓝奏云没有确认删除结果，请到网页端核对' : info);
   }
 
   Map<String, String> _headers(Uri uri) => {

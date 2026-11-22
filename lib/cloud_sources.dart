@@ -764,7 +764,20 @@ class QuarkBookClient implements CloudBookClient {
 
   @override
   Future<void> delete(CloudBookEntry entry) async {
-    throw const CloudSourceFailure('夸克网盘暂不支持 App 内删除，请到网页端删除原文件');
+    final value = await _call(
+      '/file/delete',
+      body: {
+        'fids': [entry.id],
+      },
+    );
+    final data = value['data'];
+    if (data is Map && data['task_id'] is String && data['task_id'] != '') {
+      // Quark deletes asynchronously; a queued delete is enough for the
+      // explicit user confirmation. The file disappears after the task runs.
+      return;
+    }
+    if (value['code'] == 0) return;
+    throw const CloudSourceFailure('夸克没有确认删除结果，请到网页端核对');
   }
 
   Map<String, String> _headers(Uri uri) => {

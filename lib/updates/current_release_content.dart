@@ -27,11 +27,13 @@ const _delete =
 const _formats =
     '格式扩展：DOCX、ODT、RTF、FB2、HTML、Markdown、ZIP、MOBI、PRC、AZW、AZW3；PDF 本机与网盘均可提取正文。';
 const _source = '在线书删除不再出现单一“删除本机文件”提示；本机没有文件时会明确说明。';
+const _searchfix = '主搜索框统一：发现页、书架、本地都共用同一个搜索入口，同时检索文库、本地书、已登录网盘与已配置书源，结果显示来源。';
 
 const _api =
     '保留 0.6.10 的登录接口修复：POST 带 Content-Length、接口版本 1.30/1.13 回退、长密码与登录前测试连接/保持登录/云书架入口。';
 const _links = '保留 0.6.10 的关联导入修复：iOS 符号链接与授权失效回退副本，Android 关联文件转工作副本。';
 const _changes = [
+  _searchfix,
   _online,
   _booklist,
   _delete,
@@ -67,6 +69,7 @@ $releaseReadingNotice
 
 ### 本次更新
 
+- $_searchfix
 - $_online
 - $_booklist
 - $_delete

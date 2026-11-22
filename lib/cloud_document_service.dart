@@ -80,7 +80,10 @@ class CloudDocumentService {
   /// still keep the record if their APIs have not exposed a safe delete call.
   bool canDeleteRemote(Novel novel) =>
       novel.remoteEntryId != null &&
-      (novel.remoteKind == 'webdav' || novel.remoteKind == 's3');
+      (novel.remoteKind == 'webdav' ||
+          novel.remoteKind == 's3' ||
+          novel.remoteKind == 'quark' ||
+          novel.remoteKind == 'lanzou');
 
   Future<void> deleteRemote(Novel novel) async {
     if (!canDeleteRemote(novel)) {
