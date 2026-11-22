@@ -73,19 +73,39 @@ class LanHandoffService extends ChangeNotifier {
     if (book == null) {
       throw const FormatException('另一台设备传的是这本书，但本机没有这份书源；请先导入同一本书');
     }
-    if (book.chapters.isEmpty && repo != null) {
+    var resolved = book;
+    if (resolved.chapters.isEmpty && repo != null) {
       try {
         final chapters = await repo.chapters(receipt.bookId);
-        if (chapters.isNotEmpty) book = book.withChapters(chapters);
+        if (chapters.isNotEmpty) resolved = resolved.withChapters(chapters);
       } catch (_) {}
     }
-    if (book.chapters.isEmpty) {
+    if (resolved.chapters.isEmpty) {
       throw const FormatException('这本书的章节尚未准备好，请先在本机打开一次');
     }
-    final position = receipt.position.chapter >= book.chapters.length
-        ? receipt.position
-        : receipt.position;
-    return LanHandoffResolution(book: book, position: position);
+    final chapterCount = resolved.chapters.length;
+    var chapter = receipt.position.chapter;
+    if (chapter < 0 || chapter >= chapterCount) chapter = 0;
+    return LanHandoffResolution(
+      book: resolved,
+      position: ReadingPosition(
+        chapter: chapter,
+        chapterId: resolved.chapters[chapter].id,
+        offset: receipt.position.offset,
+        fraction: receipt.position.fraction,
+        fontSize: receipt.position.fontSize,
+        width: receipt.position.width,
+        updatedAt: receipt.position.updatedAt,
+        lineHeight: receipt.position.lineHeight,
+        paragraphIndex: receipt.position.paragraphIndex,
+        paragraphFraction: receipt.position.paragraphFraction,
+        textOffset: receipt.position.textOffset,
+        textScale: receipt.position.textScale,
+        typeface: receipt.position.typeface,
+        layout: receipt.position.layout,
+        contentRevision: receipt.position.contentRevision,
+      ),
+    );
   }
 
   Future<void> consider(LanHandoffReceipt receipt) async {
@@ -228,4 +248,17 @@ class LanReadingSync {
     _socket = null;
     handoff.dispose();
   }
+}
+
+
+class LanSyncScope extends InheritedWidget {
+  const LanSyncScope({super.key, required this.sync, required super.child});
+
+  final LanReadingSync? sync;
+
+  static LanReadingSync? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<LanSyncScope>()?.sync;
+
+  @override
+  bool updateShouldNotify(LanSyncScope oldWidget) => sync != oldWidget.sync;
 }
