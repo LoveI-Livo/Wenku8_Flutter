@@ -4,18 +4,23 @@ import 'dart:typed_data';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'online_component.dart';
+
 /// Minimal client for the public Wenku8 app endpoints plus the web login form.
 /// The API request body is a base64-encoded action string, as used by the
 /// original Android client and the current third-party clients.
 class Wenku8Client {
   Wenku8Client();
 
-  static const apiUrl = 'http://app.wenku8.com/android.php';
+  static const apiUrl = 'http://app.wenku8.com/android.php/';
   static const webUrl = 'http://www.wenku8.net';
   static const _cookieKey = 'wenku8_session_cookie_v1';
   static const _appVer = '1.13';
   static const _ua =
       'Dalvik/2.1.0 (Linux; U; Android 11; IN2010 Build/RP1A.201005.001)';
+  static const _browserUa =
+      'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36';
 
   final HttpClient _http = HttpClient()
     ..connectionTimeout = const Duration(seconds: 18);
@@ -79,7 +84,7 @@ class Wenku8Client {
     await ensureReady();
     final request = await _http.postUrl(uri);
     request.headers
-      ..set(HttpHeaders.userAgentHeader, _ua)
+      ..set(HttpHeaders.userAgentHeader, _browserUa)
       ..set(HttpHeaders.contentTypeHeader, 'application/x-www-form-urlencoded');
     if (_cookies.isNotEmpty) {
       request.headers.set(HttpHeaders.cookieHeader, cookieHeader!);
@@ -100,14 +105,30 @@ class Wenku8Client {
     );
   }
 
-  /// Login through the website first; if the old form is unavailable, fall back
-  /// to the app API login action.
+  /// App API 登录优先：它直接返回 1/2/3，失败原因明确，也不依赖网页表单
+  /// 的跳转和 GBK 页面。只有 API 暂不可用时才退回网页登录。
   Future<void> login(String username, String password) async {
     await ensureReady();
     _cookies.clear();
     if (username.trim().isEmpty || password.isEmpty) {
       throw const FormatException('请输入用户名和密码');
     }
+    FormatException? credentialFailure;
+    try {
+      final body = await apiRaw(
+        'action=login&username=${Uri.encodeQueryComponent(username.trim())}'
+        '&password=${Uri.encodeQueryComponent(password)}',
+        allowNumeric: true,
+      );
+      final code = body.trim();
+      if (code == '1') return;
+      credentialFailure = FormatException(
+        code == '2' ? '用户名不存在' : code == '3' ? '密码错误' : '登录失败，请检查账号密码或站点状态',
+      );
+    } catch (_) {
+      // API 不可达时继续尝试网页登录，但不要掩盖明确的账号/密码错误。
+    }
+    if (credentialFailure != null) throw credentialFailure;
     var webSuccess = false;
     try {
       final result = await _postForm(
@@ -128,17 +149,7 @@ class Wenku8Client {
               _cookies.isNotEmpty);
     } catch (_) {}
     if (!webSuccess) {
-      final body = await apiRaw(
-        'action=login&username=${Uri.encodeQueryComponent(username.trim())}'
-        '&password=${Uri.encodeQueryComponent(password)}',
-        allowNumeric: true,
-      );
-      if (body.trim() != '1') {
-        final code = body.trim();
-        throw FormatException(
-          code == '2' ? '用户名不存在' : code == '3' ? '密码错误' : '登录失败，请检查账号密码或站点状态',
-        );
-      }
+      throw const FormatException('登录失败，请检查账号密码或站点状态');
     }
   }
 
@@ -182,6 +193,9 @@ class Wenku8Client {
         lower.contains('cloudflare') ||
         lower.contains('access denied')) {
       throw const FormatException('在线组件接口暂时不可用，请检查网络或稍后重试');
+    }
+    if (!allowNumeric && body.trim() == '4') {
+      throw const OnlineAuthenticationRequired();
     }
     if (!allowNumeric && !allowHtml && !body.startsWith('<') && !body.startsWith('<?xml')) {
       throw FormatException('在线组件返回异常：${body.length > 24 ? body.substring(0, 24) : body}');

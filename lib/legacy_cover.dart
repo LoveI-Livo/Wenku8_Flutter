@@ -15,6 +15,7 @@ abstract final class LegacyCover {
     }
   }
   static void clear() => _cache.clear();
+  static int get encodedBytes => _cache.encodedBytes;
   static Uint8List? peek(int aid, {String? url}) => _cache.peek(aid);
   static Future<Uint8List> bytes(int aid, {String? url}) => _cache.load(aid);
 

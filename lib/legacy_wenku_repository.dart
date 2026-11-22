@@ -112,7 +112,8 @@ class LegacyWenkuRepository extends NovelRepository
     final document = html_parser.parse(source);
     final content = document.getElementById('content');
     source = content?.innerHtml ?? source;
-    return html_parser.parseFragment(source).text
+    final text = html_parser.parseFragment(source).text ?? '';
+    return text
         .replaceAll('\u00a0', ' ')
         .replaceAll(RegExp(r'[ \t]+\n'), '\n')
         .replaceAll(RegExp(r'\n{3,}'), '\n\n')
@@ -149,7 +150,7 @@ class LegacyWenkuRepository extends NovelRepository
 
   Future<List<Novel>> _searchApi(String text, String type) async {
     final body = await client.apiRaw(
-      'action=search&searchtype=$type&searchkey=${Uri.encodeQueryComponent(text)}&t=0',
+      'action=search&searchtype=$type&searchkey=$text&t=0',
     );
     final ids = <int>[];
     for (final item in _xml(body).findAllElements('item')) {
