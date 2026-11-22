@@ -34,6 +34,7 @@ import 'updates/ios_update_platform.dart';
 import 'updates/harmony_update_platform.dart';
 import 'updates/update_page.dart';
 import 'wenku_account.dart';
+import 'wenku8_client.dart';
 import 'wenku_features.dart';
 import 'wenku_shelf_sync.dart';
 import 'publication_catalog.dart';
@@ -70,7 +71,6 @@ Future<void> main() async {
   }
   await state.loadFonts();
   final network = NetworkStatus();
-  await network.start();
   if (state.performance.needsRuntimeEffects) await NativeEffects.prepare();
   final brightness = switch (state.theme) {
     ThemeMode.light => Brightness.light,
@@ -79,10 +79,11 @@ Future<void> main() async {
       WidgetsBinding.instance.platformDispatcher.platformBrightness,
   };
   SystemChrome.setSystemUIOverlayStyle(novelSystemUiStyle(brightness));
+  final online = Wenku8Client();
   final WenkuAccount? account = LocalPlatform.fileActions
-      ? WenkuAccount()
+      ? WenkuAccount(client: online)
       : null;
-  const remote = LegacyWenkuRepository();
+  final remote = LegacyWenkuRepository(client: online);
   final repository = LocalPlatform.fileActions
       ? await openApplicationLibrary(remote: remote, network: network)
       : const DemoNovelRepository();
@@ -90,9 +91,8 @@ Future<void> main() async {
     ReaderIllustrationCache.shared.offlineReader =
         repository.cache.readIllustration;
   }
-  if (repository is OfflineNovelRepository && repository.local != null) {
-    await reconcileLocalSeries(repository.local!, state);
-  }
+  final needsSeriesReconcile =
+      repository is OfflineNovelRepository && repository.local != null;
   final features = account != null
       ? WenkuFeatures(
           account: account,
@@ -147,6 +147,17 @@ Future<void> main() async {
           : null,
     ),
   );
+  // 网络监听、系列信息归并都不参与首帧：晚一点执行，避免和书架读取抢主线程。
+  unawaited(Future<void>.delayed(const Duration(seconds: 1), network.start));
+  if (needsSeriesReconcile) {
+    unawaited(Future<void>.delayed(const Duration(seconds: 2), () {
+      final offline = repository;
+      if (offline is OfflineNovelRepository && offline.local != null) {
+        return reconcileLocalSeries(offline.local!, state);
+      }
+      return Future<void>.value();
+    }));
+  }
   if (listening != null) {
     // Register media commands without allocating a player or blocking the first
     // frame. A service-created engine also gets a handler, with no auto-play.
@@ -210,7 +221,10 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
     _updateNavigation.addListener(_queueStartupReading);
     updates?.addListener(_queueStartupReading);
     if (!_startupReadingConsumed) unawaited(_prepareStartupReading());
-    unawaited(_prepareLanSync());
+    unawaited(Future<void>.delayed(
+      const Duration(seconds: 3),
+      _prepareLanSync,
+    ));
     unawaited(
       _readingWidgets.attach().then((_) {
         if (mounted) return _widgetCards.attach();

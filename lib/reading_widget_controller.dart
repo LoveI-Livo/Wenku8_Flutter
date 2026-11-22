@@ -168,6 +168,8 @@ class ReadingWidgetController extends ChangeNotifier {
   Timer? _debounce;
   Future<void>? _loading;
   int _ticket = 0;
+  bool _publishing = false, _publishPending = false;
+  Timer? _firstPublish;
   String? _lastVisualSignature;
   bool? _lastPublishedDetails;
   (int?, DateTime, String?)? _preparedCoverFor;
@@ -195,14 +197,18 @@ class ReadingWidgetController extends ChangeNotifier {
     state.readingMoments.addListener(_changed);
     state.historyChanges.addListener(_changed);
     notifyListeners();
-    await publish();
+    // 启动首帧优先；小组件图片延后到界面稳定后再生成。
+    _firstPublish?.cancel();
+    _firstPublish = Timer(const Duration(seconds: 5), () {
+      if (!_disposed && _attached) unawaited(publish());
+    });
   }
 
   void _changed() {
     if (_disposed) return;
     notifyListeners();
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 600), () {
+    _debounce = Timer(const Duration(milliseconds: 1500), () {
       unawaited(publish(force: false));
     });
   }
@@ -245,6 +251,13 @@ class ReadingWidgetController extends ChangeNotifier {
 
   Future<void> publish({bool force = true}) async {
     if (!_attached || _disposed) return;
+    // 渲染 PNG 和写系统缓存都很重；上一轮没结束时只记一次待发布，避免叠任务。
+    if (_publishing) {
+      _publishPending = true;
+      return;
+    }
+    _publishing = true;
+    try {
     _debounce?.cancel();
     var value = snapshot;
     final signature = _visualSignature(value);
@@ -362,6 +375,16 @@ class ReadingWidgetController extends ChangeNotifier {
       error = '小组件图片暂未更新，请重试';
       notifyListeners();
     }
+    } finally {
+      _publishing = false;
+      if (_publishPending && !_disposed) {
+        _publishPending = false;
+        _debounce?.cancel();
+        _debounce = Timer(const Duration(milliseconds: 350), () {
+          if (!_disposed) unawaited(publish(force: false));
+        });
+      }
+    }
   }
 
   String _visualSignature(ReadingWidgetSnapshot value) {
@@ -396,6 +419,7 @@ class ReadingWidgetController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _firstPublish?.cancel();
     ++_ticket;
     _debounce?.cancel();
     if (_attached) state.readingMoments.removeListener(_changed);

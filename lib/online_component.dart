@@ -1,7 +1,9 @@
-/// Public presentation code depends on domain models, not a service protocol.
+/// Online account, catalogue and reading are provided by Wenku8Client and
+/// LegacyWenkuRepository; this remains only for optional review/illustration
+/// boundaries that a host may not install.
 class OnlineComponentUnavailable implements Exception {
   const OnlineComponentUnavailable();
-  static const message = '此源码构建未包含在线组件，可继续使用本地导入与阅读';
+  static const message = '该在线功能暂未开放，可继续使用本地导入与阅读';
   @override
   String toString() => message;
 }

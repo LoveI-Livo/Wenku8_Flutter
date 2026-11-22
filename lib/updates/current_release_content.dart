@@ -13,17 +13,18 @@ const releaseRightsNotice =
     '小说、封面和插图归各自权利人所有。请仅使用有权访问的内容，遵守来源网站规则，不得绕过访问限制、破解 DRM，或未经许可传播、出售内容。';
 const releaseReadingNotice = '**在线内容以轻小说文库开放状态为准，不提供因版权限制而停止开放的在线书籍阅读。**';
 const releaseMaintenanceNotice = '项目以稳定维护为主，后续非必要不再发版。';
-const _interruption = '修复阅读纪念的主题预设图片缺失，纪念方式与图片恢复完整。';
-const _cache = '修复局域网续读：同一 Wi-Fi 下可广播章节与阅读位置，另一台设备收到后继续阅读。';
-const _retry = '小组件支持新建与删除；修复部分小组件图片因体积限制未显示的问题。';
-const _resources = '修复缓存与存储页顶部错位、下滑回弹，以及空书架也显示二十多 MB 的统计问题。';
+const _interruption = '「文库账号」已接入在线组件：账号密码登录、云端书架、在线书目与章节正文。';
+const _cache = '缓存与存储补全分类：正文插图、网页与应用缓存、临时文件、小组件图片、图片内存，全部可清理。';
+const _retry = '关于页版本更新改为按版本折叠，点版本标题展开，完整保留从 v0.6.0 起的每条修改与修复。';
+const _resources = '修复缓存页顶部遮挡与下滑回弹；清理后重新统计，已删除的小组件图片不会马上重写回来。';
+const _performance = '性能优化：小组件渲染、旧缓存扫描、更新检查、局域网初始化和系列归并移出首帧，启动与阅读中不再被后台 I/O 抢占主线程。';
 const _changes = [
   _interruption,
   _cache,
   _retry,
   _resources,
-  '移除关于页的赞助跳转链接。',
-  '首次安装只生成一张默认小组件，并清理旧版遗留的小组件临时图片。',
+  _performance,
+  '在线封面与插图恢复加载，不再显示空白。',
 ];
 const _androidInstall = '**Android**：直接覆盖更新，不要先卸载旧版。';
 const _iosInstall = '**iOS**：提供未签名包，主应用与小组件均需自行签名。';
@@ -50,6 +51,7 @@ $releaseReadingNotice
 - $_cache
 - $_retry
 - $_resources
+- $_performance
 
 ### 后续维护
 

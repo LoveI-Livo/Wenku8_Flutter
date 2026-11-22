@@ -106,7 +106,6 @@ class ReadingWidgetCards extends ChangeNotifier {
 
   Future<void> attach() => _loading ??= _load();
   Future<void> _load() async {
-    await _cleanStaleCache();
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(preferenceKey);
     final hadStoredCards = stored != null;
@@ -128,6 +127,11 @@ class ReadingWidgetCards extends ChangeNotifier {
       _cards = [focus];
       await _save();
     }
+    // 延迟到首屏稳定后再清旧临时图片，避免和启动读盘/首帧抢 I/O。
+    unawaited(Future<void>.delayed(
+      const Duration(seconds: 8),
+      _cleanStaleCache,
+    ));
     if (_cards.isEmpty && !hadStoredCards) {
       final oldSkin = ReadingWidgetSkin.fromId(
         prefs.getString('reading_widgets_skin_v1'),

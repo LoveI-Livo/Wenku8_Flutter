@@ -222,7 +222,7 @@ class _AppUpdateMonitorState extends State<AppUpdateMonitor>
     // Check once for each foreground session, after the first screen settles.
     // Transient inactive states (notification shade, system dialogs) are not a
     // new launch. A background return is, regardless of the last check's age.
-    _timer = Timer(const Duration(seconds: 2), () {
+    _timer = Timer(const Duration(seconds: 15), () {
       _timer = null;
       final lifecycle = WidgetsBinding.instance.lifecycleState;
       if (!mounted ||

@@ -3582,6 +3582,7 @@ class SettingsPage extends StatelessWidget {
               ? repository as OfflineNovelRepository
               : null,
           reduceMotion: state.reduceMotion,
+          state: state,
         ),
         reduceMotion: state.reduceMotion,
       ),

@@ -53,7 +53,7 @@ class WenkuShelfSync extends ChangeNotifier with WidgetsBindingObserver {
     library.addListener(_localChanged);
     network?.addListener(_networkChanged);
     WidgetsBinding.instance.addObserver(this);
-    _poll = Timer.periodic(const Duration(minutes: 2), (_) {
+    _poll = Timer.periodic(const Duration(minutes: 10), (_) {
       if (_foreground) schedule();
     });
     _accountChanged();
@@ -100,7 +100,7 @@ class WenkuShelfSync extends ChangeNotifier with WidgetsBindingObserver {
     }
     _timer?.cancel();
     _timer = Timer(
-      const Duration(milliseconds: 650),
+      const Duration(milliseconds: 2000),
       () => unawaited(synchronize()),
     );
   }

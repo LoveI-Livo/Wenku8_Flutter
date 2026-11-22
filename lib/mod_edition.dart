@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库 · 改版版';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.6.6';
-const modEditionBuild = 3006;
+const modEditionVersion = '0.6.7';
+const modEditionBuild = 3007;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -44,9 +44,8 @@ const modEditionSummary =
     '本仓库是原项目（mikufoxxx/Wenku8_Flutter）的改版源码，遵循 GPL-2.0 许可证。'
     '在保留原有阅读器、书架、听书、统计等设计的基础上，加入了缓存管理、阅读预取加速，'
     '并把应用内的项目信息与联系方式替换为改版作者的信息。\n\n'
-    '上游公开仓库是「部分实现的参考快照」。本改版已补齐构建所需的占位模块，'
-    '可以稳定产出 Android APK 与 iOS 未签名 IPA；文件夹扫描、局域网与部分语音增强、'
-    '文档格式转换在源码构建中为降级实现，不影响正常阅读、缓存与书架。';
+    '上游公开仓库是「部分实现的参考快照」。本改版已补齐构建模块，接入文库账号与在线书目，'
+    '文件夹扫描、局域网续读已可用；可以稳定产出 Android APK 与 iOS 未签名 IPA。';
 
 /// 改版说明的条目：标题 + 说明。
 class ModChange {
@@ -59,19 +58,30 @@ class ModChange {
 /// 改动清单，显示在「关于 → 改版说明」。
 const modEditionChanges = <ModChange>[
   ModChange(
+    '在线组件与账号登录',
+    '「文库账号」不再提示源码构建缺少在线组件：账号密码登录、云端书架、在线书目搜索、'
+        '目录与章节正文均通过文库公开接口读取，并与本地书架、阅读历史共用同一套数据。',
+  ),
+  ModChange(
     '构建与安装包修复',
     '改用 Gradle 9.3.1 + AGP 9.1.1，补齐文档转换占位类，Android APK 与 iOS 未签名 IPA '
         '均可从 GitHub Actions 稳定产出，并在 Release 提供下载。',
   ),
   ModChange(
     '新增「缓存与存储」中心',
-    '在 设置 → 数据与存储 中新增入口：实时显示正文缓存、图片内存缓存与临时文件占用，'
-        '支持分类清理与一键全清，清理前二次确认，不影响书架、进度、书签与本地原书。',
+    '实时显示正文插图、网页与应用缓存、临时文件、桌面小组件图片与图片内存占用，'
+        '每一类均可单独清理，一键全清会删除所有可重建缓存；'
+        '不影响书架、进度、书签、登录状态与本地原书。',
   ),
   ModChange(
     '阅读预取加速',
     '相邻章节预取从前后各 1 章扩大到前后各 2 章，翻页与目录跳转时正文命中率更高，'
         '长篇小说连续阅读更顺。数值在 lib/mod_edition.dart 的 modPrefetchRadius。',
+  ),
+  ModChange(
+    '启动与运行性能',
+    '小组件渲染、旧缓存扫描、更新检查、局域网初始化与系列归并全部移出首帧，'
+        '并合并重复发布任务；启动和阅读中不再被这些后台 I/O 抢占主线程。',
   ),
   ModChange(
     '项目信息与联系方式改为改版作者',

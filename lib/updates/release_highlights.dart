@@ -7,6 +7,7 @@ import 'app_updates.dart';
 import 'release_markdown.dart';
 import 'release_notices.dart';
 import 'current_release_content.dart';
+import 'release_history_view.dart';
 
 export 'release_notices.dart' show currentReleaseSourcePolicy;
 export 'current_release_content.dart'
@@ -24,32 +25,17 @@ class CurrentReleaseCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ArchiveSection(
-            title: '本版更新',
+            title: '版本更新记录',
             code:
                 'RELEASE / ${service?.installed?.version ?? currentAppVersion}',
           ),
           const SizedBox(height: 12),
-          for (final item in currentReleaseSummary)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: ReleaseNotes(
-                item == currentReleaseSourcePolicy ? '**$item**' : '- $item',
-                style: TextStyle(
-                  fontSize: item == currentReleaseSourcePolicy ? 16 : 13,
-                  fontWeight: item == currentReleaseSourcePolicy
-                      ? FontWeight.w700
-                      : FontWeight.normal,
-                  height: 1.6,
-                ),
-              ),
-            ),
-          const SizedBox(height: 6),
-          GlassTextButton(
-            key: const ValueKey('view-current-release-details'),
-            onPressed: () =>
-                showInstalledReleaseNotes(context, updates: service),
-            child: const AppText('查看详细更新说明'),
+          const AppText(
+            '从本仓库 v0.6.0 起，每次更新、修改与修复都记录在对应版本里。点版本展开。',
+            style: TextStyle(fontSize: 12, height: 1.6),
           ),
+          const SizedBox(height: 12),
+          const ReleaseHistoryView(),
         ],
       ),
     );

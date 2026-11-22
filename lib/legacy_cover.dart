@@ -1,11 +1,20 @@
 import 'dart:async';
 
 import 'dart:typed_data';
-import 'online_component.dart';
+import 'legacy_transport.dart';
 
 /// Bounded cover cache. Source previews use local seeds only.
 abstract final class LegacyCover {
-  static final _cache = LegacyCoverCache(request: (_) => unavailableOnline());
+  static final _cache = LegacyCoverCache(request: _request);
+  static String urlFor(int aid) => 'https://img.wenku8.com/image/${aid ~/ 1000}/$aid/${aid}s.jpg';
+  static Future<Uint8List?> _request(int aid) async {
+    try {
+      return await LegacyTransport.illustration(urlFor(aid), cacheForViewing: false);
+    } catch (_) {
+      return null;
+    }
+  }
+  static void clear() => _cache.clear();
   static Uint8List? peek(int aid, {String? url}) => _cache.peek(aid);
   static Future<Uint8List> bytes(int aid, {String? url}) => _cache.load(aid);
 
@@ -35,6 +44,12 @@ class LegacyCoverCache {
   int get cachedEntries => _entries.length;
   int get pendingRequests => _pending.length;
   int get cachedFailures => _failures.length;
+  void clear() {
+    _entries.clear();
+    _pending.clear();
+    _failures.clear();
+    _encodedBytes = 0;
+  }
 
   _CoverEntry? _touch(int aid) {
     final entry = _entries.remove(aid);

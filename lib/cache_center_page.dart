@@ -8,9 +8,12 @@ import 'package:path_provider/path_provider.dart';
 import 'app_interactions.dart';
 import 'app_ui.dart';
 import 'feature_pages.dart';
+import 'legacy_cover.dart';
+import 'library_state.dart';
 import 'mod_edition.dart';
 import 'offline_cache.dart';
 import 'offline_repository.dart';
+import 'widget_cache_bridge.dart';
 
 /// 「缓存与存储」中心：查看占用、按类别清理。
 ///
@@ -21,11 +24,13 @@ class CacheCenterPage extends StatefulWidget {
     super.key,
     required this.repository,
     required this.reduceMotion,
+    this.state,
   });
 
   /// 只有离线仓库才知道缓存目录；为 null 时只清理图片与临时文件。
   final OfflineNovelRepository? repository;
   final bool reduceMotion;
+  final LibraryState? state;
 
   @override
   State<CacheCenterPage> createState() => _CacheCenterPageState();
@@ -38,6 +43,8 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
   int _chapterBytes = 0;
   int _chapterBooks = 0;
   int _tempBytes = 0;
+  int _cacheBytes = 0;
+  int _widgetBytes = 0;
   int _imageBytes = 0;
 
   @override
@@ -67,17 +74,28 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
       }
     }
     var tempBytes = 0;
+    var cacheBytes = 0;
     try {
       tempBytes = await _folderBytes(await getTemporaryDirectory());
     } catch (_) {
       tempBytes = 0;
     }
+    try {
+      cacheBytes = await _folderBytes(await getApplicationCacheDirectory());
+    } catch (_) {
+      cacheBytes = 0;
+    }
+    final widgetBytes = await WidgetCacheBridge.nativeBytes() +
+        await WidgetCacheBridge.flutterBytes() +
+        await _widgetCoverBytes();
     if (!mounted) return;
     setState(() {
       _chapterBytes = chapterBytes;
       _chapterBooks = chapterBooks;
       _tempBytes = tempBytes;
-      _imageBytes = PaintingBinding.instance.imageCache.currentSizeBytes;
+      _cacheBytes = cacheBytes;
+      _widgetBytes = widgetBytes;
+      _imageBytes = PaintingBinding.instance.imageCache.currentSizeBytes + LegacyCover.encodedBytes;
       _measuring = false;
     });
   }
@@ -113,6 +131,46 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
     PaintingBinding.instance.imageCache
       ..clear()
       ..clearLiveImages();
+    LegacyCover.clear();
+  }
+
+  Future<void> _clearAppCache() async {
+    try {
+      final directory = await getApplicationCacheDirectory();
+      if (!await directory.exists()) return;
+      await for (final entity in directory.list(followLinks: false)) {
+        try {
+          await entity.delete(recursive: true);
+        } catch (_) {
+          // 被系统占用的缓存保持原样。
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<Directory?> _widgetCoverDirectory() async {
+    try {
+      final support = await getApplicationSupportDirectory();
+      return Directory('${support.path}/reading-widget-covers-v1');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<int> _widgetCoverBytes() async {
+    final directory = await _widgetCoverDirectory();
+    return directory == null ? 0 : _folderBytes(directory);
+  }
+
+  Future<void> _clearWidgets() async {
+    await WidgetCacheBridge.clearNative();
+    await WidgetCacheBridge.clearFlutter();
+    final coverDirectory = await _widgetCoverDirectory();
+    if (coverDirectory != null && await coverDirectory.exists()) {
+      await coverDirectory.delete(recursive: true);
+    }
+    // 这里不再立刻重建图片，否则刚清掉的缓存会马上重新写回来；桌面组件
+    // 会在下次启动、修改配置或打开书籍时按当前卡片重新生成。
   }
 
   Future<void> _clearTemp() async {
@@ -161,12 +219,14 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
 
   Future<void> _clearAll() => _run(
     title: '清理全部缓存？',
-    message: '包括正文与插图缓存、图片内存缓存和临时文件。'
-        '书架、阅读进度、书签、本地导入的原书都会保留，缓存内容在需要时重新下载。',
+    message: '包括正文与插图、网页与应用缓存、临时文件、桌面小组件图片和图片内存缓存。'
+        '书架、阅读进度、书签、登录状态与本地导入的原书都会保留，缓存内容在需要时重新生成。',
     confirmLabel: '全部清理',
     action: () async {
       await _clearChapters();
+      await _clearAppCache();
       await _clearTemp();
+      await _clearWidgets();
     },
   );
 
@@ -216,7 +276,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     // 图片缓存是运行期内存，不占安装存储；不计入“已占用”，避免空书架也显示二十多 MB。
-    final total = _chapterBytes + _tempBytes;
+    final total = _chapterBytes + _tempBytes + _cacheBytes + _widgetBytes;
     return ArchiveFeaturePage(
       title: '缓存与存储',
       code: 'SYSTEM / CACHE',
@@ -242,8 +302,9 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
                 const SizedBox(height: 6),
                 AppText(
                   '正文 ${formatCacheBytes(_chapterBytes)}（$_chapterBooks 本） · '
-                  '临时 ${formatCacheBytes(_tempBytes)}\n'
-                  '图片内存 ${formatCacheBytes(_imageBytes)}（仅运行期，占存储 0 B）',
+                  '网页 ${formatCacheBytes(_cacheBytes)} · 临时 ${formatCacheBytes(_tempBytes)}\n'
+                  '小组件图片 ${formatCacheBytes(_widgetBytes)} · '
+                  '图片内存 ${formatCacheBytes(_imageBytes)}（运行期，不占存储）',
                   style: TextStyle(fontSize: 12, height: 1.6, color: muted),
                 ),
               ],
@@ -274,6 +335,21 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
           ),
           const SizedBox(height: 14),
           _row(
+            icon: CupertinoIcons.square_grid_2x2,
+            title: '网页与应用缓存',
+            subtitle: '网页登录、封面、网络请求和系统生成的缓存文件，清理后自动重新生成',
+            trailing: formatCacheBytes(_cacheBytes),
+            onTap: _busy
+                ? null
+                : () => _run(
+                    title: '清理网页与应用缓存？',
+                    message: '不会退出书源登录，也不会删除书架与阅读记录；网页内容下次打开时重新加载。',
+                    confirmLabel: '清理',
+                    action: _clearAppCache,
+                  ),
+          ),
+          const SizedBox(height: 14),
+          _row(
             icon: CupertinoIcons.photo,
             title: '图片内存缓存',
             subtitle: '运行期内存，不占安装存储；清理后重新加载封面与插图',
@@ -287,6 +363,21 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
                     action: () async {
                       _clearImages();
                     },
+                  ),
+          ),
+          const SizedBox(height: 14),
+          _row(
+            icon: CupertinoIcons.square_on_square,
+            title: '桌面小组件图片',
+            subtitle: '系统桌面小组件使用的图片；清理后桌面组件下次刷新时自动重建',
+            trailing: formatCacheBytes(_widgetBytes),
+            onTap: _busy
+                ? null
+                : () => _run(
+                    title: '清理桌面小组件图片？',
+                    message: '会删除桌面小组件旧图片；桌面上的小组件会在下次刷新时重建，不影响书架。',
+                    confirmLabel: '清理',
+                    action: _clearWidgets,
                   ),
           ),
           const SizedBox(height: 14),

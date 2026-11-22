@@ -12,14 +12,14 @@ import '../legacy_transport.dart';
 export 'current_release_content.dart'
     show currentReleaseNotes, publicReleaseNotes;
 
-const officialUpdateRepository = 'mikufoxxx/Wenku8_Flutter';
+const officialUpdateRepository = 'LoveI-Livo/qingxiaoshuo-wenku';
 const updateMirrorOrigin = 'https://git.3952039.xyz';
 const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: officialUpdateRepository,
 );
-const currentAppVersion = '0.6.0';
-const currentAppBuild = 3000;
+const currentAppVersion = '0.6.7';
+const currentAppBuild = 3007;
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
   const ReleaseVersion(this.major, this.minor, this.patch, [this.build = 0]);
@@ -627,7 +627,9 @@ class AppUpdates extends ChangeNotifier {
     mirror: _mirrorSource,
     original: _githubSource,
   );
-  bool get _usesMirror => updateRepository == officialUpdateRepository;
+  // 本改版仓库直接走 GitHub；镜像只作为用户手动配置其他仓库时的备用路径，
+  // 不能把「本仓库」页面错误地指向镜像首页。
+  bool get _usesMirror => false;
   Uri get projectPage => _usesMirror
       ? Uri.parse(updateMirrorOrigin)
       : Uri.https('github.com', '/$updateRepository');

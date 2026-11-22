@@ -118,6 +118,16 @@ class ReadingWidgetsPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 result.success(null)
             } catch (_: Exception) { result.error("WIDGET_BIND_FAILED", "小组件未能设置", null) }
             "consumeOpenRequest" -> result.success(inbox.consume())
+            "cacheUsage" -> {
+                val dirs = listOf(File(context.filesDir, "reading-cards"), File(context.filesDir, "reading-desktop"))
+                result.success(dirs.sumOf { dir -> dir.walkTopDown().filter { it.isFile }.sumOf { it.length() } })
+            }
+            "clearWidgetCache" -> {
+                for (name in listOf("reading-cards", "reading-desktop")) {
+                    runCatching { File(context.filesDir, name).deleteRecursively() }
+                }
+                result.success(null)
+            }
             "publishSnapshot" -> try {
                 val json = JSONObject(requireNotNull(call.argument<String>("json")))
                 require(json.getInt("version") == 1 && json.getJSONArray("week").length() == 7)

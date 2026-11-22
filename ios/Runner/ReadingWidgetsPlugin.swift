@@ -11,6 +11,33 @@ final class ReadingWidgetsPlugin: NSObject, FlutterPlugin {
     registrar.addMethodCallDelegate(ReadingWidgetsPlugin(), channel: channel)
   }
 
+  private func widgetCacheBytes() -> Int64 {
+    guard let root = ReadingWidgetStore.container else { return 0 }
+    let names = ["reading-cards", "reading-desktop"]
+    var total: Int64 = 0
+    for name in names {
+      let directory = root.appendingPathComponent(name, isDirectory: true)
+      let files = (try? FileManager.default.subpathsOfDirectory(atPath: directory.path)) ?? []
+      for file in files {
+        let path = directory.appendingPathComponent(file).path
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        total += (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+      }
+    }
+    for file in ["reading-cards.json", "reading-cover-v1.png"] {
+      let attributes = try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(file).path)
+      total += (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+    }
+    return total
+  }
+
+  private func clearWidgetCache() {
+    guard let root = ReadingWidgetStore.container else { return }
+    for name in ["reading-cards", "reading-desktop", "reading-cards.json", "reading-cover-v1.png"] {
+      try? FileManager.default.removeItem(at: root.appendingPathComponent(name))
+    }
+  }
+
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "cardsSupported": result(true)
@@ -24,6 +51,11 @@ final class ReadingWidgetsPlugin: NSObject, FlutterPlugin {
       } catch { result(FlutterError(code: "WIDGET_WRITE_FAILED", message: "小组件暂未更新", details: nil)) }
     case "consumeOpenRequest":
       result(ReadingWidgetOpenInbox.shared.consume())
+    case "cacheUsage":
+      result(widgetCacheBytes())
+    case "clearWidgetCache":
+      clearWidgetCache()
+      result(nil)
     case "publishSnapshot":
       guard let root = ReadingWidgetStore.container else {
         result(FlutterError(code: "WIDGET_GROUP_UNAVAILABLE", message: "桌面组件共享空间尚未启用", details: nil)); return
