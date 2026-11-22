@@ -26,6 +26,17 @@ final class NativeBookConversion {
     }
   }
 
+  func extractPdfText(_ data: Data) throws -> String {
+    guard let document = PDFDocument(data: data) else {
+      throw BookDocumentFailure(code: "pdf_unavailable", message: "无法打开这个 PDF")
+    }
+    let text = (document.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else {
+      throw BookDocumentFailure(code: "pdf_empty", message: "PDF 没有可提取的文字")
+    }
+    return text
+  }
+
   func extractKindle(_ path: String, output: String) throws -> [String: Any] {
     throw BookDocumentFailure(code: "kindle_unavailable", message: "Kindle 转换在当前构建中未启用")
   }

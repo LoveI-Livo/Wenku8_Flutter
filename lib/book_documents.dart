@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'book_import_limits.dart';
@@ -441,6 +442,18 @@ class BookDocuments {
   /// Existing TXT/EPUB callers keep their original path. Formats the public
   /// build can read in pure Dart are converted to disposable TXT files; the
   /// remaining containers use the native fallback.
+  /// Extracts text from PDF bytes with the host converter. Used by cloud
+  /// reading so a PDF never has to be staged as a local book first.
+  Future<String?> extractPdfText(Uint8List bytes) async {
+    try {
+      return await channel.invokeMethod<String>('extractPdfText', {
+        'bytes': bytes,
+      });
+    } on PlatformException {
+      return null;
+    }
+  }
+
   Future<List<BookDocumentSelection>> prepareBook(
     BookDocumentSelection book,
   ) async {

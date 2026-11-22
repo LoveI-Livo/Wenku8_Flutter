@@ -219,6 +219,13 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
       if method == "decodeTextFile" { return output.path }
       defer { _ = try? store().release(output.path) }
       return try String(contentsOf: output, encoding: .utf8)
+    case "extractPdfText":
+      guard let payload = args["bytes"] as? FlutterStandardTypedData else {
+        throw BookDocumentFailure(code: "pdf_bytes", message: "缺少 PDF 内容")
+      }
+      let cache = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+      let conversion = try NativeBookConversion(documents: store(), portableRoot: cache.appendingPathComponent("portable-book-import", isDirectory: true))
+      return try conversion.extractPdfText(payload.data)
     case "extractKindle", "extractPdf":
       guard let path = args["path"] as? String, let output = args["output"] as? String else {
         throw BookDocumentFailure(code: "conversion_path", message: "缺少转换文件或暂存目录")

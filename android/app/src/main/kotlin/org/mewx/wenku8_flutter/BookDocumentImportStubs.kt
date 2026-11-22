@@ -4,6 +4,7 @@ import android.app.Activity
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import java.io.ByteArrayInputStream
 import java.io.File
 
 /**
@@ -19,6 +20,14 @@ internal class BookPdfImport(activity: Activity,
 
     fun read(file: File): String? = try {
         PDDocument.load(file).use { document ->
+            PDFTextStripper().getText(document).trim().ifEmpty { null }
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    fun readBytes(bytes: ByteArray): String? = try {
+        PDDocument.load(ByteArrayInputStream(bytes)).use { document ->
             PDFTextStripper().getText(document).trim().ifEmpty { null }
         }
     } catch (_: Exception) {

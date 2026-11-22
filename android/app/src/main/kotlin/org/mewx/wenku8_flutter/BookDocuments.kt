@@ -197,6 +197,10 @@ class BookDocuments internal constructor(
                 if (imports.initialized) imports.queue.release(call.argument<List<String>>("tokens") ?: emptyList())
                 null
             }
+            "extractPdfText" -> background(result) {
+                BookPdfImport(activity, root).readBytes(call.argument<ByteArray>("bytes")
+                    ?: throw IllegalArgumentException("缺少 PDF 内容"))
+            }
             "prepareBook" -> background(result) {
                 val source = bookTextFile(call.argument<String>("path") ?: "")
                 val staging = if (imports.initialized && source.parentFile == importRoot.canonicalFile) importRoot else root

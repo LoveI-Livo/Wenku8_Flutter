@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:html/parser.dart' as html;
 
+import 'book_documents.dart';
 import 'catalog.dart';
 import 'cloud_sources.dart';
 import 'portable_book_text.dart';
@@ -117,7 +118,7 @@ class CloudDocumentService {
       cookie: novel.remoteCookie,
       authorization: novel.remoteAuthorization,
     );
-    final parsed = _parse(novel.id, novel.title, resolved, bytes);
+    final parsed = await _parseAsync(novel.id, novel.title, resolved, bytes);
     final full = _withSource(parsed.novel, novel);
     final document = _CloudDocument(full, parsed.bodies);
     _documents[novel.id] = document;
@@ -225,6 +226,27 @@ class CloudDocumentService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<_CloudDocument> _parseAsync(
+    int id,
+    String name,
+    String url,
+    Uint8List bytes,
+  ) async {
+    if (name.toLowerCase().endsWith('.pdf')) {
+      final text = await BookDocuments().extractPdfText(bytes);
+      if (text == null || text.trim().isEmpty) {
+        throw const FormatException('PDF 没有可提取的文字');
+      }
+      return _parseText(
+        id,
+        name.replaceFirst(RegExp(r'\.[^.]+$'), ''),
+        url,
+        Uint8List.fromList(utf8.encode(text)),
+      );
+    }
+    return _parse(id, name, url, bytes);
   }
 
   _CloudDocument _parse(int id, String name, String url, Uint8List bytes) {
