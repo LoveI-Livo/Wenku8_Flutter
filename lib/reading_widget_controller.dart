@@ -169,7 +169,6 @@ class ReadingWidgetController extends ChangeNotifier {
   Future<void>? _loading;
   int _ticket = 0;
   bool _publishing = false, _publishPending = false;
-  Timer? _firstPublish;
   String? _lastVisualSignature;
   bool? _lastPublishedDetails;
   (int?, DateTime, String?)? _preparedCoverFor;
@@ -197,11 +196,8 @@ class ReadingWidgetController extends ChangeNotifier {
     state.readingMoments.addListener(_changed);
     state.historyChanges.addListener(_changed);
     notifyListeners();
-    // 启动首帧优先；小组件图片延后到界面稳定后再生成。
-    _firstPublish?.cancel();
-    _firstPublish = Timer(const Duration(seconds: 5), () {
-      if (!_disposed && _attached) unawaited(publish());
-    });
+    // 启动时不主动渲染小组件图片；只有阅读数据真正变化或用户改配置时才写。
+    // 这样清掉的缓存不会在下一次启动 5 秒后又自己长回来。
   }
 
   void _changed() {
@@ -419,7 +415,6 @@ class ReadingWidgetController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _firstPublish?.cancel();
     ++_ticket;
     _debounce?.cancel();
     if (_attached) state.readingMoments.removeListener(_changed);

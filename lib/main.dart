@@ -653,7 +653,10 @@ class _NovelAppState extends State<NovelApp> with WidgetsBindingObserver {
         lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.inactive ||
         lifecycle == AppLifecycleState.hidden) {
-      unawaited(Future<void>.delayed(Duration.zero, _readingWidgets.publish));
+      unawaited(Future<void>.delayed(
+        Duration.zero,
+        () => _readingWidgets.publish(force: false),
+      ));
     }
     if (lifecycle == AppLifecycleState.resumed &&
         state.appPalette.source == AppPaletteSource.system) {
