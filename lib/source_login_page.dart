@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -5,9 +7,18 @@ import 'app_ui.dart';
 
 /// 私有书源网页登录：加载站点登录页，登录完成后自动读取 Cookie。
 class SourceLoginPage extends StatefulWidget {
-  const SourceLoginPage({super.key, required this.address, this.title = '登录书源'});
+  const SourceLoginPage({
+    super.key,
+    required this.address,
+    this.title = '登录书源',
+    this.autoCookieNames = const [],
+  });
   final String address;
   final String title;
+
+  /// When every named cookie appears, finish automatically. This is how a QR
+  /// or SMS login on the provider's own page becomes a usable app session.
+  final List<String> autoCookieNames;
   @override
   State<SourceLoginPage> createState() => _SourceLoginPageState();
 }
@@ -15,23 +26,51 @@ class SourceLoginPage extends StatefulWidget {
 class _SourceLoginPageState extends State<SourceLoginPage> {
   bool _busy = false;
   String? _error;
+  Timer? _autoTimer;
+  bool _autoTried = false;
 
-  Future<void> _capture() async {
-    setState(() { _busy = true; _error = null; });
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoCookieNames.isNotEmpty) {
+      _autoTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        if (!_autoTried) _capture(auto: true);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _capture({bool auto = false}) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      if (!auto) _error = null;
+    });
     try {
-      final uri = Uri.parse(widget.address);
-      final cookies = await CookieManager.instance().getCookies(url: WebUri(widget.address));
+      final cookies = await CookieManager.instance().getCookies(
+        url: WebUri(widget.address),
+      );
       final value = cookies
           .where((c) => c.value.isNotEmpty)
           .map((c) => '${c.name}=${c.value}')
           .join('; ');
       if (value.isEmpty) {
-        setState(() => _error = '还没有读到登录 Cookie，请先在网页里完成登录');
+        if (!auto) setState(() => _error = '还没有读到登录 Cookie，请先在网页里完成登录');
         return;
+      }
+      if (auto) {
+        final names = {for (final c in cookies) c.name};
+        if (!widget.autoCookieNames.every(names.contains)) return;
+        _autoTried = true;
       }
       if (mounted) Navigator.pop(context, value);
     } catch (e) {
-      if (mounted) setState(() => _error = '读取 Cookie 失败：$e');
+      if (!auto && mounted) setState(() => _error = '读取 Cookie 失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -43,7 +82,7 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
       middle: Text(widget.title),
       trailing: CupertinoButton(
         padding: EdgeInsets.zero,
-        onPressed: _busy ? null : _capture,
+        onPressed: _busy ? null : () => _capture(),
         child: Text(_busy ? '读取中' : '完成'),
       ),
     ),
@@ -55,7 +94,9 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
               padding: const EdgeInsets.all(12),
               child: AppText(
                 _error!,
-                style: TextStyle(color: CupertinoColors.systemRed.resolveFrom(context)),
+                style: TextStyle(
+                  color: CupertinoColors.systemRed.resolveFrom(context),
+                ),
               ),
             ),
           Expanded(

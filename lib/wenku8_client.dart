@@ -14,12 +14,14 @@ class Wenku8Client {
   Wenku8Client();
 
   static const apiUrl = 'http://app.wenku8.com/android.php/';
-  static const webUrl = 'http://www.wenku8.net';
+  static const webUrl = 'https://www.wenku8.net';
   static const webLoginPageUrl = '$webUrl/login.php';
   static const webLoginUrl = '$webUrl/login.php?do=submit';
   static const _cookieKey = 'wenku8_session_cookie_v1';
   static const _keepSessionKey = 'wenku8_keep_session_v1';
-  static const _appVer = '1.13';
+  static const _appVer = '1.30';
+  // 原版 1.30 客户端使用的接口版本；旧版 1.13 只作为兼容回退。
+  static const _legacyAppVer = '1.13';
   static const _ua =
       'Dalvik/2.1.0 (Linux; U; Android 11; IN2010 Build/RP1A.201005.001)';
   static const _browserUa =
@@ -163,7 +165,11 @@ class Wenku8Client {
       request.headers.set(HttpHeaders.cookieHeader, cookieHeader!);
     }
     request.followRedirects = followRedirects;
-    request.add(utf8.encode(Uri(queryParameters: fields).query));
+    final body = utf8.encode(Uri(queryParameters: fields).query);
+    // PHP endpoints on app.wenku8.com close a chunked request without sending
+    // headers. Always send an explicit Content-Length.
+    request.contentLength = body.length;
+    request.add(body);
     final response = await request.close().timeout(const Duration(seconds: 15));
     final changed = _absorbCookies(response);
     final bytes = await response
@@ -201,13 +207,26 @@ class Wenku8Client {
     FormatException? credentialFailure;
     try {
       final emailLogin = username.contains('@');
-      final body = await apiRaw(
-        'action=${emailLogin ? 'loginemail' : 'login'}&username=${Uri.encodeQueryComponent(username.trim())}'
-        '&password=${Uri.encodeQueryComponent(password)}',
+      final action =
+          'action=${emailLogin ? 'loginemail' : 'login'}&username=${Uri.encodeQueryComponent(username.trim())}'
+          '&password=${Uri.encodeQueryComponent(password)}';
+      var body = await apiRaw(
+        action,
         allowNumeric: true,
         timeout: const Duration(seconds: 12),
       );
-      final code = body.trim();
+      var code = body.trim();
+      // 1.30 是原版客户端的接口版本。极少数旧接口仍只接受 1.13，
+      // 遇到非标准返回时再用旧版本重试一次。
+      if (code != '1' && code != '2' && code != '3' && code != '4') {
+        body = await apiRaw(
+          action,
+          allowNumeric: true,
+          appVer: _legacyAppVer,
+          timeout: const Duration(seconds: 12),
+        );
+        code = body.trim();
+      }
       if (code == '1' && hasSession) return;
       if (code == '2') {
         credentialFailure = FormatException(emailLogin ? '邮箱不存在' : '用户名不存在');
@@ -251,6 +270,7 @@ class Wenku8Client {
     bool allowNumeric = false,
     bool binary = false,
     bool allowHtml = false,
+    String? appVer,
     Duration timeout = const Duration(seconds: 15),
   }) async {
     await ensureReady();
@@ -262,11 +282,15 @@ class Wenku8Client {
       request.headers.set(HttpHeaders.cookieHeader, cookieHeader!);
     }
     final payload = <String, String>{
-      'appver': _appVer,
+      'appver': appVer ?? _appVer,
       'request': base64Encode(utf8.encode(action)),
       'timetoken': '${DateTime.now().millisecondsSinceEpoch}',
     };
-    request.add(utf8.encode(Uri(queryParameters: payload).query));
+    final payloadBytes = utf8.encode(Uri(queryParameters: payload).query);
+    // app.wenku8.com rejects Dart's default chunked POST with a dropped
+    // connection ("Connection closed before full header was received").
+    request.contentLength = payloadBytes.length;
+    request.add(payloadBytes);
     final response = await request.close().timeout(timeout);
     final changed = _absorbCookies(response);
     final bytes = await response.fold<List<int>>(

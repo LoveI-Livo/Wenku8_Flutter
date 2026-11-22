@@ -81,6 +81,7 @@ class WenkuAccount extends ChangeNotifier {
   static String describeError(Object error) {
     if (error is FormatException) return error.message;
     if (error is SocketException) return '网络连接失败，请检查网络';
+    if (error is HttpException) return '文库接口连接被中断，请检查网络后重试';
     return '$error';
   }
 

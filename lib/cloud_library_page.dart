@@ -10,7 +10,12 @@ import 'offline_cache.dart' show formatCacheBytes;
 import 'source_login_page.dart';
 
 typedef ImportCloudBook = Future<Novel> Function(String name, String path);
-typedef AddCloudBook = Future<void> Function(CloudBookEntry entry, CloudSourceConfig config, String? groupId);
+typedef AddCloudBook =
+    Future<void> Function(
+      CloudBookEntry entry,
+      CloudSourceConfig config,
+      String? groupId,
+    );
 typedef ImportCloudBatch =
     Future<({int imported, int failed})> Function(String name, String path);
 
@@ -110,8 +115,7 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.s3 => '连接 Amazon S3 或 S3 兼容存储，按文件夹浏览并导入书籍。',
                     CloudSourceKind.lanzou || CloudSourceKind.lanzouPro =>
                       '蓝奏云普通版 / 优享版：复制文件下载直链，流式读取，不保存账号 Cookie。',
-                    CloudSourceKind.xunlei =>
-                      '迅雷云盘：复制文件的下载直链，流式读取，不经过本地下载目录。',
+                    CloudSourceKind.xunlei => '迅雷云盘：复制文件的下载直链，流式读取，不经过本地下载目录。',
                     CloudSourceKind.aliyun => '阿里云盘：复制分享文件的下载直链，流式读取。',
                     CloudSourceKind.baidu => '百度网盘：复制文件的下载直链（需带有效签名）。',
                     CloudSourceKind.pan123 => '123 云盘：复制文件下载直链，流式读取。',
@@ -260,15 +264,23 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
     super.dispose();
   }
 
-  Future<void> _webLogin() async {
-    final address = _address.text.trim();
-    if (!address.startsWith('http://') && !address.startsWith('https://')) {
+  Future<void> _webLogin({
+    String? address,
+    List<String> autoCookieNames = const [],
+    String title = '登录书源',
+  }) async {
+    final target = address ?? _address.text.trim();
+    if (!target.startsWith('http://') && !target.startsWith('https://')) {
       setState(() => _error = '请先填写书源或网站地址，再打开网页登录');
       return;
     }
     final cookie = await Navigator.of(context).push<String>(
       CupertinoPageRoute(
-        builder: (_) => SourceLoginPage(address: address),
+        builder: (_) => SourceLoginPage(
+          address: target,
+          title: title,
+          autoCookieNames: autoCookieNames,
+        ),
       ),
     );
     if (cookie != null && mounted) {
@@ -376,9 +388,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
   );
   @override
   Widget build(BuildContext context) => _CloudScaffold(
-    title: widget.syncConnection
-        ? 'S3 云端同步'
-        : '连接 ${widget.kind.label}',
+    title: widget.syncConnection ? 'S3 云端同步' : '连接 ${widget.kind.label}',
     code: widget.syncConnection ? 'LIBRARY / S3 SYNC' : 'LOCAL / CONNECTION',
     child: Align(
       alignment: Alignment.topCenter,
@@ -531,6 +541,24 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
                 style: TextStyle(height: 1.7),
               ),
               const SizedBox(height: 24),
+              GlassTextButton(
+                key: const ValueKey('cloud-quark-web-login'),
+                onPressed: _busy
+                    ? null
+                    : () => _webLogin(
+                        address: 'https://pan.quark.cn/',
+                        autoCookieNames: const ['__puus'],
+                        title: '登录夸克网盘',
+                      ),
+                child: const AppText('网页扫码 / 验证码登录，自动获取 Cookie'),
+              ),
+              const SizedBox(height: 8),
+              const AppText(
+                '在夸克官网完成扫码或验证码登录，页面识别到登录成功后自动返回，'
+                '不需要手动复制 Cookie。',
+                style: TextStyle(fontSize: 12, height: 1.55),
+              ),
+              const SizedBox(height: 20),
               _field(
                 'Cookie',
                 _cookie,
@@ -944,9 +972,11 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                                 builder: (_) => CupertinoActionSheet(
                                   title: const Text('加入哪个书单'),
                                   actions: [
-                                    for (final entry in widget.booklists.entries)
+                                    for (final entry
+                                        in widget.booklists.entries)
                                       CupertinoActionSheetAction(
-                                        onPressed: () => Navigator.pop(context, entry.key),
+                                        onPressed: () =>
+                                            Navigator.pop(context, entry.key),
                                         child: Text(entry.value),
                                       ),
                                   ],
@@ -959,7 +989,11 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                             }
                             if (groupId == null) return;
                             for (final entry in _selected.values) {
-                              await widget.onAddCloud!(entry, widget.config, groupId);
+                              await widget.onAddCloud!(
+                                entry,
+                                widget.config,
+                                groupId,
+                              );
                             }
                             if (!mounted) return;
                             showNovelFeedback(context, '已加入书单，点开即在线阅读，不下载原文件');

@@ -167,6 +167,9 @@ class BookDocuments internal constructor(
             "openLinkedDocument" -> background(result, linked = true) { links.openDocument(call.argument<String>("reference") ?: "",
                 call.argument<Number>("size")?.toLong(), call.argument<Number>("modified")?.toLong(), call.argument<String>("purpose")) }
             "closeLinkedDocument" -> background(result) { links.closeDocument(call.argument<String>("lease") ?: ""); null }
+            "stageLinkedDocument" -> background(result) {
+                links.stage(call.argument<String>("reference") ?: "", root)
+            }
             "prepareLinkedDocument" -> background(result, linked = true) {
                 val lease = links.openDocument(call.argument<String>("reference") ?: "")
                 try {

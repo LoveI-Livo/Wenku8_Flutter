@@ -17,6 +17,22 @@ class ModRelease {
 /// of changelog text.
 const modReleaseHistory = <ModRelease>[
   ModRelease(
+    version: '0.6.10',
+    date: '2026-11-22',
+    summary: '修复登录接口断连、长密码、关联导入与夸克网页登录',
+    changes: [
+      '修复登录时接口请求被服务器直接断开：接口 POST 补齐 Content-Length，登录、账号资料和云书架不再报 Connection closed before full header。',
+      'App 接口版本对齐原版 1.30，并保留 1.13 兼容回退。',
+      '登录密码输入不再截断到 30 位，长密码可以完整提交。',
+      '未登录也显示测试连接 NET/WEB、保持登录和云书架入口。',
+      '修复 iOS「关联到 App」手动导入：符号链接文件可正常关联；无法长期授权时自动保留可读副本。',
+      '修复 Android「关联到 App」导入 PDF、MOBI、ZIP 等格式：补齐关联文件转工作副本。',
+      '夸克网盘支持 App 内扫码或验证码登录，自动获取 Cookie。',
+      '0.6.9 的网页登录、会话保留、字体、云端备份、内置插画、缓存清理全部保留。',
+    ],
+  ),
+
+  ModRelease(
     version: '0.6.9',
     date: '2026-11-22',
     summary: '网页登录 Cookie 持久化，修复登录后加载与重复重登',

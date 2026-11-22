@@ -332,7 +332,7 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                       : '使用原版文库账号。未登录时仍可搜索、收藏到本机和离线阅读。',
                 ),
                 const SizedBox(height: 24),
-                if (!account.authenticated)
+                if (!account.authenticated) ...[
                   ContentPanel(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -371,7 +371,7 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                           autofillHints: const [AutofillHints.password],
                           smartDashesType: SmartDashesType.disabled,
                           smartQuotesType: SmartQuotesType.disabled,
-                          maxLength: 30,
+                          maxLength: 128,
                           onSubmitted: (_) => _login(),
                           decoration: InputDecoration(
                             labelText: appText(context, '密码'),
@@ -420,8 +420,95 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                         ],
                       ],
                     ),
-                  )
-                else ...[
+                  ),
+                  const SizedBox(height: 16),
+                  ContentPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(child: AppText('测试连接')),
+                            PopupMenuButton<_ProbeMode>(
+                              key: const ValueKey('account-probe-mode'),
+                              initialValue: _probeMode,
+                              enabled: !_probing,
+                              onSelected: (mode) {
+                                setState(() => _probeMode = mode);
+                                unawaited(_probe());
+                              },
+                              itemBuilder: (context) => const [
+                                PopupMenuItem(
+                                  value: _ProbeMode.net,
+                                  child: AppText('NET · App 接口'),
+                                ),
+                                PopupMenuItem(
+                                  value: _ProbeMode.web,
+                                  child: AppText('WEB · 官网'),
+                                ),
+                              ],
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AppText(
+                                    _probeMode == _ProbeMode.net
+                                        ? 'NET'
+                                        : 'WEB',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    CupertinoIcons.chevron_down,
+                                    size: 14,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_probeResult != null) ...[
+                          const SizedBox(height: 4),
+                          AppText(
+                            _probeResult!,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Expanded(child: AppText('保持登录')),
+                            Switch.adaptive(
+                              key: const ValueKey('account-keep-session'),
+                              value: account.keepSession,
+                              onChanged: account.busy
+                                  ? null
+                                  : (value) => unawaited(
+                                      account.setKeepSession(value),
+                                    ),
+                            ),
+                          ],
+                        ),
+                        AppText(
+                          account.keepSession
+                              ? '登录后官网会话保存在本机；退出账号会清除会话。'
+                              : '当前会话只在本次运行有效，关闭或重启应用后需重新登录。',
+                          style: const TextStyle(fontSize: 12, height: 1.55),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  FeatureEntry(
+                    key: const ValueKey('account-cloud'),
+                    title: '云书架',
+                    subtitle: '登录后同步收藏并查看云端书目',
+                    icon: CupertinoIcons.cloud,
+                    onTap: () => showNovelFeedback(context, '请先登录文库账号'),
+                  ),
+                ] else ...[
                   LoadedContentItem(
                     index: 1,
                     child: ContentPanel(

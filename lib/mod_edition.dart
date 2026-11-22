@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库 · 改版版';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.6.9';
-const modEditionBuild = 3009;
+const modEditionVersion = '0.6.10';
+const modEditionBuild = 3010;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';

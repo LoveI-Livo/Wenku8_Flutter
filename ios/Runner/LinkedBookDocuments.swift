@@ -10,6 +10,9 @@ final class LinkedBookDocuments {
     var bookmark: Data
     let relativePath: String?
     let name: String
+    /// Created only when the provider's URL cannot be reopened. It keeps link
+    /// imports readable instead of failing after the picker closes.
+    var localCopy: String?
   }
   private struct Lease {
     let handle: FileHandle
@@ -38,8 +41,8 @@ final class LinkedBookDocuments {
     let scope = parent ?? source
     let scoped = scope.startAccessingSecurityScopedResource()
     defer { if scoped { scope.stopAccessingSecurityScopedResource() } }
+    guard source.isFileURL else { throw unavailable() }
     let canonical = source.standardizedFileURL.resolvingSymlinksInPath()
-    guard source.isFileURL, canonical.path == source.standardizedFileURL.path else { throw unavailable() }
     let relative: String?
     if let parent {
       let base = parent.standardizedFileURL.resolvingSymlinksInPath().path
@@ -47,12 +50,23 @@ final class LinkedBookDocuments {
       relative = String(canonical.path.dropFirst(base.count + 1))
     } else { relative = nil }
     let label = name ?? source.lastPathComponent
-    let grant = Grant(version: 1,
-      bookmark: try scope.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil),
-      relativePath: relative, name: label)
-    // Validate the selection before persisting an otherwise unused grant.
-    let probe = try openURL(source, scope: scope, scoped: false, name: label, expected: [:])
-    probe.close()
+    var bookmark = Data()
+    var localCopy: String?
+    do {
+      bookmark = try scope.bookmarkData(options: .minimalBookmark,
+        includingResourceValuesForKeys: nil, relativeTo: nil)
+      // Validate the selection before persisting an otherwise unused grant.
+      let probe = try openURL(source, scope: scope, scoped: false, name: label, expected: [:])
+      probe.close()
+    } catch {
+      // File-provider URLs are often symlinks, and a security-scoped bookmark
+      // may not survive the picker on iOS. Keep a private fallback copy so a
+      // linked import still opens instead of turning into a dead reference.
+      localCopy = try retainFallbackCopy(source)
+      bookmark = Data()
+    }
+    let grant = Grant(version: 1, bookmark: bookmark,
+      relativePath: relative, name: label, localCopy: localCopy)
     let reference = UUID().uuidString
     try JSONEncoder().encode(grant).write(to: record(reference), options: .atomic)
     return ["name": label, "reference": reference]
@@ -152,39 +166,52 @@ final class LinkedBookDocuments {
       grant = try JSONDecoder().decode(Grant.self, from: data)
       guard grant.version == 1 else { throw unavailable() }
     } catch { throw unavailable() }
-    var stale = false
-    let scope: URL
-    do { scope = try URL(resolvingBookmarkData: grant.bookmark, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &stale) }
-    catch { throw unavailable() }
-    let scoped = scope.startAccessingSecurityScopedResource()
-    do {
-      let source: URL
-      if let relative = grant.relativePath {
-        guard !relative.isEmpty, !relative.hasPrefix("/"), !relative.split(separator: "/").contains("..") else { throw unavailable() }
-        source = scope.appendingPathComponent(relative)
-        guard source.standardizedFileURL.resolvingSymlinksInPath().path.hasPrefix(scope.standardizedFileURL.resolvingSymlinksInPath().path + "/") else { throw unavailable() }
-      } else { source = scope }
-      let lease = try openURL(source, scope: scope, scoped: scoped, name: grant.name, expected: args)
-      if stale {
+    if !grant.bookmark.isEmpty {
+      var stale = false
+      if let scope = try? URL(resolvingBookmarkData: grant.bookmark, options: .withoutUI,
+        relativeTo: nil, bookmarkDataIsStale: &stale) {
+        let scoped = scope.startAccessingSecurityScopedResource()
         do {
-          var updated = grant
-          updated.bookmark = try scope.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
-          try JSONEncoder().encode(updated).write(to: file, options: .atomic)
-        } catch { try? lease.handle.close(); throw error }
+          let source: URL
+          if let relative = grant.relativePath {
+            guard !relative.isEmpty, !relative.hasPrefix("/"),
+              !relative.split(separator: "/").contains("..") else { throw unavailable() }
+            source = scope.appendingPathComponent(relative)
+            guard source.standardizedFileURL.resolvingSymlinksInPath().path.hasPrefix(
+              scope.standardizedFileURL.resolvingSymlinksInPath().path + "/") else { throw unavailable() }
+          } else { source = scope }
+          let lease = try openURL(source, scope: scope, scoped: scoped, name: grant.name, expected: args)
+          if stale {
+            var updated = grant
+            updated.bookmark = try scope.bookmarkData(options: .minimalBookmark,
+              includingResourceValuesForKeys: nil, relativeTo: nil)
+            try JSONEncoder().encode(updated).write(to: file, options: .atomic)
+          }
+          return lease
+        } catch {
+          if scoped { scope.stopAccessingSecurityScopedResource() }
+          // A provider permission failure is recoverable through the copy;
+          // a changed/oversized original must stay visible to the reader.
+          if let failure = error as? BookDocumentFailure,
+            failure.code != "linked_permission" { throw failure }
+        }
       }
-      return lease
-    } catch {
-      if scoped { scope.stopAccessingSecurityScopedResource() }
-      if let failure = error as? BookDocumentFailure { throw failure }
-      throw unavailable()
     }
+    if let localCopy = grant.localCopy, !localCopy.isEmpty,
+      !localCopy.hasPrefix("/"), !localCopy.split(separator: "/").contains("..") {
+      let copy = root.appendingPathComponent(localCopy)
+      if files.fileExists(atPath: copy.path) {
+        return try openURL(copy, scope: root, scoped: false, name: grant.name, expected: args)
+      }
+    }
+    throw unavailable()
   }
 
   private func openURL(_ source: URL, scope: URL, scoped: Bool, name: String, expected: [String: Any]) throws -> Lease {
     var value: Lease?, failure: Error?, coordination: NSError?
     NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordination) { readable in
       do {
-        let fd = Darwin.open(readable.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        let fd = Darwin.open(readable.path, O_RDONLY | O_CLOEXEC)
         guard fd >= 0 else { throw unavailable() }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         do {
@@ -231,6 +258,20 @@ final class LinkedBookDocuments {
   private static func modified(_ stat: Darwin.stat) -> Int64 {
     Int64(stat.st_mtimespec.tv_sec) * 1000 + Int64(stat.st_mtimespec.tv_nsec) / 1_000_000
   }
+  /// Used only when the provider URL cannot be opened after the picker closes.
+  private func retainFallbackCopy(_ source: URL) throws -> String {
+    let name = UUID().uuidString + ".original"
+    let destination = root.appendingPathComponent(name)
+    var coordination: NSError?, failure: Error?
+    NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordination) { readable in
+      do { try files.copyItem(at: readable, to: destination) }
+      catch { failure = error }
+    }
+    if let error = coordination ?? failure { throw error }
+    guard files.fileExists(atPath: destination.path) else { throw unavailable() }
+    return name
+  }
+
   private func record(_ reference: String) throws -> URL {
     guard UUID(uuidString: reference) != nil else { throw unavailable() }
     return root.appendingPathComponent(reference + ".json")

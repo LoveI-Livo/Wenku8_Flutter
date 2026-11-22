@@ -35,6 +35,37 @@ internal class BookTextLinks(private val context: Context) {
         val values = records()
         return values.keys().asSequence().any { values.getJSONObject(it).optString("grant") == uri.toString() }
     }
+    /** Copy a linked source into the import workspace when a format must be
+     *  parsed through a path (PDF/DOCX/MOBI/ZIP). Copy mode already does this;
+     *  linked mode previously had no Android implementation at all. */
+    fun stage(reference: String, root: File): Map<String, Any?> {
+        val uri = source(reference)
+        val display = name(uri, "书籍")
+        val target = File.createTempFile("import-", ".source", root)
+        try {
+            val limit = BookArchiveImport.limit(display)
+            (context.contentResolver.openInputStream(uri)
+                ?: error("无法读取原文件，请重新选择")).use { input ->
+                target.outputStream().use { output ->
+                    var total = 0L
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        total += read
+                        require(total <= limit) { "文件过大，无法导入" }
+                        output.write(buffer, 0, read)
+                    }
+                }
+            }
+            require(target.length() > 0) { "原文件为空，无法导入" }
+            return mapOf("name" to display, "path" to target.path)
+        } catch (failure: Exception) {
+            target.delete()
+            throw failure
+        }
+    }
+
     fun release(reference: String) {
         val values = records()
         val old = values.optJSONObject(reference) ?: return
