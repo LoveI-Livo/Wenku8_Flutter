@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:html/parser.dart' as web;
 import 'package:xml/xml.dart';
 
 import 'library_state.dart';
@@ -179,7 +180,7 @@ class WenkuAccount extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshProfile({bool notify = true}) async {
+  Future<WenkuProfile> _apiProfile() async {
     final body = await client.apiRaw('action=userinfo');
     if (!body.trim().startsWith('<')) {
       throw const OnlineAuthenticationRequired();
@@ -208,9 +209,7 @@ class WenkuAccount extends ChangeNotifier {
     if (name == null || name.isEmpty) {
       throw const FormatException('账号资料解析失败，请重新登录');
     }
-    final wasAuthenticated = authenticated;
-    final previousId = profile?.id;
-    profile = WenkuProfile(
+    return WenkuProfile(
       id: uid,
       username: name,
       nickname: nickname ?? '',
@@ -218,12 +217,79 @@ class WenkuAccount extends ChangeNotifier {
       experience: experience,
       rank: rank ?? '',
     );
+  }
+
+  /// Reads the official user panel. This is the fallback when a Cookie
+  /// imported from the website is accepted by the site but not by the app
+  /// API, so web login still produces a real signed-in account.
+  Future<WenkuProfile> _webProfile() async {
+    final html = await client.webGet('/userdetail.php');
+    final doc = web.parse(html);
+    final fields = <String, String>{};
+    for (final table in doc.querySelectorAll('table')) {
+      for (final row in table.querySelectorAll('tr')) {
+        final cells = row.querySelectorAll('td');
+        if (cells.length < 2) continue;
+        final key = cells.first.text
+            .replaceAll(RegExp(r'\s+'), '')
+            .replaceAll(RegExp(r'[：:]$'), '');
+        if (key.isEmpty) continue;
+        var value = '';
+        for (final cell in cells.skip(1)) {
+          final input = cell.querySelector('input');
+          final candidate = (input?.attributes['value'] ?? cell.text).trim();
+          if (candidate.isNotEmpty) {
+            value = candidate;
+            break;
+          }
+        }
+        fields.putIfAbsent(key, () => value);
+      }
+    }
+    int readInt(Iterable<String> keys) {
+      for (final key in keys) {
+        final digits = (fields[key] ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+        if (digits.isNotEmpty) return int.tryParse(digits) ?? 0;
+      }
+      return 0;
+    }
+
+    final uid = readInt(const ['用户ID', 'UID', '用户id']);
+    final username = fields['用户名'] ?? '';
+    final nickname = fields['昵称'] ?? '';
+    if (uid == 0 && username.isEmpty) {
+      throw const OnlineAuthenticationRequired();
+    }
+    return WenkuProfile(
+      id: uid,
+      username: username,
+      nickname: nickname,
+      score: readInt(const ['现有积分', '积分']),
+      experience: readInt(const ['经验值', '经验']),
+      rank: fields['等级'] ?? fields['头衔'] ?? '',
+    );
+  }
+
+  void _applyProfile(WenkuProfile value, bool notify) {
+    final wasAuthenticated = authenticated;
+    final previousId = profile?.id;
+    profile = value;
     authenticated = true;
     // Profile refreshes for the same account must not invalidate shelf syncs
     // or make the account page think a new session was created.
-    if (!wasAuthenticated || previousId != uid) _revision++;
+    if (!wasAuthenticated || previousId != value.id) _revision++;
     unawaited(_loadAvatar());
     if (notify) notifyListeners();
+  }
+
+  Future<void> refreshProfile({bool notify = true}) async {
+    WenkuProfile value;
+    try {
+      value = await _apiProfile();
+    } on OnlineAuthenticationRequired {
+      value = await _webProfile();
+    }
+    _applyProfile(value, notify);
   }
 
   Future<void> _loadAvatar() async {
@@ -253,9 +319,9 @@ class WenkuAccount extends ChangeNotifier {
     await refreshProfile();
   }
 
-  Future<List<CloudBook>> refreshCloud() async {
+  Future<List<CloudBook>> _apiCloud() async {
     final body = await client.apiRaw('action=bookcase&t=SC');
-    if (body.trim().startsWith('<') == false) {
+    if (!body.trim().startsWith('<')) {
       throw const OnlineAuthenticationRequired();
     }
     final doc = XmlDocument.parse(body);
@@ -276,6 +342,66 @@ class WenkuAccount extends ChangeNotifier {
           latestChapter: chapter?.innerText.trim() ?? '',
         ),
       );
+    }
+    return books;
+  }
+
+  /// Reads the browser bookcase when the app API does not accept the web
+  /// session. The HTML table is the same one the official website renders.
+  Future<List<CloudBook>> _webCloud() async {
+    final html = await client.webGet('/modules/article/bookcase.php?classid=0');
+    final doc = web.parse(html);
+    final books = <CloudBook>[];
+    for (final row in doc.querySelectorAll('#checkform table tr')) {
+      final cells = row.querySelectorAll('td');
+      if (cells.length < 4) continue;
+      final links = row.querySelectorAll('a');
+      final titleLinks = links.where((link) {
+        final href = link.attributes['href'] ?? '';
+        final text = link.text.trim();
+        return href.contains('aid=') &&
+            text.isNotEmpty &&
+            text != '新' &&
+            !text.startsWith('[');
+      });
+      final titleLink = titleLinks.firstOrNull;
+      if (titleLink == null) continue;
+      final href = titleLink.attributes['href'] ?? '';
+      final match = RegExp(r'aid=(\d+)').firstMatch(href);
+      final id = int.tryParse(match?.group(1) ?? '');
+      if (id == null) continue;
+      var latestChapter = '';
+      var latestChapterId = 0;
+      if (cells.length > 3) {
+        final latest = cells[3].querySelector('a');
+        latestChapter = latest?.text.trim() ?? cells[3].text.trim();
+        final cid = RegExp(
+          r'cid=(\d+)',
+        ).firstMatch(latest?.attributes['href'] ?? '');
+        latestChapterId = int.tryParse(cid?.group(1) ?? '') ?? 0;
+      }
+      books.add(
+        CloudBook(
+          id: id,
+          title: titleLink.text.trim(),
+          updated: cells.length > 5 ? cells[5].text.trim() : '',
+          latestChapterId: latestChapterId,
+          latestChapter: latestChapter,
+        ),
+      );
+    }
+    if (books.isEmpty && !html.contains('bookcase')) {
+      throw const OnlineAuthenticationRequired();
+    }
+    return books;
+  }
+
+  Future<List<CloudBook>> refreshCloud() async {
+    List<CloudBook> books;
+    try {
+      books = await _apiCloud();
+    } on OnlineAuthenticationRequired {
+      books = await _webCloud();
     }
     cloudBooks = books;
     notifyListeners();

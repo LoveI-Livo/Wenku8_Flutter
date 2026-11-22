@@ -49,6 +49,7 @@ dependencies:
     path: third_party/liquid_glass_easy
   archive: ^4.5.2
   html: ^0.15.6
+  charset: ^2.0.1
   csslib: ^1.0.2
   tategaki: ^0.6.4
   characters: ^1.4.1

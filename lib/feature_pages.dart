@@ -408,6 +408,16 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                           '后续打开目录直接复用，不需要每次重新登录。',
                           style: TextStyle(fontSize: 12, height: 1.55),
                         ),
+                        if (account.error != null) ...[
+                          const SizedBox(height: 10),
+                          AppText(
+                            account.error!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   )

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:charset/charset.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'online_component.dart';
@@ -286,8 +287,12 @@ class Wenku8Client {
       throw const FormatException('在线组件接口暂时不可用，请检查网络或稍后重试');
     }
     if (!allowNumeric && body.trim() == '4') {
-      await clearSession();
-      onAuthenticationLost?.call();
+      // A web login can still be valid even when the app API rejects its own
+      // session. Keep the imported jieqi cookie so the web fallback can use it.
+      if (!hasWebSession) {
+        await clearSession();
+        onAuthenticationLost?.call();
+      }
       throw const OnlineAuthenticationRequired();
     }
     if (!allowNumeric &&
@@ -308,6 +313,26 @@ class Wenku8Client {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Fetches a page from the official website with the saved web session.
+  /// Returns GBK-decoded HTML; callers parse it when the app API cannot
+  /// confirm a session imported from the browser.
+  Future<String> webGet(String path) async {
+    await ensureReady();
+    final uri = Uri.parse(path.startsWith('http') ? path : '$webUrl$path');
+    final request = await _http.getUrl(uri);
+    request.headers.set(HttpHeaders.userAgentHeader, _browserUa);
+    final cookie = cookieHeader;
+    if (cookie != null) request.headers.set(HttpHeaders.cookieHeader, cookie);
+    final response = await request.close().timeout(const Duration(seconds: 15));
+    final bytes = await response
+        .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk))
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      throw FormatException('网页请求失败（HTTP ${response.statusCode}）');
+    }
+    return gbk.decode(bytes, allowMalformed: true);
   }
 
   Future<({int status, Duration elapsed})> probeApi() async {
