@@ -67,7 +67,9 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
     if (repository != null) {
       try {
         await repository.cache.load();
-        chapterBytes = repository.cache.bytes;
+        // 清单可能漏记旧版本或异常退出留下的文件；按真实目录统计，
+        // 保证“里面有缓存，页面却显示 0”不会再出现。
+        chapterBytes = await _folderBytes(repository.cache.directory);
         chapterBooks = repository.cache.books.length;
       } catch (_) {
         // 目录不可读时按 0 处理，不影响其他清理项。
