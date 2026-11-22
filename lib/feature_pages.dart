@@ -169,10 +169,12 @@ class _RemovalSwitch extends StatelessWidget {
         ),
       ),
       const SizedBox(width: 12),
-      CupertinoSwitch(
+      CupertinoCheckbox(
         value: value,
-        onChanged: enabled ? onChanged : null,
-        activeTrackColor: Theme.of(context).colorScheme.primary,
+        onChanged: enabled ? (checked) => onChanged(checked ?? false) : null,
+        activeColor: Theme.of(context).colorScheme.primary,
+        checkColor: Colors.white,
+        semanticLabel: label,
       ),
     ],
   );
