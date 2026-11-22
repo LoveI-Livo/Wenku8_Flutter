@@ -14,12 +14,24 @@
 
 ## 下载安装
 
-- **Android**：[v0.6.4 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.4-android.apk)（通用包，含 arm64-v8a / armeabi-v7a / x86_64）
-- **iOS**：[v0.6.4 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.2/wenku8-mod-0.6.4-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
+- **Android 版**：[v0.6.5 APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/tag/v0.6.5-android)（独立 Release，通用包）
+- **iOS 版**：[v0.6.5 未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/tag/v0.6.5-ios)（独立 Release，需 TrollStore 或自签工具安装）
 
 所有版本与安装包见 [Releases](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases)。
 
 ## 更新内容
+
+### 0.6.5
+
+**新增**
+
+- 私有书源支持在 App 内弹出网页登录，登录完成后自动读取 Cookie 并回填，不用手机手动复制
+- Android / iOS 安装包拆成两个独立 Release，各自只放对应平台包
+
+**修复**
+
+- 还原原版书单文案与左右滚动卡片，不改动原书单 UI；网盘书直接接入原书架与书单
+- 网盘书继续走 App 全局搜索，阅读历史、章节、书名、作者与本地书一致
 
 ### 0.6.4
 
