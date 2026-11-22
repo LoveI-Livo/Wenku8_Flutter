@@ -14,7 +14,9 @@ class Wenku8Client {
 
   static const apiUrl = 'http://app.wenku8.com/android.php/';
   static const webUrl = 'http://www.wenku8.net';
+  static const webLoginUrl = '$webUrl/login.php?do=submit';
   static const _cookieKey = 'wenku8_session_cookie_v1';
+  static const _keepSessionKey = 'wenku8_keep_session_v1';
   static const _appVer = '1.13';
   static const _ua =
       'Dalvik/2.1.0 (Linux; U; Android 11; IN2010 Build/RP1A.201005.001)';
@@ -23,12 +25,35 @@ class Wenku8Client {
       '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36';
 
   final HttpClient _http = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 18);
+    ..connectionTimeout = const Duration(seconds: 10);
   final Map<String, String> _cookies = {};
   SharedPreferences? _prefs;
   bool _ready = false;
+  bool _keepSession = true;
+
+  /// Whether the session cookie may be written to this device. Turning this
+  /// off keeps the current web/API login alive in memory only.
+  bool get keepSession => _keepSession;
+
+  Future<void> setKeepSession(bool value) async {
+    await ensureReady();
+    if (_keepSession == value) return;
+    _keepSession = value;
+    await _prefs!.setBool(_keepSessionKey, value);
+    if (value) {
+      await _saveCookies();
+    } else {
+      await _prefs!.remove(_cookieKey);
+    }
+  }
+
+  /// Called when a request proves the saved session is no longer accepted.
+  /// UI can then show the login form without repeatedly polling the account.
+  void Function()? onAuthenticationLost;
 
   bool get hasSession => _cookies.isNotEmpty;
+  bool get hasWebSession =>
+      _cookies.keys.any((name) => name.toLowerCase() == 'jieqiuserinfo');
   String? get cookieHeader => _cookies.isEmpty
       ? null
       : _cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
@@ -36,12 +61,15 @@ class Wenku8Client {
   Future<void> ensureReady() async {
     if (_ready) return;
     _prefs = await SharedPreferences.getInstance();
+    _keepSession = _prefs!.getBool(_keepSessionKey) ?? true;
     final stored = _prefs!.getString(_cookieKey);
     if (stored != null && stored.isNotEmpty) {
       for (final part in stored.split(';')) {
         final index = part.indexOf('=');
         if (index > 0) {
-          _cookies[part.substring(0, index).trim()] = part.substring(index + 1).trim();
+          _cookies[part.substring(0, index).trim()] = part
+              .substring(index + 1)
+              .trim();
         }
       }
     }
@@ -50,22 +78,63 @@ class Wenku8Client {
 
   Future<void> _saveCookies() async {
     await ensureReady();
+    if (!_keepSession) {
+      await _prefs!.remove(_cookieKey);
+      return;
+    }
     await _prefs!.setString(
       _cookieKey,
       _cookies.entries.map((e) => '${e.key}=${e.value}').join('; '),
     );
   }
 
-  void _absorbCookies(HttpClientResponse response) {
-    for (final header in response.headers[HttpHeaders.setCookieHeader] ?? const <String>[]) {
+  /// Imports the Cookie header captured from the official site's web login.
+  /// The web page and the app API share the same account backend, so the
+  /// session is sent to the API instead of asking the user to log in again.
+  Future<void> importCookieHeader(String header) async {
+    await ensureReady();
+    final incoming = <String, String>{};
+    for (final part in header.split(';')) {
+      final index = part.indexOf('=');
+      if (index <= 0) continue;
+      final name = part.substring(0, index).trim();
+      final value = part.substring(index + 1).trim();
+      if (name.isNotEmpty && value.isNotEmpty) incoming[name] = value;
+    }
+    if (incoming.isEmpty) {
+      throw const FormatException('没有读取到登录 Cookie，请重新登录');
+    }
+    _cookies
+      ..clear()
+      ..addAll(incoming);
+    await _saveCookies();
+  }
+
+  Future<void> clearSession() async {
+    await ensureReady();
+    if (_cookies.isEmpty && _prefs!.getString(_cookieKey) == null) return;
+    _cookies.clear();
+    await _prefs!.remove(_cookieKey);
+  }
+
+  bool _absorbCookies(HttpClientResponse response) {
+    var changed = false;
+    for (final header
+        in response.headers[HttpHeaders.setCookieHeader] ?? const <String>[]) {
       final pair = header.split(';').first;
       final index = pair.indexOf('=');
       if (index <= 0) continue;
       final name = pair.substring(0, index).trim();
       final value = pair.substring(index + 1).trim();
-      if (name.isEmpty || value.isEmpty) continue;
-      _cookies[name] = value;
+      if (name.isEmpty) continue;
+      if (value.isEmpty) {
+        changed = _cookies.remove(name) != null || changed;
+      } else if (_cookies[name] != value) {
+        _cookies[name] = value;
+        changed = true;
+      }
     }
+    return changed;
   }
 
   String _decode(List<int> bytes) {
@@ -80,24 +149,25 @@ class Wenku8Client {
     Uri uri,
     Map<String, String> fields, {
     bool followRedirects = true,
+    Map<String, String> extraHeaders = const {},
   }) async {
     await ensureReady();
     final request = await _http.postUrl(uri);
     request.headers
       ..set(HttpHeaders.userAgentHeader, _browserUa)
       ..set(HttpHeaders.contentTypeHeader, 'application/x-www-form-urlencoded');
+    extraHeaders.forEach((name, value) => request.headers.set(name, value));
     if (_cookies.isNotEmpty) {
       request.headers.set(HttpHeaders.cookieHeader, cookieHeader!);
     }
     request.followRedirects = followRedirects;
     request.add(utf8.encode(Uri(queryParameters: fields).query));
-    final response = await request.close();
-    _absorbCookies(response);
-    final bytes = await response.fold<List<int>>(
-      <int>[],
-      (all, chunk) => all..addAll(chunk),
-    );
-    await _saveCookies();
+    final response = await request.close().timeout(const Duration(seconds: 15));
+    final changed = _absorbCookies(response);
+    final bytes = await response
+        .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk))
+        .timeout(const Duration(seconds: 20));
+    if (changed) await _saveCookies();
     return (
       status: response.statusCode,
       body: _decode(bytes),
@@ -105,34 +175,53 @@ class Wenku8Client {
     );
   }
 
-  /// App API 登录优先：它直接返回 1/2/3，失败原因明确，也不依赖网页表单
-  /// 的跳转和 GBK 页面。只有 API 暂不可用时才退回网页登录。
+  /// Loads the login form first, as the site expects, so the session Cookie
+  /// exists before the credential POST. Some CDN/WAF setups reject a bare POST.
+  Future<void> _warmWebLogin() async {
+    final request = await _http.getUrl(Uri.parse(webLoginUrl));
+    request.headers.set(HttpHeaders.userAgentHeader, _browserUa);
+    final response = await request.close().timeout(const Duration(seconds: 10));
+    final changed = _absorbCookies(response);
+    await response
+        .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk))
+        .timeout(const Duration(seconds: 10));
+    if (changed) await _saveCookies();
+  }
+
+  /// App API 登录优先；API 返回成功但没有留下会话时，退回官网网页登录。
+  /// 网页登录会把 Cookie 保存到同一份本地会话，后续目录请求直接复用。
   Future<void> login(String username, String password) async {
     await ensureReady();
-    _cookies.clear();
+    await clearSession();
     if (username.trim().isEmpty || password.isEmpty) {
       throw const FormatException('请输入用户名和密码');
     }
     FormatException? credentialFailure;
     try {
+      final emailLogin = username.contains('@');
       final body = await apiRaw(
-        'action=login&username=${Uri.encodeQueryComponent(username.trim())}'
+        'action=${emailLogin ? 'loginemail' : 'login'}&username=${Uri.encodeQueryComponent(username.trim())}'
         '&password=${Uri.encodeQueryComponent(password)}',
         allowNumeric: true,
+        timeout: const Duration(seconds: 12),
       );
       final code = body.trim();
-      if (code == '1') return;
-      credentialFailure = FormatException(
-        code == '2' ? '用户名不存在' : code == '3' ? '密码错误' : '登录失败，请检查账号密码或站点状态',
-      );
+      if (code == '1' && hasSession) return;
+      if (code == '2') {
+        credentialFailure = FormatException(emailLogin ? '邮箱不存在' : '用户名不存在');
+      } else if (code == '3') {
+        credentialFailure = const FormatException('密码错误');
+      }
+      // 1 但没有 Cookie、4 或其它状态都继续尝试网页登录。
     } catch (_) {
       // API 不可达时继续尝试网页登录，但不要掩盖明确的账号/密码错误。
     }
     if (credentialFailure != null) throw credentialFailure;
     var webSuccess = false;
     try {
+      await _warmWebLogin();
       final result = await _postForm(
-        Uri.parse('$webUrl/login.php'),
+        Uri.parse(webLoginUrl),
         {
           'username': username.trim(),
           'password': password,
@@ -141,15 +230,17 @@ class Wenku8Client {
           'submit': '登 录',
         },
         followRedirects: false,
+        extraHeaders: {'Referer': webLoginUrl},
       );
-      webSuccess = result.status == 302 ||
-          result.status == 303 ||
-          (result.location != null &&
-              !result.location!.contains('login.php') &&
-              _cookies.isNotEmpty);
+      final redirected =
+          result.status == 301 || result.status == 302 || result.status == 303;
+      final leftLogin =
+          result.location != null &&
+          !result.location!.toLowerCase().contains('login');
+      webSuccess = hasWebSession || (hasSession && (redirected || leftLogin));
     } catch (_) {}
-    if (!webSuccess) {
-      throw const FormatException('登录失败，请检查账号密码或站点状态');
+    if (!webSuccess || !hasSession) {
+      throw const FormatException('账号密码登录失败，可点“网页登录并自动获取 Cookie”登录');
     }
   }
 
@@ -158,7 +249,7 @@ class Wenku8Client {
     bool allowNumeric = false,
     bool binary = false,
     bool allowHtml = false,
-    Duration timeout = const Duration(seconds: 25),
+    Duration timeout = const Duration(seconds: 15),
   }) async {
     await ensureReady();
     final request = await _http.postUrl(Uri.parse(apiUrl));
@@ -175,12 +266,12 @@ class Wenku8Client {
     };
     request.add(utf8.encode(Uri(queryParameters: payload).query));
     final response = await request.close().timeout(timeout);
-    _absorbCookies(response);
+    final changed = _absorbCookies(response);
     final bytes = await response.fold<List<int>>(
       <int>[],
       (all, chunk) => all..addAll(chunk),
     );
-    await _saveCookies();
+    if (changed) await _saveCookies();
     if (binary) {
       if (bytes.isEmpty) throw const FormatException('服务器未返回图片');
       return base64Encode(bytes);
@@ -195,10 +286,17 @@ class Wenku8Client {
       throw const FormatException('在线组件接口暂时不可用，请检查网络或稍后重试');
     }
     if (!allowNumeric && body.trim() == '4') {
+      await clearSession();
+      onAuthenticationLost?.call();
       throw const OnlineAuthenticationRequired();
     }
-    if (!allowNumeric && !allowHtml && !body.startsWith('<') && !body.startsWith('<?xml')) {
-      throw FormatException('在线组件返回异常：${body.length > 24 ? body.substring(0, 24) : body}');
+    if (!allowNumeric &&
+        !allowHtml &&
+        !body.startsWith('<') &&
+        !body.startsWith('<?xml')) {
+      throw FormatException(
+        '在线组件返回异常：${body.length > 24 ? body.substring(0, 24) : body}',
+      );
     }
     return body;
   }
@@ -212,12 +310,33 @@ class Wenku8Client {
     }
   }
 
+  Future<({int status, Duration elapsed})> probeApi() async {
+    final watch = Stopwatch()..start();
+    await apiRaw(
+      'action=book&do=list&aid=1&t=0',
+      timeout: const Duration(seconds: 10),
+    );
+    watch.stop();
+    return (status: 200, elapsed: watch.elapsed);
+  }
+
+  Future<({int status, Duration elapsed})> probeWeb() async {
+    final watch = Stopwatch()..start();
+    final request = await _http.getUrl(Uri.parse(webUrl));
+    request.headers.set(HttpHeaders.userAgentHeader, _browserUa);
+    final response = await request.close().timeout(const Duration(seconds: 10));
+    await response
+        .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk))
+        .timeout(const Duration(seconds: 15));
+    watch.stop();
+    return (status: response.statusCode, elapsed: watch.elapsed);
+  }
+
   Future<void> logout() async {
     await ensureReady();
     try {
       await apiRaw('action=logout', allowNumeric: true);
     } catch (_) {}
-    _cookies.clear();
-    await _saveCookies();
+    await clearSession();
   }
 }

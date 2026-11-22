@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:xml/xml.dart';
@@ -45,7 +44,9 @@ class CloudUploadResult {
 /// Account state backed by the same [Wenku8Client] as the online catalogue.
 /// Session material lives in the client; this class only exposes domain state.
 class WenkuAccount extends ChangeNotifier {
-  WenkuAccount({Wenku8Client? client}) : client = client ?? Wenku8Client();
+  WenkuAccount({Wenku8Client? client}) : client = client ?? Wenku8Client() {
+    this.client.onAuthenticationLost = _sessionLost;
+  }
 
   final Wenku8Client client;
   Uint8List? avatar;
@@ -54,9 +55,27 @@ class WenkuAccount extends ChangeNotifier {
   WenkuProfile? profile;
   List<CloudBook>? cloudBooks;
   int? syncedAt;
+  bool _initialized = false;
   int _revision = 0;
   int get sessionRevision => _revision;
   int get publicationRevision => _revision;
+  bool get keepSession => client.keepSession;
+
+  Future<void> setKeepSession(bool value) async {
+    await client.setKeepSession(value);
+    notifyListeners();
+  }
+
+  void _sessionLost() {
+    if (!authenticated) return;
+    authenticated = false;
+    profile = null;
+    avatar = null;
+    cloudBooks = null;
+    error = '登录状态已过期，请重新登录';
+    _revision++;
+    notifyListeners();
+  }
 
   static String describeError(Object error) {
     if (error is FormatException) return error.message;
@@ -65,13 +84,18 @@ class WenkuAccount extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    if (authenticated || busy) return;
+    if (authenticated || busy || _initialized) return;
+    _initialized = true;
     try {
       await client.ensureReady();
       if (!client.hasSession) return;
       busy = true;
       notifyListeners();
       await refreshProfile();
+    } on OnlineAuthenticationRequired {
+      await client.clearSession();
+      authenticated = false;
+      profile = null;
     } catch (_) {
       authenticated = false;
       profile = null;
@@ -89,15 +113,10 @@ class WenkuAccount extends ChangeNotifier {
     notifyListeners();
     try {
       await client.login(username, password);
-      // 登录票据已经由站点确认。资料接口偶发失败不应把已登录状态退回。
-      authenticated = true;
-      _revision++;
-      try {
-        await refreshProfile(notify: false);
-        error = null;
-      } catch (profileFailure) {
-        error = '登录成功，但账号资料暂时读取失败：${describeError(profileFailure)}';
+      if (!client.hasSession) {
+        throw const FormatException('登录接口没有返回会话，请用网页登录');
       }
+      await _acceptSession('登录成功，但账号资料暂时读取失败：');
     } catch (failure) {
       authenticated = false;
       profile = null;
@@ -110,8 +129,58 @@ class WenkuAccount extends ChangeNotifier {
     }
   }
 
+  /// Accepts a Cookie header captured from the site's own web login. The
+  /// account is only shown as signed in after the API confirms the session,
+  /// so a stale or incomplete web login cannot leave the catalogue stuck.
+  Future<void> loginWithCookie(String cookieHeader) async {
+    if (busy) return;
+    busy = true;
+    error = null;
+    operation = '正在验证网页登录';
+    notifyListeners();
+    try {
+      await client.importCookieHeader(cookieHeader);
+      await _acceptSession('网页登录已读取 Cookie，但账号资料暂时读取失败：');
+    } catch (failure) {
+      if (failure is OnlineAuthenticationRequired) {
+        await client.clearSession();
+      }
+      authenticated = false;
+      profile = null;
+      error = failure is OnlineAuthenticationRequired
+          ? '网页登录未被文库确认，请重新登录'
+          : describeError(failure);
+      rethrow;
+    } finally {
+      busy = false;
+      operation = null;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _acceptSession(String profileFailurePrefix) async {
+    try {
+      await refreshProfile(notify: false);
+      error = null;
+    } on OnlineAuthenticationRequired {
+      await client.clearSession();
+      authenticated = false;
+      profile = null;
+      error = '登录未被文库确认，请重新登录';
+      rethrow;
+    } catch (failure) {
+      // A transient profile failure must not discard a session the site
+      // already accepted. The catalogue can still load with that Cookie.
+      if (!authenticated) {
+        authenticated = true;
+        _revision++;
+      }
+      error = '$profileFailurePrefix${describeError(failure)}';
+    }
+  }
+
   Future<void> refreshProfile({bool notify = true}) async {
-    final body = await client.apiRaw('action=userinfo', allowNumeric: true);
+    final body = await client.apiRaw('action=userinfo');
     if (!body.trim().startsWith('<')) {
       throw const OnlineAuthenticationRequired();
     }
@@ -139,6 +208,8 @@ class WenkuAccount extends ChangeNotifier {
     if (name == null || name.isEmpty) {
       throw const FormatException('账号资料解析失败，请重新登录');
     }
+    final wasAuthenticated = authenticated;
+    final previousId = profile?.id;
     profile = WenkuProfile(
       id: uid,
       username: name,
@@ -148,7 +219,9 @@ class WenkuAccount extends ChangeNotifier {
       rank: rank ?? '',
     );
     authenticated = true;
-    _revision++;
+    // Profile refreshes for the same account must not invalidate shelf syncs
+    // or make the account page think a new session was created.
+    if (!wasAuthenticated || previousId != uid) _revision++;
     unawaited(_loadAvatar());
     if (notify) notifyListeners();
   }
@@ -167,7 +240,10 @@ class WenkuAccount extends ChangeNotifier {
   }
 
   Future<void> signIn() async {
-    final body = await client.apiRaw('action=block&do=sign', allowNumeric: true);
+    final body = await client.apiRaw(
+      'action=block&do=sign',
+      allowNumeric: true,
+    );
     if (body.trim() == '9') {
       signedToday = true;
       notifyListeners();
@@ -187,15 +263,19 @@ class WenkuAccount extends ChangeNotifier {
     for (final book in doc.findAllElements('book')) {
       final id = int.tryParse(book.getAttribute('aid') ?? '');
       if (id == null) continue;
-      final title = book.findAllElements('name').firstOrNull?.innerText.trim() ?? '';
+      final title =
+          book.findAllElements('name').firstOrNull?.innerText.trim() ?? '';
       final chapter = book.findAllElements('chapter').firstOrNull;
-      books.add(CloudBook(
-        id: id,
-        title: title,
-        updated: book.getAttribute('date') ?? '',
-        latestChapterId: int.tryParse(chapter?.getAttribute('cid') ?? '') ?? 0,
-        latestChapter: chapter?.innerText.trim() ?? '',
-      ));
+      books.add(
+        CloudBook(
+          id: id,
+          title: title,
+          updated: book.getAttribute('date') ?? '',
+          latestChapterId:
+              int.tryParse(chapter?.getAttribute('cid') ?? '') ?? 0,
+          latestChapter: chapter?.innerText.trim() ?? '',
+        ),
+      );
     }
     cloudBooks = books;
     notifyListeners();
@@ -238,7 +318,10 @@ class WenkuAccount extends ChangeNotifier {
   }
 
   Future<void> addCloud(int id) async {
-    final body = await client.apiRaw('action=bookcase&do=add&aid=$id', allowNumeric: true);
+    final body = await client.apiRaw(
+      'action=bookcase&do=add&aid=$id',
+      allowNumeric: true,
+    );
     if (body.trim() == '0') throw const FormatException('加入云端书架失败');
     if (cloudBooks != null && !cloudBooks!.any((book) => book.id == id)) {
       cloudBooks = [...cloudBooks!, CloudBook(id: id)];
@@ -247,14 +330,20 @@ class WenkuAccount extends ChangeNotifier {
   }
 
   Future<void> removeCloud(int id) async {
-    final body = await client.apiRaw('action=bookcase&do=del&aid=$id', allowNumeric: true);
+    final body = await client.apiRaw(
+      'action=bookcase&do=del&aid=$id',
+      allowNumeric: true,
+    );
     if (body.trim() == '0') throw const FormatException('移出云端书架失败');
     cloudBooks?.removeWhere((book) => book.id == id);
     notifyListeners();
   }
 
   Future<void> recommend(int id) async {
-    final body = await client.apiRaw('action=book&do=vote&aid=$id', allowNumeric: true);
+    final body = await client.apiRaw(
+      'action=book&do=vote&aid=$id',
+      allowNumeric: true,
+    );
     if (body.trim() != '1' && body.trim() != '0') {
       throw const FormatException('推荐失败');
     }
@@ -268,7 +357,10 @@ class WenkuAccount extends ChangeNotifier {
     throw const FormatException('当前在线组件暂未开放书评发送');
   }
 
-  Future<void> replyReview({required int threadId, required String content}) async {
+  Future<void> replyReview({
+    required int threadId,
+    required String content,
+  }) async {
     throw const FormatException('当前在线组件暂未开放书评回复');
   }
 
@@ -286,6 +378,7 @@ class WenkuAccount extends ChangeNotifier {
 
   Future<void> logout() async {
     await client.logout();
+    _initialized = true;
     authenticated = false;
     profile = null;
     avatar = null;

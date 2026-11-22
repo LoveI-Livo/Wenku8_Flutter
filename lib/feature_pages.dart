@@ -15,6 +15,7 @@ import 'publication_catalog.dart';
 import 'wenku_account.dart';
 import 'online_component.dart';
 import 'wenku_features.dart';
+import 'wenku_web_login_page.dart';
 import 'web_publication_catalog.dart';
 
 Future<bool> confirmNovelAction(
@@ -167,6 +168,8 @@ class FeatureError extends StatelessWidget {
         );
 }
 
+enum _ProbeMode { net, web }
+
 class WenkuAccountPage extends StatefulWidget {
   const WenkuAccountPage({
     super.key,
@@ -185,6 +188,9 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
   final _username = TextEditingController();
   final _password = TextEditingController();
   bool _obscure = true;
+  _ProbeMode _probeMode = _ProbeMode.net;
+  bool _probing = false;
+  String? _probeResult;
   @override
   void initState() {
     super.initState();
@@ -234,6 +240,49 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
     }
   }
 
+  Future<void> _webLogin() async {
+    final account = widget.account;
+    if (account.busy) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final cookie = await pushNovelPage<String>(
+      context,
+      const WenkuWebLoginPage(),
+      reduceMotion: widget.state.reduceMotion,
+    );
+    if (cookie == null || !mounted) return;
+    await _run(() => account.loginWithCookie(cookie), '网页登录成功');
+  }
+
+  Future<void> _probe() async {
+    if (_probing) return;
+    setState(() {
+      _probing = true;
+      _probeResult = null;
+    });
+    try {
+      final result = switch (_probeMode) {
+        _ProbeMode.net => await widget.account.client.probeApi(),
+        _ProbeMode.web => await widget.account.client.probeWeb(),
+      };
+      final ok = result.status >= 200 && result.status < 400;
+      if (mounted) {
+        setState(
+          () => _probeResult = ok
+              ? '连接正常 · ${result.elapsed.inMilliseconds}ms'
+              : '连接异常 · HTTP ${result.status}',
+        );
+      }
+    } catch (failure) {
+      if (mounted) {
+        setState(
+          () => _probeResult = '连接失败：${WenkuAccount.describeError(failure)}',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _probing = false);
+    }
+  }
+
   Future<void> _logout() async {
     final confirmed = await confirmNovelAction(
       context,
@@ -253,6 +302,7 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
       animation: widget.account,
       builder: (context, _) {
         final account = widget.account;
+        final shelfSync = WenkuFeaturesScope.maybeOf(context)?.shelfSync;
         final profile = account.profile;
         return ArchiveFeaturePage(
           title: '文库账号',
@@ -345,6 +395,19 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                           onPressed: account.busy ? null : _login,
                           child: const AppText('登录'),
                         ),
+                        const SizedBox(height: 10),
+                        GlassTextButton(
+                          key: const ValueKey('account-web-login'),
+                          onPressed: account.busy ? null : _webLogin,
+                          compact: true,
+                          child: const AppText('网页登录并自动获取 Cookie'),
+                        ),
+                        const SizedBox(height: 8),
+                        const AppText(
+                          '接口登录不稳定时用这个：在官网完成登录后自动保存会话，'
+                          '后续打开目录直接复用，不需要每次重新登录。',
+                          style: TextStyle(fontSize: 12, height: 1.55),
+                        ),
                       ],
                     ),
                   )
@@ -363,6 +426,57 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                               ),
                             )
                           else ...[
+                            Row(
+                              children: [
+                                const Expanded(child: AppText('测试连接')),
+                                PopupMenuButton<_ProbeMode>(
+                                  key: const ValueKey('account-probe-mode'),
+                                  initialValue: _probeMode,
+                                  enabled: !_probing,
+                                  onSelected: (mode) {
+                                    setState(() => _probeMode = mode);
+                                    unawaited(_probe());
+                                  },
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem(
+                                      value: _ProbeMode.net,
+                                      child: AppText('NET · App 接口'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: _ProbeMode.web,
+                                      child: AppText('WEB · 官网'),
+                                    ),
+                                  ],
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      AppText(
+                                        _probeMode == _ProbeMode.net
+                                            ? 'NET'
+                                            : 'WEB',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(
+                                        CupertinoIcons.chevron_down,
+                                        size: 14,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_probeResult != null) ...[
+                              const SizedBox(height: 4),
+                              AppText(
+                                _probeResult!,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
                             ArchiveCode(
                               profile == null
                                   ? 'SESSION / READY'
@@ -398,6 +512,27 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                                 child: const AppText('刷新资料'),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              const Expanded(child: AppText('保持登录')),
+                              Switch.adaptive(
+                                key: const ValueKey('account-keep-session'),
+                                value: account.keepSession,
+                                onChanged: account.busy
+                                    ? null
+                                    : (value) => unawaited(
+                                        account.setKeepSession(value),
+                                      ),
+                              ),
+                            ],
+                          ),
+                          AppText(
+                            account.keepSession
+                                ? '官网会话已保存在本机，过期后需重新登录；退出账号会清除会话。'
+                                : '当前会话只在本次运行有效，关闭或重启应用后需重新登录。',
+                            style: const TextStyle(fontSize: 12, height: 1.55),
                           ),
                         ],
                       ),
@@ -438,6 +573,33 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                   AppText(account.operation ?? ''),
                 ],
                 FeatureError(account.error),
+                if (shelfSync != null) ...[
+                  const SizedBox(height: 12),
+                  AnimatedBuilder(
+                    animation: shelfSync,
+                    builder: (context, _) {
+                      final message = shelfSync.syncing
+                          ? '正在同步书架'
+                          : shelfSync.error != null
+                          ? '书架同步：${shelfSync.error}'
+                          : shelfSync.syncedAt != null
+                          ? '书架已同步'
+                          : '书架等待同步';
+                      return Row(
+                        children: [
+                          if (shelfSync.syncing) ...[
+                            const CupertinoActivityIndicator(radius: 6),
+                            const SizedBox(width: 8),
+                          ],
+                          AppText(
+                            message,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
               ],
             ),
           ),
