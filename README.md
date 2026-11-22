@@ -14,16 +14,16 @@
 
 ## 下载安装
 
-- **Android / iOS 最新版**：同一个发布页 [v0.6.9](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/tag/v0.6.9)
-- **Android 直接下载**：[APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.9/qingxiaoshuo-wenku-0.6.9-android.apk)
-- **iOS 直接下载**：[未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.9/qingxiaoshuo-wenku-0.6.9-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
+- **Android / iOS 最新版**：同一个发布页 [v0.7.1](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/tag/v0.7.1)
+- **Android 直接下载**：[APK](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.7.1/qingxiaoshuo-wenku-0.7.1-android.apk)
+- **iOS 直接下载**：[未签名 IPA](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.7.1/qingxiaoshuo-wenku-0.7.1-ios-unsigned.ipa)（需 TrollStore 或自签工具安装）
 
 所有版本与安装包见 [Releases](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases)。
 
 ## 源码
 
 - 源码仓库：[LoveI-Livo/qingxiaoshuo-wenku](https://github.com/LoveI-Livo/qingxiaoshuo-wenku)
-- 源码包：[qingxiaoshuo-wenku-0.6.9-source.zip](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.6.9/qingxiaoshuo-wenku-0.6.9-source.zip)
+- 源码包：[qingxiaoshuo-wenku-0.7.1-source.zip](https://github.com/LoveI-Livo/qingxiaoshuo-wenku/releases/download/v0.7.1/qingxiaoshuo-wenku-0.7.1-source.zip)
 - 构建说明见 [docs/BUILD.md](docs/BUILD.md)。
 
 ## 更新记录

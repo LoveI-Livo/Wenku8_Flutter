@@ -397,6 +397,13 @@ abstract class CloudBookClient {
   /// A URL that the in-memory reader can fetch. Most clients store the URL
   /// itself as the entry id; account clients resolve a fresh signed URL.
   Future<String?> directLink(CloudBookEntry entry) async => entry.id;
+
+  /// Removes the provider object. Only clients with a safe single-file API
+  /// override this; the default keeps the shelf record untouched.
+  Future<void> delete(CloudBookEntry entry) async {
+    throw const CloudSourceFailure('当前网盘不支持 App 内删除原文件');
+  }
+
   Future<void> download(
     CloudBookEntry entry,
     File target, {
@@ -621,6 +628,16 @@ class WebDavBookClient implements CloudBookClient {
           'Basic ${base64Encode(utf8.encode('${config.username}:${config.password}'))}',
   };
   @override
+  Future<void> delete(CloudBookEntry entry) async {
+    await http.request(
+      'DELETE',
+      _resource(entry.id),
+      headers: _headers,
+      allowHttp: config.allowHttp,
+    );
+  }
+
+  @override
   Future<CloudBookListing> list(String folder, {int page = 1}) async {
     final uri = _resource(folder);
     final res = await http.request(
@@ -744,6 +761,12 @@ class QuarkBookClient implements CloudBookClient {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch';
   @override
   String get root => '0';
+
+  @override
+  Future<void> delete(CloudBookEntry entry) async {
+    throw const CloudSourceFailure('夸克网盘暂不支持 App 内删除，请到网页端删除原文件');
+  }
+
   Map<String, String> _headers(Uri uri) => {
     'User-Agent': userAgent,
     'Referer': 'https://pan.quark.cn/',
@@ -923,6 +946,17 @@ class DirectLinkBookClient implements CloudBookClient {
 
   @override
   String get root => config.address.trim();
+
+  @override
+  Future<void> delete(CloudBookEntry entry) async {
+    await _http.request(
+      'DELETE',
+      Uri.parse(entry.id),
+      headers: (_) => authHeaders,
+      allowHttp: config.allowHttp,
+    );
+  }
+
   @override
   Future<String?> directLink(CloudBookEntry entry) async => entry.id;
 

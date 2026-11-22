@@ -1,6 +1,9 @@
 import 'package:flutter/cupertino.dart';
 
 import 'catalog.dart';
+import 'cloud_document_service.dart';
+import 'cloud_sources.dart';
+import 'app_interactions.dart' show showNovelFeedback;
 import 'feature_pages.dart';
 import 'library_state.dart';
 import 'listening/widgets.dart';
@@ -17,15 +20,32 @@ Future<LocalBookRemoval?> chooseLocalBookRemoval(
 }) async {
   const choice = LocalBookRemoval.files;
   final series = books.seriesFor(book.id);
-  if (!await confirmNovelAction(
+  final cloudAvailable =
+      book.remoteUrl != null &&
+      CloudDocumentService.instance.canDeleteRemote(book);
+  final removal = await confirmBookRemoval(
     context,
     title: series?.id == book.id ? '删除整部书的本机文件？' : '删除本机文件？',
     message:
-        '《${book.title}》${series?.id == book.id ? '的 ${series!.volumes.length} 卷' : ''}将移出书架，并删除 App 内的原书、正文与插图。阅读进度和书签保留。',
-    confirmLabel: '删除本机文件',
+        '《${book.title}》${series?.id == book.id ? '的 ${series!.volumes.length} 卷' : ''}设为勾选时才删除；阅读进度和书签保留。',
+    localAvailable: true,
+    cloudAvailable: cloudAvailable,
+    localInitial: true,
     reduceMotion: library.reduceMotion,
-  )) {
-    return null;
+  );
+  if (removal == null) return null;
+  if (removal.cloud) {
+    try {
+      await CloudDocumentService.instance.deleteRemote(book);
+    } catch (error) {
+      if (context.mounted)
+        showNovelFeedback(context, cloudFailureMessage(error));
+      return null;
+    }
+  }
+  if (!removal.local) {
+    await library.setShelfMembership(book.id, false);
+    return LocalBookRemoval.shelfOnly;
   }
   if (!context.mounted) return null;
   final listening = ListeningScope.maybeOf(context);

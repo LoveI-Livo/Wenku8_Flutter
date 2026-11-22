@@ -41,6 +41,8 @@ class CloudDocumentService {
     String? cookie,
     String? authorization,
     String? sourceLabel,
+    String? remoteEntryId,
+    String? remoteKind,
   }) {
     final id = idForUrl(url);
     _urls[id] = url;
@@ -56,6 +58,8 @@ class CloudDocumentService {
       remoteCookie: cookie,
       remoteAuthorization: authorization,
       sourceLabel: sourceLabel,
+      remoteEntryId: remoteEntryId,
+      remoteKind: remoteKind,
     );
     _metadata[id] = book;
     return book;
@@ -71,6 +75,35 @@ class CloudDocumentService {
   }
 
   Novel? known(int id) => _metadata[id];
+
+  /// Deleting the real cloud object is an explicit opt-in. Account providers
+  /// still keep the record if their APIs have not exposed a safe delete call.
+  bool canDeleteRemote(Novel novel) =>
+      novel.remoteEntryId != null &&
+      (novel.remoteKind == 'webdav' || novel.remoteKind == 's3');
+
+  Future<void> deleteRemote(Novel novel) async {
+    if (!canDeleteRemote(novel)) {
+      throw const CloudSourceFailure('该网盘暂不支持 App 内删除，请到网盘网页端删除原文件');
+    }
+    final kind = CloudSourceKind.values.byName(novel.remoteKind!);
+    final settings = CloudSourceSettings();
+    await settings.load();
+    final config = settings[kind];
+    if (config == null) throw const CloudSourceFailure('网盘连接已失效，请重新配置');
+    final client = CloudBookClient(config);
+    try {
+      await client.delete(
+        CloudBookEntry(
+          id: novel.remoteEntryId!,
+          name: novel.title,
+          folder: false,
+        ),
+      );
+    } finally {
+      client.close();
+    }
+  }
 
   /// Builds online-only shelf metadata for a file picked inside a cloud
   /// browser. Nothing is downloaded or written locally at this point.
@@ -99,6 +132,8 @@ class CloudDocumentService {
       cookie: config.cookie,
       authorization: authorization,
       sourceLabel: config.kind.label,
+      remoteEntryId: entry.id,
+      remoteKind: config.kind.name,
     );
   }
 
@@ -485,6 +520,8 @@ class CloudDocumentService {
     remoteCookie: source.remoteCookie,
     remoteAuthorization: source.remoteAuthorization,
     sourceLabel: source.sourceLabel,
+    remoteEntryId: source.remoteEntryId,
+    remoteKind: source.remoteKind,
   );
 
   Novel _novel(

@@ -44,6 +44,7 @@ import 'book_search.dart';
 import 'blocked_tags_controls.dart';
 import 'catalog.dart';
 import 'cloud_document_service.dart';
+import 'cloud_sources.dart';
 import 'glass_dock.dart';
 import 'home_navigation.dart';
 import 'library_state.dart';
@@ -66,6 +67,7 @@ import 'listening/reader_target.dart';
 import 'local_platform.dart';
 import 'local_books.dart';
 import 'local_library_page.dart';
+import 'local_series_actions.dart';
 import 'local_library_preferences.dart';
 import 'local_book_editor.dart';
 import 'local_book_importer.dart';
@@ -2998,20 +3000,41 @@ class _ShelfPageState extends State<ShelfPage>
     }
     if (action != 'remove' || !state.contains(id)) return;
     final remote = book?.remoteUrl != null && !isLocalBook(id);
-    if (remote &&
-        !await confirmNovelAction(
-          this.context,
-          title: '删除此小说记录？',
-          message: '只会删除书架里的这本在线书记录，网盘原文件不会被删除，也不会下载到本地。',
-          confirmLabel: '删除记录',
-          reduceMotion: state.reduceMotion,
-        )) {
-      return;
+    final localAvailable = isLocalBook(id);
+    final cloudAvailable =
+        remote &&
+        book != null &&
+        CloudDocumentService.instance.canDeleteRemote(book);
+    final choice = await confirmBookRemoval(
+      this.context,
+      title: localAvailable ? '删除本机文件？' : '删除此小说记录？',
+      message: localAvailable
+          ? '可以只删本机文件，也可以同时勾选删除网盘原文件。'
+          : '本机没有这本书的文件。可以只删书架记录，也可以勾选同时删除网盘原文件。',
+      localAvailable: localAvailable,
+      cloudAvailable: cloudAvailable,
+      localInitial: localAvailable,
+      reduceMotion: state.reduceMotion,
+    );
+    if (choice == null) return;
+    if (choice.cloud && book != null) {
+      try {
+        await CloudDocumentService.instance.deleteRemote(book);
+      } catch (error) {
+        if (context.mounted) {
+          showNovelFeedback(context, cloudFailureMessage(error));
+        }
+        return;
+      }
     }
     final addedAt = state.addedAt(id);
     try {
-      await state.setShelfMembership(id, false);
-      if (remote) CloudDocumentService.instance.forget(id);
+      if (choice.local && localAvailable) {
+        await removeLocalBook(books: _offline!.local!, library: state, id: id);
+      } else {
+        await state.setShelfMembership(id, false);
+        if (remote) CloudDocumentService.instance.forget(id);
+      }
     } catch (_) {
       if (context.mounted) showNovelFeedback(context, '书架操作保存失败，请重试');
       return;
@@ -3020,7 +3043,9 @@ class _ShelfPageState extends State<ShelfPage>
     if (!mounted) return;
     showNovelFeedback(
       this.context,
-      remote
+      choice.cloud
+          ? '已删除书架记录，网盘原文件已删除'
+          : remote
           ? '已删除在线阅读记录，网盘原文件保留'
           : _offline?.availableOffline(id) == true
           ? '已移出书架，缓存和阅读进度保留'

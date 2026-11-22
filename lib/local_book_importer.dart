@@ -565,7 +565,8 @@ class LocalBookImporter extends ChangeNotifier {
                 entry,
                 config,
               );
-              await library.setShelfMembership(novel.id, true, novel: novel);
+              // Reading is a view action. Adding the book to the shelf stays
+              // an explicit choice made through 导入到书单 / 加入收藏书架.
               openCloudBook?.call(context, novel);
             },
             onImportBatch: (name, path) async {

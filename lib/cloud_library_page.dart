@@ -111,7 +111,7 @@ class CloudLibraryPage extends StatelessWidget {
           const SizedBox(height: 12),
           const AppText(
             '点账号登录后直接浏览网盘；点书即在线读取，只把正文读进内存，'
-            '不下载到本地。需要离线保存时再手动勾选导入。',
+            '不下载到本机。书单和书架统一用主界面的搜索框检索。',
             style: TextStyle(fontSize: 13, height: 1.65),
           ),
           const SizedBox(height: 24),
@@ -1079,24 +1079,10 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    CupertinoSearchTextField(
-                      key: const ValueKey('cloud-deep-search'),
-                      placeholder: '搜索整个网盘 / 书源里的书',
-                      onSubmitted: _search,
-                      onSuffixTap: () {
-                        setState(() => _query = null);
-                        _load();
-                      },
-                    ),
-                    const SizedBox(height: 10),
                     AppText(
-                      _searching
-                          ? '正在搜索整个网盘…'
-                          : _query != null
-                          ? '搜索「$_query」：找到 ${_entries.length} 本'
-                          : widget.config.kind.isDirectLink
-                          ? '直链书籍可直接加入书单在线阅读，不下载原文件；也可以选择传统导入保存到本机。'
-                          : '点书直接在线读取，不下载到本地；勾选后可批量导入本地，ZIP 内的分卷会一起识别。',
+                      widget.config.kind.isDirectLink
+                          ? '直链书籍可直接加入书单在线阅读，不下载原文件。搜索统一使用主界面的搜索框。'
+                          : '点书直接在线读取，不下载到本机；勾选后点“导入到书单（不下载）”，搜索统一使用主界面的搜索框。',
                       style: const TextStyle(height: 1.65),
                     ),
                     const SizedBox(height: 16),
@@ -1124,7 +1110,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                       if (widget.onAddCloud != null) ...[
                         GlassPillButton(
                           icon: CupertinoIcons.book,
-                          label: '加入书单 · 在线阅读 ${_selected.length} 本',
+                          label: '导入到书单（不下载）',
                           onPressed: () async {
                             String? groupId;
                             if (widget.booklists.isNotEmpty) {
@@ -1159,18 +1145,12 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                             if (!mounted) return;
                             showNovelFeedback(
                               context,
-                              '已加入书单 · ${widget.config.kind.label}，点开即在线阅读，不下载到本地',
+                              '已导入书单 · ${widget.config.kind.label}，点开即在线阅读，不下载到本地',
                             );
                           },
                         ),
                         const SizedBox(height: 12),
                       ],
-                      GlassPillButton(
-                        icon: CupertinoIcons.arrow_down_doc,
-                        label: '导入选中的 ${_selected.length} 本',
-                        onPressed: () => _import(_selected.values.toList()),
-                      ),
-                      const SizedBox(height: 12),
                     ],
                     if (_error != null) ...[
                       AppText(
@@ -1229,7 +1209,10 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                                         ? _enter(entry)
                                         : widget.onReadCloud != null
                                         ? _readOnline(entry)
-                                        : _import([entry]),
+                                        : () => showNovelFeedback(
+                                            context,
+                                            '请先在下方勾选这本书，再点“导入到书单（不下载）”',
+                                          ),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 14,
@@ -1247,7 +1230,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                                     if (!entry.folder)
                                       AppText(
                                         _imported.contains(entry.id)
-                                            ? '已导入本地'
+                                            ? '已在书单 · 点开在线阅读'
                                             : _readingOnline == entry.id
                                             ? '正在打开在线阅读…'
                                             : entry.size > 0

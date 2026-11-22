@@ -19,10 +19,32 @@ const _search = '原有搜索框和搜索按钮现在会同时搜索本地书库
 const _browse = '网盘目录按账号文件树浏览，支持进入子文件夹、全盘递归搜索、勾选导入与在线阅读。';
 const _icons =
     '网盘文件补齐电子书、PDF、TXT、ZIP 和文件夹图标，标题、扩展名与大小分开显示；书架封面继续使用本地渐变封面，不依赖远程图源。';
+const _online = '点网盘书直接在线阅读；点书不再自动加入书架，是否收藏由用户另行操作。';
+const _booklist =
+    '“导入到书单”只保存在线阅读记录，不下载到本机；加入后书架和全局搜索显示具体来源：本地 / 夸克 / 蓝奏 / WebDAV / S3。';
+const _delete =
+    '删除改成两个独立勾选项：删除本机文件、删除网盘文件；默认都不强删，按需勾选。WebDAV / S3 勾选后直接删原文件，其他账号源会提示到网页端删除。';
+const _formats =
+    '格式扩展：DOCX、ODT、RTF、FB2、HTML、Markdown、ZIP、MOBI、PRC、AZW、AZW3；PDF 本机与网盘均可提取正文。';
+const _source = '在线书删除不再出现单一“删除本机文件”提示；本机没有文件时会明确说明。';
+
 const _api =
     '保留 0.6.10 的登录接口修复：POST 带 Content-Length、接口版本 1.30/1.13 回退、长密码与登录前测试连接/保持登录/云书架入口。';
 const _links = '保留 0.6.10 的关联导入修复：iOS 符号链接与授权失效回退副本，Android 关联文件转工作副本。';
-const _changes = [_lanzou, _quark, _search, _browse, _icons, _api, _links];
+const _changes = [
+  _online,
+  _booklist,
+  _delete,
+  _formats,
+  _source,
+  _lanzou,
+  _quark,
+  _search,
+  _browse,
+  _icons,
+  _api,
+  _links,
+];
 
 const _androidInstall = '**Android**：直接覆盖更新，不要先卸载旧版。';
 const _iosInstall = '**iOS**：提供未签名包，主应用与小组件均需自行签名。';
@@ -45,6 +67,11 @@ $releaseReadingNotice
 
 ### 本次更新
 
+- $_online
+- $_booklist
+- $_delete
+- $_formats
+- $_source
 - $_lanzou
 - $_quark
 - $_search

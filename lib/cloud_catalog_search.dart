@@ -83,6 +83,8 @@ class CloudCatalogSearch {
                             ),
                           ),
                 sourceLabel: config.kind.label,
+                remoteEntryId: entry.id,
+                remoteKind: config.kind.name,
               ),
             );
           }

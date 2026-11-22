@@ -57,6 +57,127 @@ Future<bool> confirmNovelAction(
     ) ==
     true;
 
+typedef BookRemovalChoice = ({bool local, bool cloud});
+
+/// Two independent delete switches. Cloud deletion is never implied by
+/// removing a local copy, and removing a shelf record never deletes a file
+/// unless the matching switch is on.
+Future<BookRemovalChoice?> confirmBookRemoval(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required bool localAvailable,
+  required bool cloudAvailable,
+  bool localInitial = true,
+  bool cloudInitial = false,
+  bool reduceMotion = false,
+}) async => await showJellySheet<BookRemovalChoice>(
+  context: context,
+  reduceMotion: reduceMotion,
+  builder: (sheet) {
+    var local = localAvailable && localInitial;
+    var cloud = cloudAvailable && cloudInitial;
+    return StatefulBuilder(
+      builder: (context, setState) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppText(
+              title,
+              style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 10),
+            AppText(message, style: const TextStyle(height: 1.6)),
+            const SizedBox(height: 18),
+            _RemovalSwitch(
+              label: '删除本机文件',
+              detail: localAvailable ? '删除 App 内的原书、正文和插图' : '本机没有这本书的文件',
+              value: local,
+              enabled: localAvailable,
+              onChanged: (value) => setState(() => local = value),
+            ),
+            const SizedBox(height: 10),
+            _RemovalSwitch(
+              label: '删除网盘文件',
+              detail: cloudAvailable
+                  ? '同时删除网盘里的原文件，删除后不可恢复'
+                  : '此来源暂不支持 App 内删除，请到网盘网页端操作',
+              value: cloud,
+              enabled: cloudAvailable,
+              onChanged: (value) => setState(() => cloud = value),
+            ),
+            const SizedBox(height: 8),
+            AppText(
+              '两个选项独立，可同时勾选；都不勾选时只移除书架记录。',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.5,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 20),
+            GlassTextButton(
+              onPressed: () =>
+                  Navigator.pop(sheet, (local: local, cloud: cloud)),
+              haptic: HapticCue.warning,
+              child: const AppText('删除'),
+            ),
+            const SizedBox(height: 8),
+            GlassTextButton(
+              onPressed: () => Navigator.pop(sheet),
+              child: const AppText('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+  },
+);
+
+class _RemovalSwitch extends StatelessWidget {
+  const _RemovalSwitch({
+    required this.label,
+    required this.detail,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+  final String label, detail;
+  final bool value, enabled;
+  final ValueChanged<bool> onChanged;
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppText(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 3),
+            AppText(
+              detail,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(width: 12),
+      CupertinoSwitch(
+        value: value,
+        onChanged: enabled ? onChanged : null,
+        activeTrackColor: Theme.of(context).colorScheme.primary,
+      ),
+    ],
+  );
+}
+
 class ArchiveFeaturePage extends StatelessWidget {
   const ArchiveFeaturePage({
     super.key,

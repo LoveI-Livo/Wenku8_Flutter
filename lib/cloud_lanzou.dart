@@ -22,6 +22,10 @@ class LanzouBookClient implements CloudBookClient {
 
   @override
   String get root => '-1';
+  @override
+  Future<void> delete(CloudBookEntry entry) async {
+    throw const CloudSourceFailure('蓝奏云暂不支持 App 内删除，请到网页端删除原文件');
+  }
 
   Map<String, String> _headers(Uri uri) => {
     'User-Agent': _ua,

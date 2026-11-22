@@ -332,6 +332,16 @@ class S3BookClient implements CloudBookClient {
 
   Map<String, String> _headers(Uri uri) => s3SignedHeaders(config, uri);
   @override
+  Future<void> delete(CloudBookEntry entry) async {
+    await http.request(
+      'DELETE',
+      _uri(entry.id),
+      headers: (uri) => s3SignedHeaders(config, uri, method: 'DELETE'),
+      allowHttp: config.allowHttp,
+    );
+  }
+
+  @override
   Future<CloudBookListing> list(String folder, {int page = 1}) async {
     if (!folder.startsWith(root) ||
         (folder.isNotEmpty && !folder.endsWith('/')) ||

@@ -22,6 +22,8 @@ class Novel {
     this.remoteCookie,
     this.remoteAuthorization,
     this.sourceLabel,
+    this.remoteEntryId,
+    this.remoteKind,
   });
 
   final int id;
@@ -42,6 +44,11 @@ class Novel {
 
   /// 书架来源名称（本地导入、夸克网盘、蓝奏云、WebDAV 等）。
   final String? sourceLabel;
+
+  /// The provider file key, kept separately from the short-lived download URL
+  /// so the same record can later be deleted from the actual cloud folder.
+  final String? remoteEntryId;
+  final String? remoteKind;
 
   /// 私有书源登录后保存的请求头；只随书架元数据保存在本机。
   final String? remoteCookie;
@@ -173,6 +180,8 @@ class Novel {
     remoteCookie: remoteCookie,
     remoteAuthorization: remoteAuthorization,
     sourceLabel: sourceLabel,
+    remoteEntryId: remoteEntryId,
+    remoteKind: remoteKind,
   );
 
   Novel withChapters(List<NovelChapter> items) => Novel(
@@ -192,6 +201,8 @@ class Novel {
     remoteCookie: remoteCookie,
     remoteAuthorization: remoteAuthorization,
     sourceLabel: sourceLabel,
+    remoteEntryId: remoteEntryId,
+    remoteKind: remoteKind,
   );
 
   Map<String, Object?> toSnapshot() => {
@@ -210,6 +221,8 @@ class Novel {
     if (remoteCookie != null) 'remoteCookie': remoteCookie,
     if (remoteAuthorization != null) 'remoteAuthorization': remoteAuthorization,
     if (sourceLabel != null) 'sourceLabel': sourceLabel,
+    if (remoteEntryId != null) 'remoteEntryId': remoteEntryId,
+    if (remoteKind != null) 'remoteKind': remoteKind,
   };
 
   factory Novel.fromSnapshot(Map<String, dynamic> value) {
@@ -238,10 +251,24 @@ class Novel {
       navigation: value['navigation'] == null
           ? null
           : BookNavigation.fromJson(value['navigation']),
-      remoteUrl: value['remoteUrl'] is String ? value['remoteUrl'] as String : null,
-      remoteCookie: value['remoteCookie'] is String ? value['remoteCookie'] as String : null,
-      remoteAuthorization: value['remoteAuthorization'] is String ? value['remoteAuthorization'] as String : null,
-      sourceLabel: value['sourceLabel'] is String ? value['sourceLabel'] as String : null,
+      remoteUrl: value['remoteUrl'] is String
+          ? value['remoteUrl'] as String
+          : null,
+      remoteCookie: value['remoteCookie'] is String
+          ? value['remoteCookie'] as String
+          : null,
+      remoteAuthorization: value['remoteAuthorization'] is String
+          ? value['remoteAuthorization'] as String
+          : null,
+      sourceLabel: value['sourceLabel'] is String
+          ? value['sourceLabel'] as String
+          : null,
+      remoteEntryId: value['remoteEntryId'] is String
+          ? value['remoteEntryId'] as String
+          : null,
+      remoteKind: value['remoteKind'] is String
+          ? value['remoteKind'] as String
+          : null,
     );
   }
 }
