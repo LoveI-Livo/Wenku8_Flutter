@@ -402,7 +402,9 @@ class CloudDocumentService {
     lastUpdate: parsed.lastUpdate,
     chapterCount: parsed.chapterCount,
     navigation: parsed.navigation,
-    remoteUrl: parsed.remoteUrl,
+    // Keep the cloud:// marker (or original direct URL), not the short-lived
+    // download address resolved for this reading session.
+    remoteUrl: source.remoteUrl ?? parsed.remoteUrl,
     remoteCookie: source.remoteCookie,
     remoteAuthorization: source.remoteAuthorization,
   );

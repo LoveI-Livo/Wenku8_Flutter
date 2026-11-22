@@ -180,19 +180,21 @@ class CloudLibraryPage extends StatelessWidget {
                     GlassPillButton(
                       key: ValueKey('cloud-browse-${kind.name}'),
                       icon: CupertinoIcons.folder_open,
-                      label: kind.isAccount ? '浏览全盘' : '浏览书籍',
+                      label: kind.isWebLogin
+                          ? '浏览全盘'
+                          : kind.isAccount
+                          ? '浏览文件夹'
+                          : '浏览书籍',
                       onPressed: () => _browse(context, config),
                     ),
                     Wrap(
                       spacing: 12,
                       children: [
                         GlassTextButton(
-                          onPressed:
-                              kind == CloudSourceKind.quark ||
-                                  kind == CloudSourceKind.lanzou
+                          onPressed: kind.isWebLogin
                               ? () => _loginAccount(context, kind)
                               : () => _edit(context, kind),
-                          child: const AppText('修改连接'),
+                          child: AppText(kind.isWebLogin ? '重新登录' : '修改连接'),
                         ),
                         GlassTextButton(
                           onPressed: () async {
