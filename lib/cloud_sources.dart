@@ -59,6 +59,72 @@ enum CloudSourceKind {
   };
 }
 
+/// 一个独立的小说书源。地址可以是 RSS / Atom / JSON / 网页，也可以是
+/// 带 `{query}`、`{page}` 的搜索地址；多个书源保存在同一条 rss 配置中。
+class CloudBookSourceProbe {
+  const CloudBookSourceProbe({required this.valid, this.message = '', this.books = 0});
+  final bool valid;
+  final String message;
+  final int books;
+}
+
+class CloudBookSource {
+  const CloudBookSource({
+    required this.url,
+    this.name = '',
+    this.enabled = true,
+    this.status = '',
+    this.message = '',
+    this.checkedAt,
+  });
+  final String url, name, status, message;
+  final bool enabled;
+  final DateTime? checkedAt;
+  String get label => name.trim().isNotEmpty ? name.trim() : Uri.tryParse(url)?.host ?? url;
+  bool get valid => status == 'valid';
+  bool get invalid => status == 'invalid';
+  Map<String, Object> toRecord() => {
+    'url': url,
+    'name': name,
+    if (!enabled) 'enabled': false,
+    if (status.isNotEmpty) 'status': status,
+    if (message.isNotEmpty) 'message': message,
+    if (checkedAt != null) 'checkedAt': checkedAt!.millisecondsSinceEpoch,
+  };
+  factory CloudBookSource.fromRecord(Object? value) {
+    if (value is String) return CloudBookSource(url: value.trim());
+    if (value is! Map) throw const FormatException('书源记录格式有误');
+    final map = Map<String, dynamic>.from(value);
+    final url = (map['url'] ?? '').toString().trim();
+    if (url.isEmpty) throw const FormatException('书源地址为空');
+    return CloudBookSource(
+      url: url,
+      name: (map['name'] ?? '').toString(),
+      enabled: map['enabled'] != false,
+      status: (map['status'] ?? '').toString(),
+      message: (map['message'] ?? '').toString(),
+      checkedAt: map['checkedAt'] is int
+          ? DateTime.fromMillisecondsSinceEpoch(map['checkedAt'] as int)
+          : null,
+    );
+  }
+  CloudBookSource copyWith({
+    String? url,
+    String? name,
+    bool? enabled,
+    String? status,
+    String? message,
+    DateTime? checkedAt,
+  }) => CloudBookSource(
+    url: url ?? this.url,
+    name: name ?? this.name,
+    enabled: enabled ?? this.enabled,
+    status: status ?? this.status,
+    message: message ?? this.message,
+    checkedAt: checkedAt ?? this.checkedAt,
+  );
+}
+
 /// Only this device's encrypted vault contains connection secrets. This record
 /// is deliberately separate from SharedPreferences and LibraryBackup.
 class CloudSourceConfig {
@@ -74,12 +140,57 @@ class CloudSourceConfig {
     this.prefix = '',
     this.sessionToken = '',
     this.pathStyle = true,
+    this.sources = const [],
   });
   final CloudSourceKind kind;
   final String address, username, password, cookie;
   final bool allowHttp;
   final String bucket, region, prefix, sessionToken;
   final bool pathStyle;
+
+  /// rss 类型下逐个书源的状态；旧记录为空时从 [address] 逐行解析。
+  final List<CloudBookSource> sources;
+
+  List<CloudBookSource> get effectiveSources {
+    if (kind != CloudSourceKind.rss) return const [];
+    if (sources.isNotEmpty) return sources.where((source) => source.enabled).toList(growable: false);
+    return address
+        .split(RegExp(r'\r?\n'))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .map((value) => CloudBookSource(url: value))
+        .toList(growable: false);
+  }
+
+  CloudSourceConfig withAllowHttp(bool value) => CloudSourceConfig(
+    kind: kind,
+    address: address,
+    username: username,
+    password: password,
+    cookie: cookie,
+    allowHttp: value,
+    bucket: bucket,
+    region: region,
+    prefix: prefix,
+    sessionToken: sessionToken,
+    pathStyle: pathStyle,
+    sources: sources,
+  );
+
+  CloudSourceConfig withSources(List<CloudBookSource> value) => CloudSourceConfig(
+    kind: kind,
+    address: value.where((source) => source.enabled).map((source) => source.url).join('\n'),
+    username: username,
+    password: password,
+    cookie: cookie,
+    allowHttp: allowHttp,
+    bucket: bucket,
+    region: region,
+    prefix: prefix,
+    sessionToken: sessionToken,
+    pathStyle: pathStyle,
+    sources: value,
+  );
   String get label => kind.label;
   Uri get endpoint {
     final uri = Uri.parse(address.trim());
@@ -90,15 +201,12 @@ class CloudSourceConfig {
 
   void validate() {
     if (kind == CloudSourceKind.rss) {
-      final sources = address
-          .split(RegExp(r'\r?\n'))
-          .map((value) => value.trim())
-          .where((value) => value.isNotEmpty)
-          .toList(growable: false);
-      if (sources.isEmpty || sources.length > 12 || address.length > 32768) {
-        throw const CloudSourceFailure('请填写 1 到 12 个小说书源地址，一行一个');
+      final entries = effectiveSources;
+      if (entries.isEmpty || entries.length > 200 || address.length > 262144) {
+        throw const CloudSourceFailure('请填写 1 到 200 个小说书源地址，一行一个或从书源文件导入');
       }
-      for (final source in sources) {
+      for (final entry in entries) {
+        final source = entry.url;
         final probe = source
             .replaceAll('{query}', 'keyword')
             .replaceAll('{page}', '1');
@@ -212,6 +320,8 @@ class CloudSourceConfig {
       'sessionToken': sessionToken,
       'pathStyle': pathStyle,
     },
+    if (kind == CloudSourceKind.rss && sources.isNotEmpty)
+      'sources': sources.map((source) => source.toRecord()).toList(growable: false),
   };
   factory CloudSourceConfig.fromRecord(Map<String, dynamic> record) {
     final value = CloudSourceConfig(
@@ -226,6 +336,12 @@ class CloudSourceConfig {
       prefix: record['prefix'] ?? '',
       sessionToken: record['sessionToken'] ?? '',
       pathStyle: record['pathStyle'] != false,
+      sources: record['sources'] is List
+          ? [
+              for (final source in record['sources'] as List)
+                CloudBookSource.fromRecord(source),
+            ]
+          : const [],
     );
     value.validate();
     return value;
@@ -1088,17 +1204,56 @@ class DirectLinkBookClient implements CloudBookClient {
 /// 和页码替换。条目链接既可以是 txt/epub 文件，也可以是网页章节，阅读时
 /// 由网页读取器识别目录和正文。
 class RssBookClient extends DirectLinkBookClient {
-  RssBookClient(super.config);
+  RssBookClient(super.config, {List<String>? sources}) : _override = sources;
 
-  static const _maxSources = 12;
+  static const _maxSources = 200;
   static const _maxEntries = 500;
+  final List<String>? _override;
 
-  List<String> get _sources => config.address
-      .split(RegExp(r'\r?\n'))
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .take(_maxSources)
-      .toList(growable: false);
+  List<String> get _sources =>
+      (_override ??
+              config.effectiveSources.map((source) => source.url).toList())
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .take(_maxSources)
+          .toList(growable: false);
+
+  Future<void> _parallel(
+    List<String> sources,
+    Future<void> Function(String source) action,
+  ) async {
+    var next = 0;
+    Future<void> worker() async {
+      while (true) {
+        final index = next++;
+        if (index >= sources.length) return;
+        await action(sources[index]);
+      }
+    }
+    await Future.wait([
+      for (var i = 0; i < sources.length && i < 8; i++) worker(),
+    ]);
+  }
+
+  /// 体检单个书源：能解析出至少一本书或一个目录才算有效。
+  Future<CloudBookSourceProbe> probe(String source) async {
+    final target = source
+        .replaceAll('{query}', Uri.encodeQueryComponent('测试'))
+        .replaceAll('{page}', '1');
+    try {
+      final entries = await _entriesFor(target, page: 1)
+          .timeout(const Duration(seconds: 12));
+      if (entries.isNotEmpty) {
+        return CloudBookSourceProbe(
+          valid: true,
+          message: '识别到 ${entries.length} 本书',
+        );
+      }
+      return const CloudBookSourceProbe(valid: false, message: '没有识别到书籍或目录');
+    } catch (error) {
+      return CloudBookSourceProbe(valid: false, message: cloudFailureMessage(error));
+    }
+  }
 
   @override
   Future<CloudBookListing> list(String folder, {int page = 1}) async {
@@ -1108,20 +1263,19 @@ class RssBookClient extends DirectLinkBookClient {
     final entries = <String, CloudBookEntry>{};
     var attempted = 0;
     Object? lastFailure;
-    for (final source in _sources) {
-      if (source.contains('{query}')) continue;
+    final browse = _sources.where((source) => !source.contains('{query}')).toList();
+    await _parallel(browse, (source) async {
       attempted++;
       try {
         for (final entry in await _entriesFor(source, page: page)) {
           entries.putIfAbsent(entry.id, () => entry);
-          if (entries.length >= _maxEntries) break;
+          if (entries.length >= _maxEntries) return;
         }
       } catch (error) {
         lastFailure = error;
         // 一个书源失效不影响其他书源。
       }
-      if (entries.length >= _maxEntries) break;
-    }
+    });
     if (entries.isEmpty && attempted > 0 && lastFailure != null) {
       throw lastFailure;
     }
@@ -1134,7 +1288,7 @@ class RssBookClient extends DirectLinkBookClient {
     if (value.isEmpty) return const CloudBookListing([]);
     final entries = <String, CloudBookEntry>{};
     final pattern = BookSearch(value);
-    for (final source in _sources) {
+    await _parallel(_sources, (source) async {
       final hasQuery = source.contains('{query}');
       final target = source
           .replaceAll('{query}', Uri.encodeQueryComponent(value))
@@ -1153,13 +1307,12 @@ class RssBookClient extends DirectLinkBookClient {
                 );
           if (!matches) continue;
           entries.putIfAbsent(entry.id, () => entry);
-          if (entries.length >= _maxEntries) break;
+          if (entries.length >= _maxEntries) return;
         }
       } catch (_) {
         // 一个书源失效不影响其他书源。
       }
-      if (entries.length >= _maxEntries) break;
-    }
+    });
     return CloudBookListing(entries.values.toList(growable: false));
   }
 

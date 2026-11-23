@@ -325,10 +325,17 @@ class BookDocuments internal constructor(
                     try {
                         display = name(selected)
                         require(BookArchiveImport.supported(display)) { "请选择支持的电子书或文档" }
-                        if (operation.linkOriginals && BookArchiveImport.supported(display) || operation.linkText && display.endsWith(".txt", true)) {
-                            try { activity.contentResolver.takePersistableUriPermission(selected, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                            catch (_: SecurityException) { error("文件提供方未授予长期读取权限，请选择「复制到应用」导入") }
-                            return@map mapOf("name" to display, "reference" to links.remember(selected, selected))
+                        if ((operation.linkOriginals || operation.linkText) &&
+                            (BookArchiveImport.supported(display) || display.endsWith(".txt", true))) {
+                            try {
+                                activity.contentResolver.takePersistableUriPermission(selected, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                return@map mapOf("name" to display, "reference" to links.remember(selected, selected))
+                            } catch (_: Exception) {
+                                // Some file providers (QQ browser, third-party managers,
+                                // cloud drives) grant a one-shot VIEW grant only. Falling
+                                // back to a managed copy keeps “关联到 App” usable instead
+                                // of failing with a permission error.
+                            }
                         }
                         if (operation.deferred) return@map imports.queue.select(selected, display, BookArchiveImport.limit(display))
                         val destination = File.createTempFile("import-", ".source", root)

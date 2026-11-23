@@ -124,6 +124,7 @@ import 'reader_preferences.dart';
 import 'reader_text.dart';
 import 'reading_history.dart';
 import 'recent_searches.dart';
+import 'cloud_catalog_search.dart';
 import 'search_scopes.dart';
 import 'ui_notifiers.dart';
 import 'route_identity.dart';
@@ -184,6 +185,10 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       )..searchField = BookSearchField.title),
   };
   SearchSource _searchSource = SearchSource.library;
+  final Map<SearchSource, String?> _searchTargetKeys = {
+    for (final scope in SearchSource.values) scope: null,
+  };
+  List<CloudSearchTarget> _searchTargets = const [];
   NovelFeedController get _activeSearch => _searchFeeds[_searchSource]!;
   int _searchScope = 0;
   final _localLibrary = LocalLibraryController();
@@ -408,6 +413,9 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     _searchFocus.canRequestFocus = true;
     _searchScope = _tab;
     final feed = _activeSearch;
+    if (_searchSource != SearchSource.library) {
+      unawaited(_loadSearchTargets(_searchSource));
+    }
     _searchText.value = TextEditingValue(
       text: feed.query,
       selection: TextSelection.collapsed(offset: feed.query.length),
@@ -933,7 +941,80 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       44,
       MediaQuery.textScalerOf(context).scale(13) * 1.4 + 10,
     );
-    return row * 2 + 22;
+    return row * 2 + 22 + (_searchSource == SearchSource.library ? 0 : 40);
+  }
+
+  String get _searchTargetLabel {
+    final key = _searchTargetKeys[_searchSource];
+    if (key == null) return '全部来源';
+    for (final target in _searchTargets) {
+      if (target.key == key) return target.label;
+    }
+    return '全部来源';
+  }
+
+  Future<void> _loadSearchTargets(SearchSource source) async {
+    if (source == SearchSource.library) {
+      if (mounted) setState(() => _searchTargets = const []);
+      return;
+    }
+    final targets = await CloudCatalogSearch.instance.targets(
+      source == SearchSource.cloud
+          ? CloudSearchScope.netDisks
+          : CloudSearchScope.sources,
+    );
+    if (!mounted || _searchSource != source) return;
+    final selected = _searchTargetKeys[source];
+    final valid = selected != null && targets.any((target) => target.key == selected)
+        ? selected
+        : null;
+    setState(() {
+      _searchTargets = targets;
+      _searchTargetKeys[source] = valid;
+    });
+    final repository = _searchFeeds[source]!.repository;
+    if (repository is ScopedSearchRepository) repository.targetKey = valid;
+  }
+
+  Future<void> _pickSearchTarget(BuildContext anchor) async {
+    if (_searchSource == SearchSource.library) return;
+    if (_searchTargets.isEmpty) await _loadSearchTargets(_searchSource);
+    if (!mounted) return;
+    final selected = await showGlassMenu<String>(
+      context: anchor,
+      reduceMotion: widget.state.reduceMotion,
+      builder: (menu) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GlassMenuItem(
+            key: const ValueKey('search-target-all'),
+            label: '全部来源',
+            onPressed: () => Navigator.pop(menu, ''),
+          ),
+          for (var i = 0; i < _searchTargets.length; i++)
+            GlassMenuItem(
+              key: ValueKey('search-target-${_searchTargets[i].key}'),
+              order: i + 1,
+              label: _searchTargets[i].label,
+              onPressed: () => Navigator.pop(menu, _searchTargets[i].key),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    final key = selected == null || selected.isEmpty ? null : selected;
+    _searchTargetKeys[_searchSource] = key;
+    final repository = _searchFeeds[_searchSource]!.repository;
+    if (repository is ScopedSearchRepository) repository.targetKey = key;
+    final query = _searchText.text.trim();
+    final feed = _activeSearch;
+    setState(() {});
+    if (query.isNotEmpty) {
+      await feed.searchFor(query);
+    } else if (feed.page > 0) {
+      await feed.refresh();
+    }
   }
 
   Widget _searchTabs(BuildContext context) => Padding(
@@ -954,6 +1035,20 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
           },
         ),
         const SizedBox(height: 4),
+        if (_searchSource != SearchSource.library)
+          SizedBox(
+            height: 34,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GlassTextButton(
+                key: const ValueKey('home-search-target'),
+                onPressed: _searchTargets.isEmpty
+                    ? null
+                    : () => _pickSearchTarget(context),
+                child: AppText('来源：$_searchTargetLabel ▾', style: const TextStyle(fontSize: 13)),
+              ),
+            ),
+          ),
         AppControls.segments<BookSearchField>(
           context,
           key: const ValueKey('home-search-tabs'),
@@ -984,6 +1079,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     } else if (source == SearchSource.library && feed.page == 0) {
       await feed.loadInitial();
     }
+    await _loadSearchTargets(source);
   }
 
   Future<void> _selectSearchField(BookSearchField field) async {
@@ -1569,7 +1665,12 @@ class FeedFooter extends StatelessWidget {
               fontSize: 12,
             ),
           ),
-          GlassTextButton(onPressed: feed.retry, child: const AppText('重试')),
+          GlassTextButton(
+            onPressed: feed.refreshFailed || !feed.hasLoaded
+                ? feed.retry
+                : feed.loadMore,
+            child: AppText(feed.hasLoaded && !feed.refreshFailed ? '加载下一页' : '重试'),
+          ),
         ] else if (feed.hasMore)
           GlassTextButton(
             onPressed: feed.loadMore,
@@ -4141,9 +4242,14 @@ class InlineSearchResults extends StatelessWidget {
         onRetry: feed.searchNotice == null ? null : feed.refresh,
       );
     }
-    return FeedRefresh(
-      feed: feed,
-      child: BookCollectionView.builder(
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        _autoLoadMore(feed, notification.metrics);
+        return false;
+      },
+      child: FeedRefresh(
+        feed: feed,
+        child: BookCollectionView.builder(
           key: PageStorageKey(
             'inline-search-results-${feed.searchField.name}-${feed.query}',
           ),
@@ -4200,7 +4306,7 @@ class InlineSearchResults extends StatelessWidget {
                       if (feed.totalItems != null && feed.hasMore) ...[
                         const SizedBox(height: 6),
                         AppText(
-                          '当前已显示 ${books.length} 本；每页最多 50 本，点底部「加载下一页」继续。',
+                          '当前已显示 ${books.length} 本；继续下滑自动加载，失败时点底部「加载下一页」。',
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(
@@ -4269,9 +4375,21 @@ class InlineSearchResults extends StatelessWidget {
               ),
             );
           },
+        ),
       ),
     );
   }
+}
+
+void _autoLoadMore(NovelFeedController feed, ScrollMetrics metrics) {
+  if (!feed.hasLoaded ||
+      feed.loading ||
+      feed.error != null ||
+      !feed.hasMore ||
+      metrics.extentAfter > 260) {
+    return;
+  }
+  feed.loadMore();
 }
 
 class _SearchGroupFooter extends StatelessWidget {
@@ -4325,7 +4443,12 @@ class _SearchGroupFooter extends StatelessWidget {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          GlassTextButton(onPressed: feed.retry, child: const AppText('重试')),
+          GlassTextButton(
+            onPressed: feed.refreshFailed || !feed.hasLoaded
+                ? feed.retry
+                : feed.loadMore,
+            child: AppText(feed.hasLoaded && !feed.refreshFailed ? '加载下一页' : '重试'),
+          ),
         ] else if (feed.searchNotice case final notice?) ...[
           AppText(
             notice,

@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'app_ui.dart';
+import 'book_source_manager_page.dart';
 import 'app_interactions.dart';
 import 'catalog.dart';
 import 'cloud_sources.dart';
@@ -217,6 +218,16 @@ class CloudLibraryPage extends StatelessWidget {
                               : () => _edit(context, kind),
                           child: AppText(kind.isWebLogin ? '重新登录' : '修改连接'),
                         ),
+                        if (kind == CloudSourceKind.rss)
+                          GlassTextButton(
+                            key: const ValueKey('cloud-rss-manager'),
+                            onPressed: () => pushNovelPage<void>(
+                              context,
+                              BookSourceManagerPage(settings: settings),
+                              reduceMotion: reduceMotion,
+                            ),
+                            child: const AppText('书源管理 / 检测'),
+                          ),
                         GlassTextButton(
                           onPressed: () async {
                             try {

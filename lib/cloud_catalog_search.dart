@@ -8,6 +8,13 @@ import 'cloud_sources.dart';
 
 enum CloudSearchScope { all, netDisks, sources }
 
+/// 搜索页可选的单一来源。
+class CloudSearchTarget {
+  const CloudSearchTarget({required this.key, required this.label, this.url});
+  final String key, label;
+  final String? url;
+}
+
 /// 全局搜索里的网盘 / 书源索引。
 ///
 /// 先按文件名、作者和书源简介匹配；没有命中时，再对体积较小的文件做一次
@@ -26,6 +33,7 @@ class CloudCatalogSearch {
   static const _cacheLifetime = Duration(minutes: 10);
   String? _cacheQuery;
   CloudSearchScope? _cacheScope;
+  String? _cacheTarget;
   DateTime? _cacheAt;
   List<Novel>? _cache;
 
@@ -37,9 +45,49 @@ class CloudCatalogSearch {
     await settings.load();
   }
 
+  /// 当前范围可用于搜索的来源。网盘按连接区分，书源按单个地址区分。
+  Future<List<CloudSearchTarget>> targets(CloudSearchScope scope) async {
+    await settings.load();
+    final result = <CloudSearchTarget>[];
+    for (final config in settings.configs) {
+      final allowed = switch (scope) {
+        CloudSearchScope.all =>
+          config.kind.isDirectLink || config.kind.isAccount,
+        CloudSearchScope.netDisks => config.kind != CloudSourceKind.rss,
+        CloudSearchScope.sources => config.kind == CloudSourceKind.rss,
+      };
+      if (!allowed) continue;
+      if (config.kind == CloudSourceKind.rss) {
+        for (final source in config.sources.isNotEmpty
+            ? config.sources.where((value) => value.enabled)
+            : config.effectiveSources) {
+          result.add(
+            CloudSearchTarget(
+              key: 'rss:${source.url}',
+              label: '${source.label} · ${Uri.tryParse(source.url)?.host ?? ''}',
+              url: source.url,
+            ),
+          );
+        }
+      } else {
+        final host = Uri.tryParse(config.address)?.host;
+        result.add(
+          CloudSearchTarget(
+            key: config.kind.name,
+            label: host == null || host.isEmpty
+                ? config.label
+                : '${config.label} · $host',
+          ),
+        );
+      }
+    }
+    return result;
+  }
+
   Future<List<Novel>> search(
     String query, {
     CloudSearchScope scope = CloudSearchScope.all,
+    String? sourceKey,
     bool refresh = false,
   }) async {
     final value = query.trim();
@@ -48,6 +96,7 @@ class CloudCatalogSearch {
         _cache != null &&
         _cacheQuery == value &&
         _cacheScope == scope &&
+        _cacheTarget == sourceKey &&
         _cacheAt != null &&
         DateTime.now().difference(_cacheAt!) < _cacheLifetime) {
       return _cache!;
@@ -62,6 +111,15 @@ class CloudCatalogSearch {
             CloudSearchScope.sources => config.kind == CloudSourceKind.rss,
           },
         )
+        .where(
+          (config) => sourceKey == null ||
+              (config.kind == CloudSourceKind.rss
+                  ? sourceKey.startsWith('rss:') &&
+                      (config.sources.isNotEmpty
+                          ? config.sources.any((source) => source.enabled && 'rss:${source.url}' == sourceKey)
+                          : config.effectiveSources.any((source) => 'rss:${source.url}' == sourceKey))
+                  : config.kind.name == sourceKey),
+        )
         .toList();
     if (configs.isEmpty) return const [];
 
@@ -72,7 +130,14 @@ class CloudCatalogSearch {
       configs.map((config) async {
         CloudBookClient? client;
         try {
-          client = CloudBookClient(config);
+          final selectedUrl = sourceKey != null &&
+                  config.kind == CloudSourceKind.rss &&
+                  sourceKey.startsWith('rss:')
+              ? sourceKey.substring(4)
+              : null;
+          client = config.kind == CloudSourceKind.rss && selectedUrl != null
+              ? RssBookClient(config, sources: [selectedUrl])
+              : CloudBookClient(config);
           final walk = await _searchClient(
             client,
             value,
@@ -129,6 +194,7 @@ class CloudCatalogSearch {
     _cache = cached;
     _cacheQuery = value;
     _cacheScope = scope;
+    _cacheTarget = sourceKey;
     _cacheAt = DateTime.now();
     return cached;
   }

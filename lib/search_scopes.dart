@@ -15,9 +15,12 @@ enum SearchSource {
 /// which catalogue is queried. All modes delegate detail/chapter loading to the
 /// same repository, so cloud hits open exactly like ordinary online books.
 class ScopedSearchRepository extends NovelRepository {
-  const ScopedSearchRepository({required this.source, required this.scope});
+  ScopedSearchRepository({required this.source, required this.scope});
   final NovelRepository source;
   final SearchSource scope;
+
+  /// null 表示全部来源；网盘为 CloudSourceKind.name，书源为 rss:<url>。
+  String? targetKey;
 
   @override
   Future<List<Novel>> list() => source.list();
@@ -68,6 +71,7 @@ class ScopedSearchRepository extends NovelRepository {
       scope: scope == SearchSource.cloud
           ? CloudSearchScope.netDisks
           : CloudSearchScope.sources,
+      sourceKey: targetKey,
       refresh: refresh,
     );
     final pattern = BookSearch(text, field: field);
