@@ -17,6 +17,18 @@ class ModRelease {
 /// of changelog text.
 const modReleaseHistory = <ModRelease>[
   ModRelease(
+    version: '0.8.0',
+    date: '2026-11-23',
+    summary: '八种网盘官网登录直连账号目录',
+    changes: [
+      '夸克、UC、百度、123、阿里云、迅雷、蓝奏云、蓝奏云优享版全部改为官网登录：打开官方登录页完成扫码/验证码，自动读取 Cookie、localStorage 令牌或账号凭据，不再要求粘贴文件直链。',
+      '登录后直接浏览账号根目录和子文件夹，账号中的书参与网盘搜索，可直接加入书架、加入书单或下载到本机。',
+      '123 云盘自动解密官网 authorToken；阿里云盘自动保存 access_token、refresh_token 和默认空间；迅雷自动读取 credentials 并刷新 access_token，令牌过期会尽量自动续期。',
+      '百度网盘使用 BDUSS 账号会话，UC 复用夸克同源云盘接口；旧版已保存的文件直链配置仍可继续浏览，不会被强制清空。',
+      '保留 0.7.9 的滚动卡顿优化、连接网盘多账号、书架动画和双端更新下载。',
+    ],
+  ),
+  ModRelease(
     version: '0.7.9',
     date: '2026-11-23',
     summary: '连接网盘官网登录、滚动卡顿优化',

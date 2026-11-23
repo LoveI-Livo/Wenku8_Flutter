@@ -163,7 +163,7 @@ class CloudCatalogSearch {
               : const <String>[];
           client = config.kind == CloudSourceKind.rss && selectedUrls.isNotEmpty
               ? RssBookClient(config, sources: selectedUrls)
-              : CloudBookClient(config);
+              : CloudBookClient(config, settings: settings);
           final walk = await _searchClient(client, value).timeout(_walkBudget);
 
           if (walk.matches.isNotEmpty) {

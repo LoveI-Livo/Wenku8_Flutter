@@ -157,4 +157,71 @@ void main() {
     expect(CloudSourceKind.lanzouPro.isDirectLink, isFalse);
     expect(CloudSourceKind.lanzouPro.isAccount, isTrue);
   });
+
+  test('账号网盘令牌能保存、恢复并保留连接字段', () async {
+    final storage = _MemoryStorage();
+    final settings = CloudSourceSettings(storage: storage);
+    await settings.load();
+    const original = CloudSourceConfig(
+      kind: CloudSourceKind.aliyun,
+      connectionId: 'aliyun-1',
+      accessToken: 'access-one',
+      refreshToken: 'refresh-one',
+      driveId: 'drive-one',
+      deviceId: 'device-one',
+    );
+    original.validate();
+    await settings.save(CloudSourceKind.aliyun, original);
+    await settings.rotateTokens(
+      original,
+      accessToken: 'access-two',
+      refreshToken: 'refresh-two',
+    );
+    final updated = settings[CloudSourceKind.aliyun]!;
+    expect(updated.accessToken, 'access-two');
+    expect(updated.refreshToken, 'refresh-two');
+    expect(updated.driveId, 'drive-one');
+    expect(updated.deviceId, 'device-one');
+    expect(updated.connectionId, 'aliyun-1');
+
+    final restored = CloudSourceSettings(storage: storage);
+    await restored.load();
+    expect(restored[CloudSourceKind.aliyun]?.accessToken, 'access-two');
+    expect(CloudSourceKind.aliyun.isWebLogin, isTrue);
+    expect(CloudSourceKind.aliyun.isDirectLink, isFalse);
+  });
+
+  test('百度、123、UC、迅雷都按账号网盘校验', () {
+    const baidu = CloudSourceConfig(
+      kind: CloudSourceKind.baidu,
+      cookie: 'BDUSS=token',
+    );
+    baidu.validate();
+    const pan123 = CloudSourceConfig(
+      kind: CloudSourceKind.pan123,
+      accessToken: 'token',
+      deviceId: 'login-uuid',
+    );
+    pan123.validate();
+    const uc = CloudSourceConfig(
+      kind: CloudSourceKind.uc,
+      cookie: '__puus=token',
+    );
+    uc.validate();
+    const xunlei = CloudSourceConfig(
+      kind: CloudSourceKind.xunlei,
+      accessToken: '{"access_token":"a","refresh_token":"r"}',
+    );
+    xunlei.validate();
+    for (final kind in [
+      CloudSourceKind.baidu,
+      CloudSourceKind.pan123,
+      CloudSourceKind.uc,
+      CloudSourceKind.xunlei,
+    ]) {
+      expect(kind.isWebLogin, isTrue);
+      expect(kind.isAccount, isTrue);
+      expect(kind.isDirectLink, isFalse);
+    }
+  });
 }

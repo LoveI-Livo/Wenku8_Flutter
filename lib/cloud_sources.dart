@@ -17,6 +17,10 @@ import 'book_search.dart';
 part 'cloud_s3.dart';
 part 'cloud_lanzou.dart';
 part 'cloud_ilanzou.dart';
+part 'cloud_baidu.dart';
+part 'cloud_123.dart';
+part 'cloud_aliyun.dart';
+part 'cloud_xunlei.dart';
 part 'cloud_web.dart';
 
 enum CloudSourceKind {
@@ -38,19 +42,35 @@ enum CloudSourceKind {
 
   /// 这些来源都通过「文件下载直链」流式读取，不保存账号 Cookie。
   bool get isDirectLink => switch (this) {
-    xunlei || aliyun || baidu || pan123 || uc || direct || rss => true,
+    direct || rss => true,
     _ => false,
   };
 
   /// Sources that expose a logged-in folder tree instead of a pasted link.
   bool get isAccount => switch (this) {
-    quark || lanzou || lanzouPro || webdav || s3 => true,
+    quark ||
+    lanzou ||
+    lanzouPro ||
+    xunlei ||
+    baidu ||
+    pan123 ||
+    aliyun ||
+    uc ||
+    webdav ||
+    s3 => true,
     _ => false,
   };
 
   /// Sources whose login is performed on the provider's own website.
   bool get isWebLogin => switch (this) {
-    quark || lanzou || lanzouPro => true,
+    quark ||
+    lanzou ||
+    lanzouPro ||
+    xunlei ||
+    baidu ||
+    pan123 ||
+    aliyun ||
+    uc => true,
     _ => false,
   };
 }
@@ -145,6 +165,9 @@ class CloudSourceConfig {
     this.prefix = '',
     this.sessionToken = '',
     this.deviceId = '',
+    this.accessToken = '',
+    this.refreshToken = '',
+    this.driveId = '',
     this.pathStyle = true,
     this.sources = const [],
   });
@@ -158,6 +181,9 @@ class CloudSourceConfig {
 
   /// 优享版等网盘需要稳定设备号；网页登录只给 appToken Cookie 时由本机生成并保存。
   final String deviceId;
+
+  /// 123 / 阿里云盘官网登录后保存在本机的 Bearer token；不会写入阅读备份。
+  final String accessToken, refreshToken, driveId;
   final bool pathStyle;
 
   /// rss 类型下逐个书源的状态；旧记录为空时从 [address] 逐行解析。
@@ -188,6 +214,9 @@ class CloudSourceConfig {
     prefix: prefix,
     sessionToken: sessionToken,
     deviceId: deviceId,
+    accessToken: accessToken,
+    refreshToken: refreshToken,
+    driveId: driveId,
     pathStyle: pathStyle,
     sources: sources,
   );
@@ -209,6 +238,9 @@ class CloudSourceConfig {
         prefix: prefix,
         sessionToken: sessionToken,
         deviceId: deviceId,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        driveId: driveId,
         pathStyle: pathStyle,
         sources: value,
       );
@@ -276,6 +308,102 @@ class CloudSourceConfig {
       }
       if (deviceId.length > 128 || RegExp(r'[\r\n\x00]').hasMatch(deviceId)) {
         throw const CloudSourceFailure('蓝奏云优享版设备标识异常，请重新登录');
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.xunlei) {
+      final legacy = accessToken.trim().isEmpty && address.trim().isNotEmpty;
+      if (!legacy &&
+          (accessToken.trim().isEmpty ||
+              accessToken.length > 16384 ||
+              RegExp(r'[\r\n\x00]').hasMatch(accessToken + refreshToken))) {
+        throw const CloudSourceFailure('请先在迅雷云盘官网登录，自动获取账号令牌');
+      }
+      if (legacy) {
+        final uri = Uri.tryParse(address.trim());
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
+          throw const CloudSourceFailure('迅雷云盘登录已失效，请重新登录账号');
+        }
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.baidu) {
+      final legacy = cookie.trim().isEmpty && address.trim().isNotEmpty;
+      if (!legacy &&
+          (!RegExp(r'(?:^|;\s*)BDUSS=[^;]+').hasMatch(cookie) ||
+              cookie.length > 16384 ||
+              RegExp(r'[\r\n\x00]').hasMatch(cookie))) {
+        throw const CloudSourceFailure('请先在百度网盘官网登录，自动获取 BDUSS Cookie');
+      }
+      if (legacy) {
+        final uri = Uri.tryParse(address.trim());
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
+          throw const CloudSourceFailure('百度网盘登录已失效，请重新登录账号');
+        }
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.pan123) {
+      final legacy = accessToken.trim().isEmpty && address.trim().isNotEmpty;
+      if (!legacy &&
+          (accessToken.trim().isEmpty ||
+              accessToken.length > 16384 ||
+              RegExp(r'[\r\n\x00]').hasMatch(accessToken))) {
+        throw const CloudSourceFailure('请先在 123 云盘官网登录，自动获取账号令牌');
+      }
+      if (legacy) {
+        final uri = Uri.tryParse(address.trim());
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
+          throw const CloudSourceFailure('123 云盘登录已失效，请重新登录账号');
+        }
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.aliyun) {
+      final legacy = accessToken.trim().isEmpty && address.trim().isNotEmpty;
+      if (!legacy &&
+          (accessToken.trim().isEmpty ||
+              accessToken.length > 16384 ||
+              RegExp(r'[\r\n\x00]').hasMatch(accessToken + refreshToken))) {
+        throw const CloudSourceFailure('请先在阿里云盘官网登录，自动获取账号令牌');
+      }
+      if (legacy) {
+        final uri = Uri.tryParse(address.trim());
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
+          throw const CloudSourceFailure('阿里云盘登录已失效，请重新登录账号');
+        }
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.uc) {
+      final legacy = cookie.trim().isEmpty && address.trim().isNotEmpty;
+      if (!legacy &&
+          (cookie.trim().isEmpty ||
+              cookie.length > 16384 ||
+              RegExp(r'[\r\n\x00]').hasMatch(cookie) ||
+              !RegExp(r'(?:^|;\s*)(?:__puus|__pus)=[^;]+').hasMatch(cookie))) {
+        throw const CloudSourceFailure('请先在 UC 网盘官网登录，自动获取 __puus Cookie');
+      }
+      if (legacy) {
+        final uri = Uri.tryParse(address.trim());
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
+          throw const CloudSourceFailure('UC 网盘登录已失效，请重新登录账号');
+        }
       }
       return;
     }
@@ -363,6 +491,9 @@ class CloudSourceConfig {
     'cookie': cookie,
     'allowHttp': allowHttp,
     if (deviceId.isNotEmpty) 'deviceId': deviceId,
+    if (accessToken.isNotEmpty) 'accessToken': accessToken,
+    if (refreshToken.isNotEmpty) 'refreshToken': refreshToken,
+    if (driveId.isNotEmpty) 'driveId': driveId,
     if (kind == CloudSourceKind.s3) ...{
       'bucket': bucket,
       'region': region,
@@ -389,6 +520,9 @@ class CloudSourceConfig {
       prefix: record['prefix'] ?? '',
       sessionToken: record['sessionToken'] ?? '',
       deviceId: record['deviceId'] ?? '',
+      accessToken: record['accessToken'] ?? '',
+      refreshToken: record['refreshToken'] ?? '',
+      driveId: record['driveId'] ?? '',
       pathStyle: record['pathStyle'] != false,
       sources: record['sources'] is List
           ? [
@@ -415,6 +549,9 @@ class CloudSourceConfig {
     String? prefix,
     String? sessionToken,
     String? deviceId,
+    String? accessToken,
+    String? refreshToken,
+    String? driveId,
     bool? pathStyle,
     List<CloudBookSource>? sources,
   }) => CloudSourceConfig(
@@ -430,6 +567,9 @@ class CloudSourceConfig {
     prefix: prefix ?? this.prefix,
     sessionToken: sessionToken ?? this.sessionToken,
     deviceId: deviceId ?? this.deviceId,
+    accessToken: accessToken ?? this.accessToken,
+    refreshToken: refreshToken ?? this.refreshToken,
+    driveId: driveId ?? this.driveId,
     pathStyle: pathStyle ?? this.pathStyle,
     sources: sources ?? this.sources,
   );
@@ -549,6 +689,22 @@ class CloudSourceSettings extends ChangeNotifier {
     }
     if (!_disposed) notifyListeners();
   }
+
+  Future<void> rotateTokens(
+    CloudSourceConfig config, {
+    String? accessToken,
+    String? refreshToken,
+    String? driveId,
+    String? cookie,
+  }) => _save(
+    config.kind,
+    config.copyWith(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+      driveId: driveId,
+      cookie: cookie,
+    ),
+  );
 
   Future<void> save(CloudSourceKind kind, CloudSourceConfig? value) =>
       _save(kind, value);
@@ -725,6 +881,7 @@ class CloudBookEntry {
     this.author = '',
     this.summary = '',
     this.book = false,
+    this.extra = const {},
   });
   final String id, name;
   final bool folder;
@@ -737,6 +894,9 @@ class CloudBookEntry {
 
   /// 书源条目不一定带文件扩展名，不能只靠文件名判断是不是书。
   final bool book;
+
+  /// 账号网盘下载签名所需的少量字段（etag、s3keyFlag 等），不落盘。
+  final Map<String, Object?> extra;
   bool get isBook => !folder && (book || supportsBookImport(name));
 }
 
@@ -761,11 +921,26 @@ abstract class CloudBookClient {
       config.cookie.trim().isEmpty
           ? DirectLinkBookClient(config)
           : LanzouProBookClient(config, settings: settings),
-    CloudSourceKind.xunlei ||
-    CloudSourceKind.aliyun ||
-    CloudSourceKind.baidu ||
-    CloudSourceKind.pan123 ||
-    CloudSourceKind.uc ||
+    CloudSourceKind.uc =>
+      config.cookie.trim().isEmpty
+          ? DirectLinkBookClient(config)
+          : UcBookClient(config, settings: settings),
+    CloudSourceKind.baidu =>
+      config.cookie.trim().isEmpty
+          ? DirectLinkBookClient(config)
+          : BaiduBookClient(config),
+    CloudSourceKind.pan123 =>
+      config.accessToken.trim().isEmpty
+          ? DirectLinkBookClient(config)
+          : Pan123BookClient(config, settings: settings),
+    CloudSourceKind.aliyun =>
+      config.accessToken.trim().isEmpty
+          ? DirectLinkBookClient(config)
+          : AliyunBookClient(config, settings: settings),
+    CloudSourceKind.xunlei =>
+      config.accessToken.trim().isEmpty
+          ? DirectLinkBookClient(config)
+          : XunleiBookClient(config, settings: settings),
     CloudSourceKind.rss => RssBookClient(config),
     CloudSourceKind.direct => DirectLinkBookClient(config),
     CloudSourceKind.s3 => S3BookClient(config),
@@ -1134,17 +1309,26 @@ class WebDavBookClient implements CloudBookClient {
 /// An independently implemented read-only client of the web wire protocol
 /// documented by OpenList. No upstream Go driver is bundled or translated.
 class QuarkBookClient implements CloudBookClient {
-  QuarkBookClient(this.config, {this.settings, CloudHttp? http, Uri? api})
-    : http = http ?? CloudHttp(),
-      api = api ?? Uri.parse('https://drive.quark.cn/1/clouddrive') {
+  QuarkBookClient(
+    this.config, {
+    this.settings,
+    CloudHttp? http,
+    Uri? api,
+    this.label = '夸克',
+    this.userAgent =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch',
+    this.referer = 'https://pan.quark.cn/',
+    this.pr = 'ucpro',
+    this.cookieDomain = 'quark.cn',
+  }) : http = http ?? CloudHttp(),
+       api = api ?? Uri.parse('https://drive.quark.cn/1/clouddrive') {
     config.validate();
   }
   CloudSourceConfig config;
   final CloudSourceSettings? settings;
   final CloudHttp http;
   final Uri api;
-  static const userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch';
+  final String label, userAgent, referer, pr, cookieDomain;
   @override
   String get root => '0';
 
@@ -1168,10 +1352,10 @@ class QuarkBookClient implements CloudBookClient {
 
   Map<String, String> _headers(Uri uri) => {
     'User-Agent': userAgent,
-    'Referer': 'https://pan.quark.cn/',
+    'Referer': referer,
     if (CloudHttp.sameOrigin(uri, api) ||
         (uri.scheme == 'https' &&
-            (uri.host == 'quark.cn' || uri.host.endsWith('.quark.cn'))))
+            (uri.host == cookieDomain || uri.host.endsWith('.$cookieDomain'))))
       'Cookie': config.cookie,
   };
   Future<Map<String, dynamic>> _call(
@@ -1181,7 +1365,7 @@ class QuarkBookClient implements CloudBookClient {
   }) async {
     final uri = api.replace(
       path: '${api.path}$path',
-      queryParameters: {'pr': 'ucpro', 'fr': 'pc', ...query},
+      queryParameters: {'pr': pr, 'fr': 'pc', ...query},
     );
     final res = await http.request(
       body == null ? 'GET' : 'POST',
@@ -1213,18 +1397,15 @@ class QuarkBookClient implements CloudBookClient {
     }
     final data = jsonDecode(utf8.decode(bytes));
     if (data is! Map<String, dynamic>) {
-      throw const CloudSourceFailure('夸克返回的数据格式有误');
+      throw CloudSourceFailure('$label返回的数据格式有误');
     }
     if (data['code'] != 0 || (data['status'] is num && data['status'] >= 400)) {
       if (data['status'] == 401 ||
           data['status'] == 403 ||
           data['code'] == 401) {
-        throw const CloudSourceFailure(
-          '夸克登录已失效，请更新 Cookie',
-          authentication: true,
-        );
+        throw CloudSourceFailure('$label登录已失效，请重新登录官网账号', authentication: true);
       }
-      throw const CloudSourceFailure('夸克暂时无法完成请求，请稍后重试或更新 Cookie');
+      throw CloudSourceFailure('$label暂时无法完成请求，请稍后重试或重新登录');
     }
     return data;
   }
@@ -1244,7 +1425,7 @@ class QuarkBookClient implements CloudBookClient {
       },
     );
     final rows = data['data']?['list'];
-    if (rows is! List) throw const CloudSourceFailure('夸克目录数据有误');
+    if (rows is! List) throw CloudSourceFailure('$label目录数据有误');
     final entries = <CloudBookEntry>[];
     for (final row in rows) {
       if (row is! Map ||
@@ -1303,7 +1484,7 @@ class QuarkBookClient implements CloudBookClient {
     }
     final url = await directLink(entry);
     if (url == null) {
-      throw const CloudSourceFailure('夸克没有返回可用的下载地址');
+      throw CloudSourceFailure('$label没有返回可用的下载地址');
     }
     final uri = Uri.parse(url);
     CloudHttp.validateUrl(uri);
@@ -1320,6 +1501,22 @@ class QuarkBookClient implements CloudBookClient {
   void cancel() => http.close();
   @override
   void close() => http.close();
+}
+
+/// UC 网盘与夸克共用同一套云盘接口；区别只在域名、UA 和来源标识。
+class UcBookClient extends QuarkBookClient {
+  UcBookClient(CloudSourceConfig config, {CloudSourceSettings? settings})
+    : super(
+        config,
+        settings: settings,
+        api: Uri.parse('https://pc-api.uc.cn/1/clouddrive'),
+        label: 'UC 网盘',
+        userAgent:
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch',
+        referer: 'https://drive.uc.cn/',
+        pr: 'UCBrowser',
+        cookieDomain: 'uc.cn',
+      );
 }
 
 /// 蓝奏云 / 迅雷等网盘的直链客户端。

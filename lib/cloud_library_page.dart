@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -35,6 +36,11 @@ String _cloudLoginUrl(CloudSourceKind kind) => switch (kind) {
   CloudSourceKind.lanzou =>
     'https://pc.woozooo.com/mydisk.php?item=files&action=index',
   CloudSourceKind.lanzouPro => 'https://www.ilanzou.com/login',
+  CloudSourceKind.uc => 'https://drive.uc.cn/',
+  CloudSourceKind.baidu => 'https://pan.baidu.com/',
+  CloudSourceKind.pan123 => 'https://www.123pan.com/',
+  CloudSourceKind.aliyun => 'https://www.alipan.com/sign/in',
+  CloudSourceKind.xunlei => 'https://pan.xunlei.com/',
   _ => 'https://pan.quark.cn/#/login',
 };
 
@@ -42,8 +48,115 @@ List<String> _cloudLoginCookies(CloudSourceKind kind) => switch (kind) {
   CloudSourceKind.quark => const ['__puus'],
   CloudSourceKind.lanzou => const ['phpdisk_info'],
   CloudSourceKind.lanzouPro => const ['appToken'],
+  CloudSourceKind.uc => const ['__puus'],
+  CloudSourceKind.baidu => const ['BDUSS'],
   _ => const [],
 };
+
+List<String> _cloudLoginStorage(CloudSourceKind kind) => switch (kind) {
+  CloudSourceKind.pan123 => const ['authorToken', 'accessToken', 'LoginUuid'],
+  CloudSourceKind.aliyun => const ['token'],
+  CloudSourceKind.xunlei => const [
+    'credentials_Xqp0kJBXWhwaTpB6',
+    'credentials_XseEZG9_7KHMCmS1',
+  ],
+  _ => const [],
+};
+
+List<String> _cloudLoginAutoAnyStorage(CloudSourceKind kind) => switch (kind) {
+  CloudSourceKind.pan123 => const ['authorToken', 'accessToken'],
+  CloudSourceKind.xunlei => const [
+    'credentials_Xqp0kJBXWhwaTpB6',
+    'credentials_XseEZG9_7KHMCmS1',
+  ],
+  _ => const [],
+};
+
+List<String> _cloudLoginAutoStorage(CloudSourceKind kind) => switch (kind) {
+  CloudSourceKind.aliyun => const ['token'],
+  _ => const [],
+};
+
+String _cookieValue(String cookie, String name) {
+  for (final part in cookie.split(';')) {
+    final value = part.trim();
+    if (value.startsWith('$name=')) {
+      return Uri.decodeComponent(value.substring(name.length + 1));
+    }
+  }
+  return '';
+}
+
+CloudSourceConfig _loginCloudConfig(
+  CloudSourceKind kind,
+  String id,
+  SourceLoginResult result,
+  CloudSourceConfig? previous,
+) {
+  var accessToken = '';
+  var refreshToken = '';
+  var driveId = '';
+  var deviceId = previous?.deviceId ?? '';
+  if (kind == CloudSourceKind.pan123) {
+    accessToken =
+        result.storage['authorToken']?.trim() ??
+        result.storage['accessToken']?.trim() ??
+        '';
+    final loginUuid = result.storage['LoginUuid']?.trim() ?? '';
+    if (loginUuid.isNotEmpty) deviceId = loginUuid;
+  } else if (kind == CloudSourceKind.aliyun) {
+    final raw = result.storage['token']?.trim() ?? '';
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        accessToken =
+            '${decoded['access_token'] ?? decoded['accessToken'] ?? ''}';
+        refreshToken =
+            '${decoded['refresh_token'] ?? decoded['refreshToken'] ?? ''}';
+        driveId =
+            '${decoded['default_drive_id'] ?? decoded['drive_id'] ?? decoded['driveId'] ?? ''}';
+        final user = '${decoded['user_id'] ?? decoded['userId'] ?? ''}';
+        if (deviceId.isEmpty && user.isNotEmpty) deviceId = 'web-$user';
+      }
+    } catch (_) {
+      accessToken = raw;
+    }
+    if (deviceId.isEmpty) {
+      deviceId = _cookieValue(result.cookie, 'cna');
+    }
+    if (deviceId.isEmpty) {
+      deviceId = 'web-${DateTime.now().microsecondsSinceEpoch}';
+    }
+  } else if (kind == CloudSourceKind.xunlei) {
+    for (final key in _cloudLoginStorage(kind)) {
+      final raw = result.storage[key]?.trim() ?? '';
+      if (raw.isEmpty) continue;
+      accessToken = raw;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final refresh =
+              decoded['refresh_token'] ?? decoded['refreshToken'] ?? '';
+          if ('$refresh'.isNotEmpty) refreshToken = '$refresh';
+          final device = decoded['device_id'] ?? decoded['deviceId'] ?? '';
+          if (deviceId.isEmpty && '$device'.isNotEmpty) deviceId = '$device';
+          final space = decoded['space'] ?? decoded['drive_id'] ?? '';
+          if ('$space'.isNotEmpty) driveId = '$space';
+        }
+      } catch (_) {}
+      break;
+    }
+  }
+  return CloudSourceConfig(
+    kind: kind,
+    connectionId: id,
+    cookie: result.cookie,
+    deviceId: deviceId,
+    accessToken: accessToken,
+    refreshToken: refreshToken,
+    driveId: driveId,
+  );
+}
 
 String _cloudLoginTitle(CloudSourceKind kind) => '登录 ${kind.label} 官网';
 
@@ -102,24 +215,22 @@ class CloudLibraryPage extends StatelessWidget {
     String? connectionId,
   }) async {
     final id = connectionId ?? settings.newConnectionId(kind);
-    final cookie = await pushNovelPage<String>(
+    final result = await pushNovelPage<SourceLoginResult>(
       context,
       SourceLoginPage(
         address: _cloudLoginUrl(kind),
         title: '登录 ${kind.label} 官网',
         autoCookieNames: _cloudLoginCookies(kind),
+        storageKeys: _cloudLoginStorage(kind),
+        autoStorageKeys: _cloudLoginAutoStorage(kind),
+        autoStorageAnyKeys: _cloudLoginAutoAnyStorage(kind),
       ),
       reduceMotion: reduceMotion,
     );
-    if (cookie == null || !context.mounted) return;
+    if (result == null || !context.mounted) return;
     try {
       final previous = settings.byId(id);
-      final config = CloudSourceConfig(
-        kind: kind,
-        connectionId: id,
-        cookie: cookie,
-        deviceId: previous?.deviceId ?? '',
-      );
+      final config = _loginCloudConfig(kind, id, result, previous);
       config.validate();
       await settings.save(kind, config);
       await CloudCatalogSearch.instance.reload();
@@ -293,11 +404,16 @@ class CloudLibraryPage extends StatelessWidget {
                       '点账号打开蓝奏云官网登录，自动保存 Cookie，直接浏览账号全部文件夹并参与全局搜索。',
                     CloudSourceKind.lanzouPro =>
                       '点账号打开蓝奏云优享版官网登录，自动保存 appToken Cookie，直接浏览账号全部文件夹并参与全局搜索。',
-                    CloudSourceKind.xunlei => '迅雷云盘：复制文件的下载直链，流式读取，不经过本地下载目录。',
-                    CloudSourceKind.aliyun => '阿里云盘：复制分享文件的下载直链，流式读取。',
-                    CloudSourceKind.baidu => '百度网盘：复制文件的下载直链（需带有效签名）。',
-                    CloudSourceKind.pan123 => '123 云盘：复制文件下载直链，流式读取。',
-                    CloudSourceKind.uc => 'UC 网盘：复制文件下载直链，流式读取。',
+                    CloudSourceKind.xunlei =>
+                      '点账号打开迅雷云盘官网登录，自动读取账号令牌，直接浏览账号目录并参与全局搜索。',
+                    CloudSourceKind.aliyun =>
+                      '点账号打开阿里云盘官网登录，自动读取本地登录令牌，直接浏览账号目录并参与全局搜索。',
+                    CloudSourceKind.baidu =>
+                      '点账号打开百度网盘官网登录，自动读取 BDUSS，直接浏览账号目录并参与全局搜索。',
+                    CloudSourceKind.pan123 =>
+                      '点账号打开 123 云盘官网登录，自动读取 authorToken，直接浏览账号目录并参与全局搜索。',
+                    CloudSourceKind.uc =>
+                      '点账号打开 UC 网盘官网登录，自动读取登录 Cookie，直接浏览账号目录并参与全局搜索。',
                     CloudSourceKind.direct =>
                       '任意 HTTPS 文件直链，粘贴后直接流式读取，不保存账号 Cookie。',
                     CloudSourceKind.rss =>
@@ -313,6 +429,19 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.lanzouPro
                             when config.cookie.isNotEmpty =>
                           '已登录蓝奏云优享版 · 可浏览全盘',
+                        CloudSourceKind.baidu when config.cookie.isNotEmpty =>
+                          '已登录百度网盘账号 · 可浏览全盘',
+                        CloudSourceKind.pan123
+                            when config.accessToken.isNotEmpty =>
+                          '已登录 123 云盘账号 · 可浏览全盘',
+                        CloudSourceKind.aliyun
+                            when config.accessToken.isNotEmpty =>
+                          '已登录阿里云盘账号 · 可浏览全盘',
+                        CloudSourceKind.uc when config.cookie.isNotEmpty =>
+                          '已登录 UC 网盘账号 · 可浏览全盘',
+                        CloudSourceKind.xunlei
+                            when config.accessToken.isNotEmpty =>
+                          '已登录迅雷云盘账号 · 可浏览全盘',
                         _ => '已保存直链',
                       },
                       style: TextStyle(
@@ -398,12 +527,12 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.quark => '登录夸克网盘',
                         CloudSourceKind.lanzou => '登录蓝奏云',
                         CloudSourceKind.lanzouPro => '登录蓝奏云优享版',
-                        CloudSourceKind.xunlei ||
-                        CloudSourceKind.aliyun ||
-                        CloudSourceKind.baidu ||
-                        CloudSourceKind.pan123 ||
-                        CloudSourceKind.uc ||
                         CloudSourceKind.direct => '添加直链',
+                        CloudSourceKind.aliyun => '登录阿里云盘',
+                        CloudSourceKind.xunlei => '登录迅雷云盘',
+                        CloudSourceKind.baidu => '登录百度网盘',
+                        CloudSourceKind.pan123 => '登录 123 云盘',
+                        CloudSourceKind.uc => '登录 UC 网盘',
                         CloudSourceKind.rss => '添加小说书源',
                         CloudSourceKind.s3 => '添加 S3 连接',
                       },
@@ -516,7 +645,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
       setState(() => _error = '请先填写书源或网站地址，再打开网页登录');
       return;
     }
-    final cookie = await Navigator.of(context).push<String>(
+    final result = await Navigator.of(context).push<SourceLoginResult>(
       CupertinoPageRoute(
         builder: (_) => SourceLoginPage(
           address: target,
@@ -525,8 +654,8 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
         ),
       ),
     );
-    if (cookie != null && mounted) {
-      setState(() => _cookie.text = cookie);
+    if (result != null && mounted) {
+      setState(() => _cookie.text = result.cookie);
     }
   }
 
