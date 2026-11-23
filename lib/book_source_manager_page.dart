@@ -81,7 +81,7 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
       _busy = true;
       _status = '正在选择书源文件';
     });
-    final selections = await _documents.pickBooks();
+    final selections = await _documents.pickBooks(sourceFiles: true);
     if (selections.isEmpty) {
       if (mounted) setState(() => _busy = false);
       return;

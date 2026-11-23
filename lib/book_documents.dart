@@ -358,8 +358,11 @@ class BookDocuments {
         : (name: value['name'] as String, path: value['path'] as String);
   }
 
-  Future<List<BookDocumentSelection>> pickBooks() async {
-    final values = await channel.invokeListMethod<dynamic>('pickBooks');
+  Future<List<BookDocumentSelection>> pickBooks({bool sourceFiles = false}) async {
+    final values = await channel.invokeListMethod<dynamic>(
+      'pickBooks',
+      sourceFiles ? const {'sourceFiles': true} : null,
+    );
     return [
       for (final value in values ?? const [])
         BookDocumentSelection(

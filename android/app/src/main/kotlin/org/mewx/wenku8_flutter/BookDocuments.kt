@@ -23,7 +23,7 @@ class BookDocuments internal constructor(
 ) : MethodChannel.MethodCallHandler {
     private val io = Executors.newSingleThreadExecutor()
     private val preferences = activity.getSharedPreferences("book_documents", 0)
-    private data class Pending(val method: String, val result: MethodChannel.Result, val deferred: Boolean = false, val linkText: Boolean = false, val linkOriginals: Boolean = false)
+    private data class Pending(val method: String, val result: MethodChannel.Result, val deferred: Boolean = false, val linkText: Boolean = false, val linkOriginals: Boolean = false, val sourceFiles: Boolean = false)
     private var pending: Pending? = null
     private var closed = false
     private val root = File(activity.cacheDir, "book-documents").apply { mkdirs() }
@@ -131,6 +131,7 @@ class BookDocuments internal constructor(
                 val choosingImage = call.method == "pickImage"
                 val choosingDictionaries = call.method == "pickDictionaryFiles"
                 val choosingBooks = call.method == "pickBook" || call.method == "pickBooks"
+                val sourceFiles = call.argument<Boolean>("sourceFiles") == true
                 val linkText = call.method in setOf("pickTextReference", "pickOriginalReference") || call.argument<Boolean>("linkText") == true || call.argument<Boolean>("linkOriginals") == true
                 val intent = Intent(if (folder) Intent.ACTION_OPEN_DOCUMENT_TREE else if (create) Intent.ACTION_CREATE_DOCUMENT else if ((choosingBooks && !linkText) || choosingImage || choosingDictionaries) Intent.ACTION_GET_CONTENT else Intent.ACTION_OPEN_DOCUMENT).apply {
                     if (!folder) { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }
@@ -139,12 +140,12 @@ class BookDocuments internal constructor(
                     if (choosingImage) type = "image/*"
                     if (create) { type = "application/octet-stream"; putExtra(Intent.EXTRA_TITLE, "文库同步.wenku8sync") }
                     if (call.method == "pickBook" || call.method == "pickBooks") {
-                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/*", "application/epub+zip", "application/zip", "application/x-zip-compressed", "application/x-mobipocket-ebook", "application/vnd.amazon.ebook", "application/pdf", "application/rtf", "application/xml", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"))
+                        if (!sourceFiles) putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/*", "application/epub+zip", "application/zip", "application/x-zip-compressed", "application/x-mobipocket-ebook", "application/vnd.amazon.ebook", "application/pdf", "application/rtf", "application/xml", "application/json", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"))
                         if (call.method == "pickBooks") putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                     }
                     if (choosingDictionaries) putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 }
-                pending = Pending(call.method, result, call.argument<Boolean>("deferred") == true, linkText, call.argument<Boolean>("linkOriginals") == true)
+                pending = Pending(call.method, result, call.argument<Boolean>("deferred") == true, linkText, call.argument<Boolean>("linkOriginals") == true, sourceFiles)
                 try { @Suppress("DEPRECATION") activity.startActivityForResult(
                     if (folder || choosingBooks || choosingImage || choosingDictionaries) Intent.createChooser(intent, if (folder) "选择支持文件夹授权的应用" else if (choosingImage) "选择图片应用" else "选择文件应用") else intent,
                     REQUEST) }
@@ -324,7 +325,7 @@ class BookDocuments internal constructor(
                     var target: File? = null
                     try {
                         display = name(selected)
-                        require(BookArchiveImport.supported(display)) { "请选择支持的电子书或文档" }
+                        if (!operation.sourceFiles) require(BookArchiveImport.supported(display)) { "请选择支持的电子书或文档" }
                         if ((operation.linkOriginals || operation.linkText) &&
                             (BookArchiveImport.supported(display) || display.endsWith(".txt", true))) {
                             try {
@@ -337,10 +338,11 @@ class BookDocuments internal constructor(
                                 // of failing with a permission error.
                             }
                         }
-                        if (operation.deferred) return@map imports.queue.select(selected, display, BookArchiveImport.limit(display))
+                        if (operation.deferred) return@map imports.queue.select(selected, display, if (operation.sourceFiles) 16L * 1024 * 1024 else BookArchiveImport.limit(display))
+                        val maximum = if (operation.sourceFiles) 16L * 1024 * 1024 else BookArchiveImport.limit(display)
                         val destination = File.createTempFile("import-", ".source", root)
                         target = destination
-                        copy(selected, destination, BookArchiveImport.limit(display))
+                        copy(selected, destination, maximum)
                         mapOf("name" to display, "path" to destination.path)
                     } catch (error: Exception) {
                         target?.delete()
