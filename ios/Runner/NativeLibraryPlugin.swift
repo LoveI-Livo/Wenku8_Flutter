@@ -417,9 +417,9 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
     if kind == "pickDictionaryFiles" && source.lastPathComponent.range(of: #"\.(mdx|mdd|mobi|ifo|idx(?:\.gz)?|dict(?:\.dz)?|syn|zip)$"#, options: [.regularExpression, .caseInsensitive]) == nil {
       throw BookDocumentFailure(code: "dictionary_format", message: "请选择 MDX、MDD、MOBI 词典、StarDict 文件或 ZIP 词典包")
     }
-    let maximum: Int64
+    let maximum: Int
     if unlimited {
-      maximum = Int64.max
+      maximum = Int.max
     } else if kind == "pickDictionaryFiles" {
       maximum = 512 * 1024 * 1024
     } else if kind == "pickImage" {
