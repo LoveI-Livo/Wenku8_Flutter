@@ -117,7 +117,8 @@ class AppRelease {
       final url = Uri.tryParse(raw['browser_download_url']?.toString() ?? '');
       final size = raw['size'];
       if (name is! String ||
-          !name.startsWith('wenku8-${version.name}-') ||
+          !const ['wenku8-', 'qingxiaoshuo-wenku-', 'qingxiaoshuo-']
+              .any((prefix) => name.startsWith('$prefix${version.name}-')) ||
           !const ['.apk', '.ipa', '.hap'].any(name.endsWith) ||
           url == null ||
           url.scheme != 'https' ||
@@ -175,6 +176,9 @@ class AppRelease {
       for (final asset in assets) {
         if (asset.name.endsWith('-$abi.apk')) return asset;
       }
+    }
+    for (final asset in assets) {
+      if (asset.name.endsWith('-android.apk')) return asset;
     }
     for (final asset in assets) {
       if (asset.name.endsWith('-universal.apk')) return asset;
@@ -360,7 +364,11 @@ class GithubUpdateSource implements UpdateSource {
                 : _gateway().resolve(
                     assetExtension == null
                         ? '/api/releases/latest'
-                        : '/api/releases/${assetExtension == '.ipa' ? 'ios' : 'harmony'}',
+                        : '/api/releases/${assetExtension == '.ipa'
+                              ? 'ios'
+                              : assetExtension == '.hap'
+                              ? 'harmony'
+                              : 'android'}',
                   ),
           )
           .timeout(Duration(seconds: gateway == null ? 12 : 4));
@@ -618,11 +626,13 @@ class AppUpdates extends ChangeNotifier {
       packageUpdates || notificationAssetExtension != null;
   final UpdateSource? _source;
   late final _githubSource = GithubUpdateSource(
-    assetExtension: notificationAssetExtension,
+    assetExtension:
+        notificationAssetExtension ?? (packageUpdates ? '.apk' : null),
   );
   late final _mirrorSource = GithubUpdateSource(
     gateway: Uri.parse(updateMirrorOrigin),
-    assetExtension: notificationAssetExtension,
+    assetExtension:
+        notificationAssetExtension ?? (packageUpdates ? '.apk' : null),
   );
   late final _mirrorFirstSource = MirrorFirstUpdateSource(
     mirror: _mirrorSource,
@@ -706,10 +716,11 @@ class AppUpdates extends ChangeNotifier {
       checksEnabled &&
       release != null &&
       installed != null &&
-      (packageUpdates ||
-          release!.assets.any(
-            (asset) => asset.name.endsWith(notificationAssetExtension!),
-          )) &&
+      (packageUpdates
+          ? asset != null
+          : release!.assets.any(
+              (item) => item.name.endsWith(notificationAssetExtension!),
+            )) &&
       release!.isNewerThan(installed!);
   UpdateAsset? get asset => !packageUpdates || installed == null
       ? null
