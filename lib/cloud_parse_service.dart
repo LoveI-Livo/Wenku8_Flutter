@@ -119,7 +119,7 @@ class CloudParseService {
       final request = await client.postUrl(uri);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.7.7');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.7.9');
       request.write(jsonEncode({'token': value, 'test': true}));
       final response = await request.close().timeout(const Duration(seconds: 20));
       final data = <int>[];
@@ -170,7 +170,7 @@ class CloudParseService {
       final request = await client.postUrl(endpoint);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.7.7');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.7.9');
       final uri = Uri.tryParse(resolvedUrl);
       final rawName = uri == null || uri.pathSegments.isEmpty
           ? ''

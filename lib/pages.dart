@@ -354,7 +354,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
 
   Future<void> _openNetworkSources() async {
     final settings = CloudCatalogSearch.instance.settings;
-    await settings.load();
+    await settings.ensureLoaded();
     if (!mounted) return;
     final offline = widget.repository is OfflineNovelRepository
         ? widget.repository as OfflineNovelRepository
@@ -2294,7 +2294,7 @@ class _ShelfPageState extends State<ShelfPage>
     child: child,
     builder: (context, child) {
       // 保留逐行浮入，但压缩总延迟：列表很长时不再等半秒才全部到位。
-      final delay = (index * .032).clamp(0.0, .12);
+      final delay = (index * .026).clamp(0.0, .10);
       final progress = Curves.easeOutCubic.transform(
         ((_modeTransition.value - delay) / (1 - delay)).clamp(0.0, 1.0),
       );
@@ -3039,10 +3039,27 @@ class _ShelfPageState extends State<ShelfPage>
         children: [
           GlassMenuAnchor(
             child: Builder(
-              builder: (buttonContext) => GlassIconButton(
-                icon: CupertinoIcons.ellipsis,
-                label: '${book.title}书架操作',
-                onPressed: () => _bookMenu(buttonContext, book.id, book: book),
+              builder: (buttonContext) => Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: .05),
+                  border: Border.all(
+                    color: Theme.of(context).dividerColor,
+                    width: .7,
+                  ),
+                ),
+                child: GlassIconButton.custom(
+                  label: '${book.title}书架操作',
+                  onPressed: () =>
+                      _bookMenu(buttonContext, book.id, book: book),
+                  liveGlass: false,
+                  transparent: true,
+                  child: const ArchiveIcon(CupertinoIcons.ellipsis, size: 18),
+                ),
               ),
             ),
           ),

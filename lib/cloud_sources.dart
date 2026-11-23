@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:xml/xml.dart';
 import 'package:crypto/crypto.dart';
+import 'package:pointycastle/export.dart';
 import 'package:charset/charset.dart';
 import 'package:html/parser.dart' as html;
 import 'package:html/dom.dart';
@@ -14,6 +16,7 @@ import 'book_import_limits.dart';
 import 'book_search.dart';
 part 'cloud_s3.dart';
 part 'cloud_lanzou.dart';
+part 'cloud_ilanzou.dart';
 part 'cloud_web.dart';
 
 enum CloudSourceKind {
@@ -35,26 +38,19 @@ enum CloudSourceKind {
 
   /// 这些来源都通过「文件下载直链」流式读取，不保存账号 Cookie。
   bool get isDirectLink => switch (this) {
-    lanzouPro ||
-    xunlei ||
-    aliyun ||
-    baidu ||
-    pan123 ||
-    uc ||
-    direct ||
-    rss => true,
+    xunlei || aliyun || baidu || pan123 || uc || direct || rss => true,
     _ => false,
   };
 
   /// Sources that expose a logged-in folder tree instead of a pasted link.
   bool get isAccount => switch (this) {
-    quark || lanzou || webdav || s3 => true,
+    quark || lanzou || lanzouPro || webdav || s3 => true,
     _ => false,
   };
 
   /// Sources whose login is performed on the provider's own website.
   bool get isWebLogin => switch (this) {
-    quark || lanzou => true,
+    quark || lanzou || lanzouPro => true,
     _ => false,
   };
 }
@@ -148,6 +144,7 @@ class CloudSourceConfig {
     this.region = 'us-east-1',
     this.prefix = '',
     this.sessionToken = '',
+    this.deviceId = '',
     this.pathStyle = true,
     this.sources = const [],
   });
@@ -158,6 +155,9 @@ class CloudSourceConfig {
   final String address, username, password, cookie;
   final bool allowHttp;
   final String bucket, region, prefix, sessionToken;
+
+  /// 优享版等网盘需要稳定设备号；网页登录只给 appToken Cookie 时由本机生成并保存。
+  final String deviceId;
   final bool pathStyle;
 
   /// rss 类型下逐个书源的状态；旧记录为空时从 [address] 逐行解析。
@@ -187,6 +187,7 @@ class CloudSourceConfig {
     region: region,
     prefix: prefix,
     sessionToken: sessionToken,
+    deviceId: deviceId,
     pathStyle: pathStyle,
     sources: sources,
   );
@@ -207,6 +208,7 @@ class CloudSourceConfig {
         region: region,
         prefix: prefix,
         sessionToken: sessionToken,
+        deviceId: deviceId,
         pathStyle: pathStyle,
         sources: value,
       );
@@ -252,6 +254,28 @@ class CloudSourceConfig {
           username.contains(':') ||
           password.length > 8192) {
         throw const CloudSourceFailure('请检查书源 Cookie、用户名或密码');
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.lanzouPro) {
+      final legacy = cookie.trim().isEmpty && address.trim().isNotEmpty;
+      if (!legacy &&
+          (!RegExp(r'(?:^|;\s*)appToken=[^;]+').hasMatch(cookie) ||
+              cookie.length > 16384 ||
+              RegExp(r'[\r\n\x00]').hasMatch(cookie))) {
+        throw const CloudSourceFailure('请先在蓝奏云优享版官网登录，自动获取 appToken Cookie');
+      }
+      if (legacy) {
+        final uri = Uri.tryParse(address.trim());
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
+          throw const CloudSourceFailure('蓝奏云优享版登录已失效，请重新登录账号');
+        }
+      }
+      if (deviceId.length > 128 || RegExp(r'[\r\n\x00]').hasMatch(deviceId)) {
+        throw const CloudSourceFailure('蓝奏云优享版设备标识异常，请重新登录');
       }
       return;
     }
@@ -338,6 +362,7 @@ class CloudSourceConfig {
     'password': password,
     'cookie': cookie,
     'allowHttp': allowHttp,
+    if (deviceId.isNotEmpty) 'deviceId': deviceId,
     if (kind == CloudSourceKind.s3) ...{
       'bucket': bucket,
       'region': region,
@@ -363,6 +388,7 @@ class CloudSourceConfig {
       region: record['region'] ?? 'us-east-1',
       prefix: record['prefix'] ?? '',
       sessionToken: record['sessionToken'] ?? '',
+      deviceId: record['deviceId'] ?? '',
       pathStyle: record['pathStyle'] != false,
       sources: record['sources'] is List
           ? [
@@ -388,6 +414,7 @@ class CloudSourceConfig {
     String? region,
     String? prefix,
     String? sessionToken,
+    String? deviceId,
     bool? pathStyle,
     List<CloudBookSource>? sources,
   }) => CloudSourceConfig(
@@ -402,6 +429,7 @@ class CloudSourceConfig {
     region: region ?? this.region,
     prefix: prefix ?? this.prefix,
     sessionToken: sessionToken ?? this.sessionToken,
+    deviceId: deviceId ?? this.deviceId,
     pathStyle: pathStyle ?? this.pathStyle,
     sources: sources ?? this.sources,
   );
@@ -432,6 +460,8 @@ class CloudSourceSettings extends ChangeNotifier {
   S3SyncConnection? _s3Sync;
   S3SyncConnection? get s3Sync => _s3Sync;
   Future<void> _writes = Future.value();
+  Future<void>? _loading;
+  bool _loaded = false;
   bool _disposed = false;
   String? error;
 
@@ -455,6 +485,21 @@ class CloudSourceSettings extends ChangeNotifier {
       index++;
     }
     return '${kind.name}-$index';
+  }
+
+  /// 页面与搜索会反复读取同一份配置。首次从加密存储解析后缓存住，
+  /// 只有保存/外部 reload 才重新读取，避免每次打开来源选择都解析整份书源。
+  Future<void> ensureLoaded() async {
+    if (_loaded) return;
+    final running = _loading;
+    if (running != null) return running;
+    final future = load();
+    _loading = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_loading, future)) _loading = null;
+    }
   }
 
   Future<void> load() async {
@@ -497,7 +542,9 @@ class CloudSourceSettings extends ChangeNotifier {
         ..addAll(extras);
       _s3Sync = sync;
       error = null;
+      _loaded = true;
     } catch (_) {
+      _loaded = false;
       error = '无法读取本机网盘连接，请重新保存连接';
     }
     if (!_disposed) notifyListeners();
@@ -555,6 +602,7 @@ class CloudSourceSettings extends ChangeNotifier {
         ..clear()
         ..addAll(nextExtras);
       error = null;
+      _loaded = true;
       if (!_disposed) notifyListeners();
     });
     _writes = work;
@@ -709,7 +757,10 @@ abstract class CloudBookClient {
       config.cookie.trim().isEmpty
           ? DirectLinkBookClient(config)
           : LanzouBookClient(config, settings: settings),
-    CloudSourceKind.lanzouPro ||
+    CloudSourceKind.lanzouPro =>
+      config.cookie.trim().isEmpty
+          ? DirectLinkBookClient(config)
+          : LanzouProBookClient(config, settings: settings),
     CloudSourceKind.xunlei ||
     CloudSourceKind.aliyun ||
     CloudSourceKind.baidu ||

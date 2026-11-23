@@ -50,7 +50,7 @@ class CloudCatalogSearch {
 
   /// 当前范围可用于搜索的来源。网盘按连接区分，书源按单个地址区分。
   Future<List<CloudSearchTarget>> targets(CloudSearchScope scope) async {
-    await settings.load();
+    await settings.ensureLoaded();
     final result = <CloudSearchTarget>[];
     for (final config in settings.configs) {
       final allowed = switch (scope) {
@@ -111,7 +111,7 @@ class CloudCatalogSearch {
         DateTime.now().difference(_cacheAt!) < _cacheLifetime) {
       return _cache!;
     }
-    await settings.load();
+    await settings.ensureLoaded();
     lastFailure = null;
     final failures = <String>[];
     final configs = settings.configs
@@ -327,6 +327,11 @@ class CloudCatalogSearch {
       final folder = pending.removeAt(0);
       if (!visited.add(folder)) continue;
       folders++;
+      // 每个网盘目录都要解析 JSON/XML；每几层主动让出一帧，避免长列表
+      // 搜索时把 UI isolate 连续占满导致滚动和输入卡住。
+      if (folders % 4 == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
       final includeFolder = matchedFolders.contains(folder);
       final listing = await client.list(folder);
       for (final entry in listing.entries) {

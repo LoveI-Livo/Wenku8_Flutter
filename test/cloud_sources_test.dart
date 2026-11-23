@@ -105,4 +105,56 @@ void main() {
     expect(updated.allowHttp, isTrue);
     expect(updated.connectionId, 'lanzou-1');
   });
+
+  test('优享版官网 Cookie 能保存多个账号和稳定设备号', () async {
+    final storage = _MemoryStorage();
+    final settings = CloudSourceSettings(storage: storage);
+    await settings.load();
+    const first = CloudSourceConfig(
+      kind: CloudSourceKind.lanzouPro,
+      connectionId: 'lanzouPro-1',
+      cookie: 'appToken=token-one; theme=light',
+      deviceId: 'device-one',
+    );
+    const second = CloudSourceConfig(
+      kind: CloudSourceKind.lanzouPro,
+      connectionId: 'lanzouPro-2',
+      cookie: 'appToken=token-two',
+      deviceId: 'device-two',
+    );
+    await settings.save(CloudSourceKind.lanzouPro, first);
+    await settings.save(CloudSourceKind.lanzouPro, second);
+    expect(settings.configsFor(CloudSourceKind.lanzouPro).length, 2);
+    expect(CloudSourceKind.lanzouPro.isWebLogin, isTrue);
+    expect(CloudSourceKind.lanzouPro.isAccount, isTrue);
+    expect(CloudSourceKind.lanzouPro.isDirectLink, isFalse);
+
+    final restored = CloudSourceSettings(storage: storage);
+    await restored.load();
+    final configs = restored.configsFor(CloudSourceKind.lanzouPro).toList();
+    expect(
+      configs.map((config) => config.deviceId),
+      containsAll(<String>['device-one', 'device-two']),
+    );
+  });
+  test('优享版官网 Cookie 保存在同一连接并保留设备号', () async {
+    final storage = _MemoryStorage();
+    final settings = CloudSourceSettings(storage: storage);
+    await settings.load();
+    const original = CloudSourceConfig(
+      kind: CloudSourceKind.lanzouPro,
+      connectionId: 'lanzouPro-1',
+      cookie: 'appToken=first-token',
+      deviceId: 'device-one',
+    );
+    original.validate();
+    await settings.save(CloudSourceKind.lanzouPro, original);
+    await settings.rotate(original, 'appToken=second-token');
+    final updated = settings[CloudSourceKind.lanzouPro]!;
+    expect(updated.cookie, 'appToken=second-token');
+    expect(updated.deviceId, 'device-one');
+    expect(CloudSourceKind.lanzouPro.isWebLogin, isTrue);
+    expect(CloudSourceKind.lanzouPro.isDirectLink, isFalse);
+    expect(CloudSourceKind.lanzouPro.isAccount, isTrue);
+  });
 }

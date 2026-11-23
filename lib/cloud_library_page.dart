@@ -30,6 +30,23 @@ typedef ReadCloudBook =
       CloudSourceConfig config,
     );
 
+String _cloudLoginUrl(CloudSourceKind kind) => switch (kind) {
+  CloudSourceKind.quark => 'https://pan.quark.cn/#/login',
+  CloudSourceKind.lanzou =>
+    'https://pc.woozooo.com/mydisk.php?item=files&action=index',
+  CloudSourceKind.lanzouPro => 'https://www.ilanzou.com/login',
+  _ => 'https://pan.quark.cn/#/login',
+};
+
+List<String> _cloudLoginCookies(CloudSourceKind kind) => switch (kind) {
+  CloudSourceKind.quark => const ['__puus'],
+  CloudSourceKind.lanzou => const ['phpdisk_info'],
+  CloudSourceKind.lanzouPro => const ['appToken'],
+  _ => const [],
+};
+
+String _cloudLoginTitle(CloudSourceKind kind) => '登录 ${kind.label} 官网';
+
 class CloudLibraryPage extends StatelessWidget {
   const CloudLibraryPage({
     super.key,
@@ -84,29 +101,24 @@ class CloudLibraryPage extends StatelessWidget {
     CloudSourceKind kind, {
     String? connectionId,
   }) async {
-    final address = switch (kind) {
-      CloudSourceKind.quark => 'https://pan.quark.cn/#/login',
-      CloudSourceKind.lanzou =>
-        'https://pc.woozooo.com/mydisk.php?item=files&action=index',
-      _ => 'https://pc.woozooo.com/mydisk.php?item=files&action=index',
-    };
+    final id = connectionId ?? settings.newConnectionId(kind);
     final cookie = await pushNovelPage<String>(
       context,
       SourceLoginPage(
-        address: address,
-        title: kind == CloudSourceKind.quark ? '登录夸克网盘' : '登录蓝奏云',
-        autoCookieNames: kind == CloudSourceKind.quark
-            ? const ['__puus']
-            : const ['phpdisk_info'],
+        address: _cloudLoginUrl(kind),
+        title: '登录 ${kind.label} 官网',
+        autoCookieNames: _cloudLoginCookies(kind),
       ),
       reduceMotion: reduceMotion,
     );
     if (cookie == null || !context.mounted) return;
     try {
+      final previous = settings.byId(id);
       final config = CloudSourceConfig(
         kind: kind,
-        connectionId: connectionId ?? settings.newConnectionId(kind),
+        connectionId: id,
         cookie: cookie,
+        deviceId: previous?.deviceId ?? '',
       );
       config.validate();
       await settings.save(kind, config);
@@ -280,7 +292,7 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.lanzou =>
                       '点账号打开蓝奏云官网登录，自动保存 Cookie，直接浏览账号全部文件夹并参与全局搜索。',
                     CloudSourceKind.lanzouPro =>
-                      '蓝奏云优享版暂按直链读取；普通版已支持账号登录和全盘搜索。',
+                      '点账号打开蓝奏云优享版官网登录，自动保存 appToken Cookie，直接浏览账号全部文件夹并参与全局搜索。',
                     CloudSourceKind.xunlei => '迅雷云盘：复制文件的下载直链，流式读取，不经过本地下载目录。',
                     CloudSourceKind.aliyun => '阿里云盘：复制分享文件的下载直链，流式读取。',
                     CloudSourceKind.baidu => '百度网盘：复制文件的下载直链（需带有效签名）。',
@@ -298,6 +310,9 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.quark => '已登录夸克账号 · 可浏览全盘',
                         CloudSourceKind.lanzou when config.cookie.isNotEmpty =>
                           '已登录蓝奏云账号 · 可浏览全盘',
+                        CloudSourceKind.lanzouPro
+                            when config.cookie.isNotEmpty =>
+                          '已登录蓝奏云优享版 · 可浏览全盘',
                         _ => '已保存直链',
                       },
                       style: TextStyle(
@@ -382,7 +397,7 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.webdav => '添加 WebDAV 连接',
                         CloudSourceKind.quark => '登录夸克网盘',
                         CloudSourceKind.lanzou => '登录蓝奏云',
-                        CloudSourceKind.lanzouPro ||
+                        CloudSourceKind.lanzouPro => '登录蓝奏云优享版',
                         CloudSourceKind.xunlei ||
                         CloudSourceKind.aliyun ||
                         CloudSourceKind.baidu ||
@@ -773,35 +788,35 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
                 style: TextStyle(fontSize: 12, height: 1.6),
               ),
             ] else ...[
-              const AppText(
-                '在电脑登录 pan.quark.cn，打开开发者工具的「网络」，复制网盘请求中的 Cookie 请求头。只填写 Cookie 的值。',
-                style: TextStyle(height: 1.7),
-              ),
+              AppText(switch (widget.kind) {
+                CloudSourceKind.quark =>
+                  '点下面的按钮打开夸克官网，扫码或验证码登录后自动读取 Cookie，直接浏览全盘。',
+                CloudSourceKind.lanzou =>
+                  '点下面的按钮打开蓝奏云官网，登录后自动读取 Cookie，直接浏览账号里的全部文件夹。',
+                CloudSourceKind.lanzouPro =>
+                  '点下面的按钮打开蓝奏云优享版官网，登录后自动读取 appToken Cookie，直接浏览账号全盘。',
+                _ => '打开${widget.kind.label}官网登录，自动读取登录 Cookie。',
+              }, style: const TextStyle(height: 1.7)),
               const SizedBox(height: 24),
               GlassTextButton(
-                key: const ValueKey('cloud-quark-web-login'),
+                key: ValueKey('cloud-${widget.kind.name}-web-login'),
                 onPressed: _busy
                     ? null
                     : () => _webLogin(
-                        address: 'https://pan.quark.cn/',
-                        autoCookieNames: const ['__puus'],
-                        title: '登录夸克网盘',
+                        address: _cloudLoginUrl(widget.kind),
+                        autoCookieNames: _cloudLoginCookies(widget.kind),
+                        title: _cloudLoginTitle(widget.kind),
                       ),
-                child: const AppText('网页扫码 / 验证码登录，自动获取 Cookie'),
+                child: const AppText('官网扫码 / 验证码登录，自动获取 Cookie'),
               ),
               const SizedBox(height: 8),
               const AppText(
-                '在夸克官网完成扫码或验证码登录，页面识别到登录成功后自动返回，'
-                '不需要手动复制 Cookie。',
+                '登录完成后页面会自动返回，不需要手动复制 Cookie；'
+                '登录凭据只加密保存在这台设备。',
                 style: TextStyle(fontSize: 12, height: 1.55),
               ),
               const SizedBox(height: 20),
-              _field(
-                'Cookie',
-                _cookie,
-                hint: '__pus=…; __puus=…',
-                secret: true,
-              ),
+              _field('Cookie', _cookie, hint: '登录后自动填写', secret: true),
               const AppText(
                 '登录凭据仅加密保存在这台设备。导入只读取文件，不移动或删除网盘内容。',
                 style: TextStyle(height: 1.65),
@@ -1019,6 +1034,9 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
           final folder = pending.removeAt(0);
           if (!visited.add(folder)) continue;
           folders++;
+          if (folders % 4 == 0) {
+            await Future<void>.delayed(Duration.zero);
+          }
           try {
             final listing = await _client.list(folder);
             for (final entry in listing.entries) {
