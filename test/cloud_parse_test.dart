@@ -17,6 +17,7 @@ void main() {
       final data = jsonDecode(body) as Map<String, dynamic>;
       expect(data['token'], 'test-token');
       expect(data['name'], 'book.epub');
+      expect(data['apiVersion'], CloudParseService.contractVersion);
       request.response.headers.contentType = ContentType.json;
       request.response.write(
         jsonEncode({
@@ -29,7 +30,10 @@ void main() {
             {'title': '第一章', 'content': '正文 [[CLOUD_MEDIA:pic1]]'},
           ],
           'media': [
-            {'key': 'pic1', 'data': base64Encode([4, 5, 6])},
+            {
+              'key': 'pic1',
+              'data': base64Encode([4, 5, 6]),
+            },
           ],
         }),
       );

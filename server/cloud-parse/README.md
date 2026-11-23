@@ -152,3 +152,14 @@ App 向接口发送 `POST application/json`：
 - **curl 超时**：主机出口到目标网盘被限制，换一个可访问的直链测试。
 - **HTTP 200 但内容为空**：`config.php` 没有加载，检查 PHP 错误日志和文件路径。
 - **并发不够**：先测 5 路并发；如果主机排队或 502，升级 PHP-FPM 进程数或换 VPS。
+
+## 固定接口契约（0.8.0 起）
+
+- `api_version` 固定为 `1`；接口地址和 `config.php` 里的 token 一旦上线不再改变。
+- App 每次请求都会带 `apiVersion`；主机响应也会带 `api_version`。以后升级只能新增
+  可选字段，不能删除或改变 `token`、`url`、`name`、`cookie`、`authorization`、
+  `metaOnly`、`userAgent`、`headers` 这些字段的含义。
+- 新版 App 的「测试接口」应返回 `{"ok":true,"test":true,"api_version":"1"}`。
+- 每个版本发布前必须对固定接口跑一次测试请求和一次真实 EPUB 解析；主机端
+  `index.php` 必须与仓库 `server/cloud-parse/index.php` 保持同一版。
+- 详细字段和发布检查表见 [CONTRACT.md](CONTRACT.md)。

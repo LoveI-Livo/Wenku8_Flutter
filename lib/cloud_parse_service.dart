@@ -94,6 +94,9 @@ class CloudRemoteDocument {
 class CloudParseService {
   CloudParseService._();
   static final instance = CloudParseService._();
+
+  /// 主机接口固定契约版本；后续升级只能新增字段，不能修改旧字段含义。
+  static const contractVersion = '1';
   static const _maxResponseBytes = 64 * 1024 * 1024;
   static const _maxImageBytes = 4 * 1024 * 1024;
   static const _maxMediaBytes = 16 * 1024 * 1024;
@@ -120,8 +123,16 @@ class CloudParseService {
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.0');
-      request.write(jsonEncode({'token': value, 'test': true}));
-      final response = await request.close().timeout(const Duration(seconds: 20));
+      request.write(
+        jsonEncode({
+          'token': value,
+          'test': true,
+          'apiVersion': contractVersion,
+        }),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 20),
+      );
       final data = <int>[];
       await for (final chunk in response.timeout(const Duration(seconds: 10))) {
         data.addAll(chunk);
@@ -134,7 +145,9 @@ class CloudParseService {
       } catch (_) {
         map = null;
       }
-      if (response.statusCode == 200 && map?['ok'] == true && map?['test'] == true) {
+      if (response.statusCode == 200 &&
+          map?['ok'] == true &&
+          map?['test'] == true) {
         return '接口连接正常';
       }
       final error = map?['error'];
@@ -187,6 +200,7 @@ class CloudParseService {
           'cookie': novel.remoteCookie ?? '',
           'authorization': novel.remoteAuthorization ?? '',
           'metaOnly': metaOnly,
+          'apiVersion': contractVersion,
         }),
       );
       final response = await request.close().timeout(

@@ -6,12 +6,17 @@
  *   /www/wwwroot/站点目录/cloud-parse/index.php
  * 同目录放 config.php（可从 config.php.example 复制），填写自己的 token。
  *
- * App 请求 JSON：token、url、name、cookie、authorization、metaOnly。
- * 服务器拉取网盘直链并在服务器上解析，返回书名、作者、简介、封面、正文和插图。
+ * App 请求 JSON：token、url、name、cookie、authorization、metaOnly，
+ * 可选 userAgent、headers；返回 api_version 供客户端做兼容性检查。
+ * 接口契约从 0.8.0 起固定为 API v1，后续升级不得删除旧字段。
  */
 declare(strict_types=1);
 
+const CLOUD_PARSE_API_VERSION = '1';
+const CLOUD_PARSE_VERSION = '0.8.0';
+
 header('Content-Type: application/json; charset=utf-8');
+header('X-Cloud-Parse-Api: ' . CLOUD_PARSE_API_VERSION);
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 
@@ -47,7 +52,14 @@ if ($token === '' || !hash_equals($token, (string)($input['token'] ?? ''))) {
 // App 的“测试接口”只验证地址、token、PHP 和 JSON 返回，不拉取任何文件。
 if (($input['test'] ?? false) === true) {
     echo json_encode(
-        ['ok' => true, 'test' => true, 'version' => '0.7.7', 'time' => time()],
+        [
+            'ok' => true,
+            'test' => true,
+            'version' => CLOUD_PARSE_VERSION,
+            'api_version' => CLOUD_PARSE_API_VERSION,
+            'capabilities' => ['epub', 'text', 'docx', 'html', 'fb2', 'cover', 'media', 'cookie', 'authorization', 'userAgent', 'headers'],
+            'time' => time(),
+        ],
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
     );
     exit;
@@ -58,6 +70,8 @@ $name = trim((string)($input['name'] ?? ''));
 $cookie = trim((string)($input['cookie'] ?? ''));
 $authorization = trim((string)($input['authorization'] ?? ''));
 $metaOnly = (bool)($input['metaOnly'] ?? false);
+$userAgent = trim((string)($input['userAgent'] ?? ''));
+$extraHeaders = $input['headers'] ?? [];
 if ($url === '' || $name === '') {
     fail('缺少网盘地址或文件名');
 }
@@ -67,6 +81,24 @@ if (strlen($name) > 512 || preg_match('/[\r\n\x00]/', $name)) {
 if (strlen($cookie) > 16384 || strlen($authorization) > 8192 ||
     preg_match('/[\r\n\x00]/', $cookie) || preg_match('/[\r\n\x00]/', $authorization)) {
     fail('登录凭证格式无效');
+}
+if (strlen($userAgent) > 512 || preg_match('/[\r\n\x00]/', $userAgent)) {
+    fail('下载 User-Agent 格式无效');
+}
+$allowedHeaders = ['accept', 'accept-language', 'referer', 'origin', 'user-agent'];
+$cleanHeaders = [];
+if (is_array($extraHeaders)) {
+    foreach ($extraHeaders as $key => $value) {
+        $key = strtolower(trim((string)$key));
+        $value = trim((string)$value);
+        if (!in_array($key, $allowedHeaders, true)) {
+            continue;
+        }
+        if ($value === '' || strlen($value) > 1024 || preg_match('/[\r\n\x00]/', $value)) {
+            continue;
+        }
+        $cleanHeaders[$key] = $value;
+    }
 }
 $uri = parse_url($url);
 if (!is_array($uri) || empty($uri['host']) ||
@@ -78,12 +110,14 @@ if (!$allowPrivate && preg_match('/^(localhost|127\.|10\.|169\.254\.|192\.168\.|
     fail('不允许访问本机或内网地址');
 }
 
-$bytes = fetchRemote($url, $cookie, $authorization, $maxBytes);
+$bytes = fetchRemote($url, $cookie, $authorization, $userAgent, $cleanHeaders, $maxBytes);
 $document = parseBook($bytes, $name, $metaOnly);
 $document['ok'] = true;
 $document['name'] = $name;
 $document['url'] = $url;
 $document['metaOnly'] = $metaOnly;
+$document['api_version'] = CLOUD_PARSE_API_VERSION;
+$document['server_version'] = CLOUD_PARSE_VERSION;
 
 $json = json_encode(
     $document,
@@ -108,7 +142,7 @@ function fail(string $message, int $status = 400): void
     exit;
 }
 
-function fetchRemote(string $url, string $cookie, string $authorization, int $maxBytes): string
+function fetchRemote(string $url, string $cookie, string $authorization, string $userAgent, array $extraHeaders, int $maxBytes): string
 {
     $buffer = '';
     $tooLarge = false;
@@ -118,6 +152,9 @@ function fetchRemote(string $url, string $cookie, string $authorization, int $ma
     }
     if ($authorization !== '') {
         $headers[] = 'Authorization: ' . $authorization;
+    }
+    foreach ($extraHeaders as $key => $value) {
+        $headers[] = ucfirst($key) . ': ' . $value;
     }
     $ch = curl_init($url);
     if ($ch === false) {
@@ -131,7 +168,9 @@ function fetchRemote(string $url, string $cookie, string $authorization, int $ma
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_USERAGENT => 'Wenku8Mod-CloudParse/0.7.7',
+        CURLOPT_USERAGENT => $userAgent !== ''
+            ? $userAgent
+            : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         CURLOPT_WRITEFUNCTION => function ($curl, $chunk) use (&$buffer, &$tooLarge, $maxBytes): int {
             if ($tooLarge) {
                 return 0;
