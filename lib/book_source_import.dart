@@ -134,6 +134,8 @@ class BookSourceFileReader {
       target = searchUrl;
     }
     target = target
+        .replaceAll(RegExp('%7b', caseSensitive: false), '{')
+        .replaceAll(RegExp('%7d', caseSensitive: false), '}')
         .replaceAll(RegExp(r'\{\{?\s*key\s*\}\}?', caseSensitive: false), '{query}')
         .replaceAll(RegExp(r'\{\{?\s*page\s*\}\}?', caseSensitive: false), '{page}');
     if (!target.contains('{query}')) {
