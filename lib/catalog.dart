@@ -478,7 +478,7 @@ class NovelPage {
   factory NovelPage.fromItems(
     List<Novel> items,
     int page, {
-    int pageSize = 20,
+    int pageSize = 50,
   }) {
     if (page < 1) throw ArgumentError.value(page, 'page');
     return NovelPage(

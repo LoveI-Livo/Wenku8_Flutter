@@ -68,6 +68,7 @@ class ScopedSearchRepository extends NovelRepository {
       scope: scope == SearchSource.cloud
           ? CloudSearchScope.netDisks
           : CloudSearchScope.sources,
+      refresh: refresh,
     );
     final pattern = BookSearch(text, field: field);
     final matches = cloud

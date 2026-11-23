@@ -181,7 +181,7 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.direct =>
                       '任意 HTTPS 文件直链，粘贴后直接流式读取，不保存账号 Cookie。',
                     CloudSourceKind.rss =>
-                      '其他书源：填写公开的 RSS / Atom 订阅地址，列表里的每个条目都会变成一本可在线阅读的书。',
+                      '小说书源：支持 RSS / Atom / JSON Feed / JSON 列表和普通网页目录。一行一个地址，最多 12 个；带 {query} 或 {page} 的地址会按关键词和页码替换。',
                   }, style: const TextStyle(fontSize: 13, height: 1.65)),
                   const SizedBox(height: 12),
                   if (settings[kind] case final config?) ...[
@@ -249,7 +249,7 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.pan123 ||
                         CloudSourceKind.uc ||
                         CloudSourceKind.direct => '添加直链',
-                        CloudSourceKind.rss => '添加其他书源',
+                        CloudSourceKind.rss => '添加小说书源',
                         CloudSourceKind.s3 => '添加 S3 连接',
                       },
                       onPressed: kind.isWebLogin
@@ -337,7 +337,10 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
     List<String> autoCookieNames = const [],
     String title = '登录书源',
   }) async {
-    final target = address ?? _address.text.trim();
+    final target = (address ?? _address.text)
+        .split(RegExp(r'\r?\n'))
+        .map((value) => value.trim())
+        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
     if (!target.startsWith('http://') && !target.startsWith('https://')) {
       setState(() => _error = '请先填写书源或网站地址，再打开网页登录');
       return;
@@ -408,6 +411,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
     String? hint,
     String? helper,
     bool secret = false,
+    int maxLines = 1,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 20),
     child: Column(
@@ -423,6 +427,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
           enabled: !_busy,
           placeholder: hint,
           obscureText: secret,
+          maxLines: secret ? 1 : maxLines,
           autocorrect: false,
           enableSuggestions: false,
           keyboardType: label.contains('地址')
@@ -468,8 +473,9 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
             if (widget.kind.isDirectLink) ...[
               AppText(
                 widget.kind == CloudSourceKind.rss
-                    ? '填写公开的 RSS / Atom 订阅地址。应用会列出订阅里的书籍条目，'
-                          '点开即在线解析正文，不下载到本地；不支持需要登录的私有订阅。'
+                    ? '填写小说书源地址，一行一个，最多 12 个。支持 RSS、Atom、'
+                          'JSON Feed、JSON 列表和普通网页目录；网页里的章节会按目录和正文自动识别。'
+                          '搜索地址可以用 {query} 代表关键词、{page} 代表页码。'
                     : '在${widget.kind.label}网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
                           '应用会直接流式读取，不保存账号 Cookie，也不会把整本书长期留在本机。'
                           '蓝奏云普通版与优享版域名不同，请复制带真实文件名的下载地址，不要粘贴分享页。',
@@ -477,12 +483,15 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
               ),
               const SizedBox(height: 24),
               _field(
-                widget.kind == CloudSourceKind.rss ? '订阅地址' : '文件直链',
+                widget.kind == CloudSourceKind.rss ? '小说书源地址（一行一个）' : '文件直链',
                 _address,
+                maxLines: widget.kind == CloudSourceKind.rss ? 6 : 1,
                 hint: widget.kind == CloudSourceKind.rss
-                    ? 'https://example.com/feed.xml'
+                    ? 'https://example.com/feed.xml\nhttps://example.com/search?q={query}&page={page}'
                     : 'https://wwx.lanzoui.com/… 或迅雷直链',
-                helper: '分享页地址不是直链；请在下载按钮上右键或长按复制真实下载地址。',
+                helper: widget.kind == CloudSourceKind.rss
+                    ? '支持 RSS / Atom / JSON / 网页目录；一行一个，最多 12 个。'
+                    : '分享页地址不是直链；请在下载按钮上右键或长按复制真实下载地址。',
               ),
               GlassTextButton(
                 key: const ValueKey('cloud-web-login'),
@@ -492,11 +501,11 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
               const SizedBox(height: 12),
               if (widget.kind == CloudSourceKind.rss)
                 _field(
-                  '登录 Cookie（私有书源）',
+                  '登录 Cookie（可选）',
                   _cookie,
                   hint: 'sessionid=…; token=…',
                   secret: true,
-                  helper: '登录站点后复制 Cookie；公开订阅可以留空。',
+                  helper: '需要登录的书源可填；公开订阅和网页可以留空。Cookie 会随书架记录保存在本机。',
                 ),
               _field('用户名（Basic 登录，可选）', _user),
               _field('密码', _password, secret: true),
@@ -836,32 +845,39 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
     });
     try {
       final matches = <String, CloudBookEntry>{};
-      final pending = <String>[_client.root];
-      final visited = <String>{};
-      var folders = 0;
-      while (pending.isNotEmpty && folders < 80 && matches.length < 300) {
-        if (!mounted || token != _generation) return;
-        final folder = pending.removeAt(0);
-        if (!visited.add(folder)) continue;
-        folders++;
-        try {
-          final listing = await _client.list(folder);
-          for (final entry in listing.entries) {
-            if (entry.folder) {
-              pending.add(entry.id);
-            } else if (entry.isBook &&
-                (entry.name.toLowerCase().contains(value.toLowerCase()) ||
-                    entry.author
-                        .toLowerCase()
-                        .contains(value.toLowerCase()) ||
-                    entry.summary
-                        .toLowerCase()
-                        .contains(value.toLowerCase()))) {
-              matches[entry.id] = entry;
+      if (_client is RssBookClient) {
+        final listing = await _client.search(value);
+        for (final entry in listing.entries) {
+          if (entry.isBook) matches[entry.id] = entry;
+        }
+      } else {
+        final pending = <String>[_client.root];
+        final visited = <String>{};
+        var folders = 0;
+        while (pending.isNotEmpty && folders < 120 && matches.length < 300) {
+          if (!mounted || token != _generation) return;
+          final folder = pending.removeAt(0);
+          if (!visited.add(folder)) continue;
+          folders++;
+          try {
+            final listing = await _client.list(folder);
+            for (final entry in listing.entries) {
+              if (entry.folder) {
+                pending.add(entry.id);
+              } else if (entry.isBook &&
+                  (entry.name.toLowerCase().contains(value.toLowerCase()) ||
+                      entry.author
+                          .toLowerCase()
+                          .contains(value.toLowerCase()) ||
+                      entry.summary
+                          .toLowerCase()
+                          .contains(value.toLowerCase()))) {
+                matches[entry.id] = entry;
+              }
             }
+          } catch (_) {
+            // 个别子目录无权限时继续搜索其他目录。
           }
-        } catch (_) {
-          // 个别子目录无权限时继续搜索其他目录。
         }
       }
       if (!mounted || token != _generation) return;

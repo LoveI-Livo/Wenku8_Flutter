@@ -28,6 +28,7 @@ class CloudDocumentService {
   final Map<int, String> _urls = {};
   final Map<int, Novel> _metadata = {};
   final Set<int> _enriched = {};
+  final Map<int, Map<int, String>> _webChapterUrls = {};
 
   static int idForUrl(String url) {
     final digest = sha256.convert(utf8.encode(url)).bytes;
@@ -85,6 +86,7 @@ class CloudDocumentService {
     _urls.remove(id);
     _metadata.remove(id);
     _documents.remove(id);
+    _webChapterUrls.remove(id);
   }
 
   Novel? known(int id) => _metadata[id];
@@ -220,6 +222,10 @@ class CloudDocumentService {
       _metadata[novel.id] = cached.novel;
       return cached.novel;
     }
+    if (novel.remoteKind == CloudSourceKind.rss.name &&
+        _looksLikeWebPage(url)) {
+      return _detailFromWeb(novel, url);
+    }
     final resolved = await _resolveCloudUrl(url, novel);
     final remote = await CloudParseService.instance.parse(
       novel,
@@ -250,6 +256,45 @@ class CloudDocumentService {
     return full;
   }
 
+  bool _looksLikeWebPage(String url) {
+    final path = Uri.tryParse(url)?.path.toLowerCase() ?? '';
+    if (path.isEmpty || path.endsWith('/')) return true;
+    return !RegExp(
+      r'\.(?:txt|md|markdown|epub|mobi|azw3?|prc|fb2|pdf|docx|odt|rtf|xhtml|html?|zip)$',
+    ).hasMatch(path);
+  }
+
+  Future<Novel> _detailFromWeb(Novel novel, String url) async {
+    final document = await WebNovelReader.inspect(
+      url,
+      cookie: novel.remoteCookie ?? '',
+      authorization: novel.remoteAuthorization ?? '',
+      allowHttp: url.startsWith('http://'),
+    );
+    if (!document.hasContent) {
+      throw const FormatException('这个书源网页没有可读取的目录或正文');
+    }
+    final chapters = <NovelChapter>[
+      for (var index = 0; index < document.chapters.length; index++)
+        NovelChapter(document.chapters[index].title, '', id: index + 1),
+    ];
+    final full = novel
+        .withMetadata(
+          title: document.title,
+          author: document.author,
+          summary: document.summary,
+        )
+        .withChapters(chapters);
+    _documents[novel.id] = _CloudDocument(full, <int, String>{});
+    _webChapterUrls[novel.id] = {
+      for (var index = 0; index < document.chapters.length; index++)
+        index + 1: document.chapters[index].url,
+    };
+    _metadata[novel.id] = full;
+    _enriched.add(novel.id);
+    return full;
+  }
+
   Future<List<NovelChapter>> chapters(int id) async {
     final document = _documents[id];
     if (document != null) return document.novel.chapters;
@@ -260,7 +305,19 @@ class CloudDocumentService {
 
   Future<String> chapterContent(int id, NovelChapter chapter) async {
     final document = await _ensure(id);
-    return document.bodies[chapter.id] ?? '';
+    final cached = document.bodies[chapter.id];
+    if (cached != null && cached.isNotEmpty) return cached;
+    final url = _webChapterUrls[id]?[chapter.id];
+    if (url == null) return cached ?? '';
+    final novel = document.novel;
+    final text = await WebNovelReader.content(
+      url,
+      cookie: novel.remoteCookie ?? '',
+      authorization: novel.remoteAuthorization ?? '',
+      allowHttp: url.startsWith('http://'),
+    );
+    document.bodies[chapter.id] = text;
+    return text;
   }
 
   Future<_CloudDocument> _ensure(int id) async {

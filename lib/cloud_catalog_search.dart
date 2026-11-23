@@ -22,17 +22,36 @@ class CloudCatalogSearch {
   static const _probeBudget = Duration(seconds: 12);
   static const _maxProbeBytes = 8 * 1024 * 1024;
   static const _maxProbeFiles = 12;
+  static const _maxResults = 500;
+  static const _cacheLifetime = Duration(minutes: 10);
+  String? _cacheQuery;
+  CloudSearchScope? _cacheScope;
+  DateTime? _cacheAt;
+  List<Novel>? _cache;
 
   /// 每次搜索都重新读取当前已连接来源，新添加的网盘会自动进入搜索，
   /// 不需要重启 App，也不依赖固定列表。
-  Future<void> reload() => settings.load();
+  Future<void> reload() async {
+    _cache = null;
+    _cacheAt = null;
+    await settings.load();
+  }
 
   Future<List<Novel>> search(
     String query, {
     CloudSearchScope scope = CloudSearchScope.all,
+    bool refresh = false,
   }) async {
     final value = query.trim();
     if (value.isEmpty) return const [];
+    if (!refresh &&
+        _cache != null &&
+        _cacheQuery == value &&
+        _cacheScope == scope &&
+        _cacheAt != null &&
+        DateTime.now().difference(_cacheAt!) < _cacheLifetime) {
+      return _cache!;
+    }
     await settings.load();
     final configs = settings.configs
         .where(
@@ -60,8 +79,12 @@ class CloudCatalogSearch {
           ).timeout(_walkBudget);
 
           if (walk.matches.isNotEmpty) {
-            for (final entry in walk.matches.take(40)) {
-              results.add(_novelFor(entry, config));
+            for (final entry in walk.matches) {
+              if (results.length >= _maxResults) return;
+              final novel = _novelFor(entry, config);
+              if (!results.any((existing) => existing.id == novel.id)) {
+                results.add(novel);
+              }
             }
             return;
           }
@@ -93,7 +116,7 @@ class CloudCatalogSearch {
                 results.add(novel);
               }
             }
-            if (results.length >= 40) return;
+            if (results.length >= _maxResults) return;
           }
         } catch (_) {
           // 单个来源超时、未登录或格式不支持不影响其他来源。
@@ -102,7 +125,12 @@ class CloudCatalogSearch {
         }
       }),
     );
-    return results;
+    final cached = List<Novel>.unmodifiable(results);
+    _cache = cached;
+    _cacheQuery = value;
+    _cacheScope = scope;
+    _cacheAt = DateTime.now();
+    return cached;
   }
 
   Novel _novelFor(CloudBookEntry entry, CloudSourceConfig config) =>
@@ -155,12 +183,31 @@ class CloudCatalogSearch {
     String query,
   ) async {
     final pattern = BookSearch(query);
+    if (client is RssBookClient) {
+      final listing = await client.search(query);
+      final matches = <String, CloudBookEntry>{};
+      for (final entry in listing.entries) {
+        if (pattern.matches(
+          title: entry.name,
+          author: entry.author,
+          tags: '',
+          summary: entry.summary,
+          id: entry.id,
+        )) {
+          matches[entry.id] = entry;
+        }
+      }
+      return _CloudSearchWalk(
+        matches: matches.values.toList(),
+        files: const [],
+      );
+    }
     final matches = <String, CloudBookEntry>{};
     final files = <String, CloudBookEntry>{};
     final pending = <String>[client.root];
     final visited = <String>{};
     var folders = 0;
-    while (pending.isNotEmpty && folders < 80 && files.length < 300) {
+    while (pending.isNotEmpty && folders < 120 && files.length < 600) {
       final folder = pending.removeAt(0);
       if (!visited.add(folder)) continue;
       folders++;

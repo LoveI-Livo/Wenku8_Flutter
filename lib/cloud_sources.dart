@@ -7,9 +7,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:xml/xml.dart';
 import 'package:crypto/crypto.dart';
+import 'package:charset/charset.dart';
+import 'package:html/parser.dart' as html;
+import 'package:html/dom.dart';
 import 'book_import_limits.dart';
+import 'book_search.dart';
 part 'cloud_s3.dart';
 part 'cloud_lanzou.dart';
+part 'cloud_web.dart';
 
 enum CloudSourceKind {
   webdav('OpenList / WebDAV'),
@@ -22,7 +27,7 @@ enum CloudSourceKind {
   pan123('123 云盘'),
   uc('UC 网盘'),
   direct('其他网盘直链'),
-  rss('其他书源 · RSS/Atom'),
+  rss('小说书源 · RSS / Atom / JSON / 网页'),
   s3('S3 / 兼容对象存储');
 
   const CloudSourceKind(this.label);
@@ -84,6 +89,40 @@ class CloudSourceConfig {
   }
 
   void validate() {
+    if (kind == CloudSourceKind.rss) {
+      final sources = address
+          .split(RegExp(r'\r?\n'))
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList(growable: false);
+      if (sources.isEmpty || sources.length > 12 || address.length > 32768) {
+        throw const CloudSourceFailure('请填写 1 到 12 个小说书源地址，一行一个');
+      }
+      for (final source in sources) {
+        final probe = source
+            .replaceAll('{query}', 'keyword')
+            .replaceAll('{page}', '1');
+        final uri = Uri.tryParse(probe);
+        if (uri == null ||
+            uri.host.isEmpty ||
+            uri.userInfo.isNotEmpty ||
+            (uri.scheme != 'https' &&
+                !(uri.scheme == 'http' && allowHttp)) ||
+            source.length > 4096) {
+          throw const CloudSourceFailure(
+            '小说书源地址需要是 HTTPS 网页或订阅地址；HTTP 需先允许明文连接',
+          );
+        }
+      }
+      if (cookie.length > 16384 ||
+          RegExp(r'[\r\n\x00]').hasMatch(cookie) ||
+          RegExp(r'[\r\n\x00]').hasMatch(username + password) ||
+          username.contains(':') ||
+          password.length > 8192) {
+        throw const CloudSourceFailure('请检查书源 Cookie、用户名或密码');
+      }
+      return;
+    }
     if (kind.isDirectLink) {
       final uri = Uri.tryParse(address.trim());
       if (uri == null ||
@@ -357,6 +396,7 @@ class CloudBookEntry {
     this.size = 0,
     this.author = '',
     this.summary = '',
+    this.book = false,
   });
   final String id, name;
   final bool folder;
@@ -366,7 +406,10 @@ class CloudBookEntry {
   /// RSS/Atom 或目录接口能直接提供的简介；WebDAV 通常为空，需要读取文件
   /// 元数据后再补。只用于搜索和展示，不落盘。
   final String summary;
-  bool get isBook => !folder && supportsBookImport(name);
+
+  /// 书源条目不一定带文件扩展名，不能只靠文件名判断是不是书。
+  final bool book;
+  bool get isBook => !folder && (book || supportsBookImport(name));
 }
 
 class CloudBookListing {
@@ -398,6 +441,10 @@ abstract class CloudBookClient {
   };
   String get root;
   Future<CloudBookListing> list(String folder, {int page = 1});
+
+  /// 书源可以有自己的搜索地址模板；网盘默认仍按目录浏览。
+  Future<CloudBookListing> search(String query, {int page = 1}) =>
+      list(root, page: page);
 
   /// A URL that the in-memory reader can fetch. Most clients store the URL
   /// itself as the entry id; account clients resolve a fresh signed URL.
@@ -1024,38 +1071,144 @@ class DirectLinkBookClient implements CloudBookClient {
   void close() => _http.close();
 }
 
-/// RSS / Atom 书源：一个订阅地址就是一套书源，条目里的链接就是书页。
+/// 小说书源：RSS、Atom、JSON Feed、JSON 列表和普通网页目录都走这里。
 ///
-/// 只读取公开订阅，不登录站点，不抓取需要 Cookie 的私有内容。
+/// 地址可以一行一个，最多 12 个；带 `{query}` / `{page}` 的地址会按关键词
+/// 和页码替换。条目链接既可以是 txt/epub 文件，也可以是网页章节，阅读时
+/// 由网页读取器识别目录和正文。
 class RssBookClient extends DirectLinkBookClient {
   RssBookClient(super.config);
 
+  static const _maxSources = 12;
+  static const _maxEntries = 500;
+
+  List<String> get _sources => config.address
+      .split(RegExp(r'\r?\n'))
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .take(_maxSources)
+      .toList(growable: false);
+
   @override
   Future<CloudBookListing> list(String folder, {int page = 1}) async {
-    if (page > 1) return const CloudBookListing([]);
-    final uri = Uri.parse(root);
+    if (page > 1 && !_sources.any((source) => source.contains('{page}'))) {
+      return const CloudBookListing([]);
+    }
+    final entries = <String, CloudBookEntry>{};
+    for (final source in _sources) {
+      if (source.contains('{query}')) continue;
+      try {
+        for (final entry in await _entriesFor(source, page: page)) {
+          entries.putIfAbsent(entry.id, () => entry);
+          if (entries.length >= _maxEntries) break;
+        }
+      } catch (_) {
+        // 一个书源失效不影响其他书源。
+      }
+      if (entries.length >= _maxEntries) break;
+    }
+    return CloudBookListing(entries.values.toList(growable: false));
+  }
+
+  @override
+  Future<CloudBookListing> search(String query, {int page = 1}) async {
+    final value = query.trim();
+    if (value.isEmpty) return const CloudBookListing([]);
+    final entries = <String, CloudBookEntry>{};
+    final pattern = BookSearch(value);
+    for (final source in _sources) {
+      final hasQuery = source.contains('{query}');
+      final target = source
+          .replaceAll('{query}', Uri.encodeQueryComponent(value))
+          .replaceAll('{page}', '$page');
+      try {
+        final pageEntries = await _entriesFor(target, page: page);
+        for (final entry in pageEntries) {
+          final matches = hasQuery
+              ? true
+              : pattern.matches(
+                  title: entry.name,
+                  author: entry.author,
+                  tags: '',
+                  summary: entry.summary,
+                  id: entry.id,
+                );
+          if (!matches) continue;
+          entries.putIfAbsent(entry.id, () => entry);
+          if (entries.length >= _maxEntries) break;
+        }
+      } catch (_) {
+        // 一个书源失效不影响其他书源。
+      }
+      if (entries.length >= _maxEntries) break;
+    }
+    return CloudBookListing(entries.values.toList(growable: false));
+  }
+
+  Future<List<CloudBookEntry>> _entriesFor(
+    String source, {
+    required int page,
+  }) async {
+    final target = source.replaceAll('{page}', '$page');
+    final uri = Uri.tryParse(target);
+    if (uri == null) throw const CloudSourceFailure('小说书源地址无效');
+    CloudHttp.validateUrl(uri, allowHttp: config.allowHttp);
+
+    final segments = uri.pathSegments.where((value) => value.isNotEmpty);
+    final last = segments.isEmpty ? '' : Uri.decodeComponent(segments.last);
+    if (supportsBookImport(last)) {
+      return [
+        CloudBookEntry(
+          id: target,
+          name: last,
+          folder: false,
+          size: 0,
+          book: true,
+        ),
+      ];
+    }
+
     final res = await _http.request(
       'GET',
       uri,
-      headers: (_) => {
+      headers: (requested) => {
         'Accept':
-            'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
-        ...authHeaders,
+            'application/rss+xml, application/atom+xml, application/json, '
+            'application/xml, text/xml, text/html, */*',
+        if (CloudHttp.sameOrigin(requested, uri)) ...authHeaders,
       },
       redirects: true,
       allowHttp: config.allowHttp,
-      redirectMessage: '书源地址发生跳转，请填写最终 RSS/Atom 地址',
+      redirectMessage: '书源地址发生跳转，请填写最终地址',
     );
-    final bytes = await _http.bytes(res, limit: 4 * 1024 * 1024);
-    final document = XmlDocument.parse(
-      utf8.decode(bytes, allowMalformed: true),
-    );
+    final bytes = await _http.bytes(res, limit: 6 * 1024 * 1024);
+    final body = utf8.decode(bytes, allowMalformed: true).trim();
+    if (body.startsWith('{') || body.startsWith('[')) {
+      return _jsonEntries(body);
+    }
+    if (body.startsWith('<')) {
+      final document = XmlDocument.parse(body);
+      final entries = _feedEntries(document, uri);
+      if (entries.isNotEmpty) return entries;
+      // XML 目录页（例如 sitemap）也允许按链接识别。
+      return WebNovelReader.catalogFromHtml(body, uri).entries.toList();
+    }
+    return WebNovelReader.catalogFromHtml(body, uri).entries.toList();
+  }
+
+  List<CloudBookEntry> _feedEntries(XmlDocument document, Uri base) {
     final items = document.findAllElements('item');
     final entries = document.findAllElements('entry');
     final result = <CloudBookEntry>[];
-    void add(String title, String? link, String summary, [String author = '']) {
+    void add(
+      String title,
+      String? link,
+      String summary, [
+      String author = '',
+    ]) {
       if (title.trim().isEmpty || link == null || link.trim().isEmpty) return;
-      final resolved = Uri.parse(root).resolve(link.trim()).toString();
+      final resolved = base.resolve(link.trim()).toString();
+      if (result.any((entry) => entry.id == resolved)) return;
       result.add(
         CloudBookEntry(
           id: resolved,
@@ -1064,6 +1217,7 @@ class RssBookClient extends DirectLinkBookClient {
           size: 0,
           author: author.trim(),
           summary: summary.trim(),
+          book: true,
         ),
       );
     }
@@ -1082,7 +1236,7 @@ class RssBookClient extends DirectLinkBookClient {
       String link = '';
       for (final node in item.findElements('link')) {
         final href = node.getAttribute('href');
-        if (href != null) {
+        if (href != null && href.trim().isNotEmpty) {
           link = href;
           break;
         }
@@ -1092,8 +1246,72 @@ class RssBookClient extends DirectLinkBookClient {
           : _child(item, 'dc:creator');
       add(title, link, _child(item, 'summary'), author);
     }
-    if (result.isEmpty) throw const CloudSourceFailure('这个订阅里没有可阅读的条目');
-    return CloudBookListing(result);
+    return result;
+  }
+
+  List<CloudBookEntry> _jsonEntries(String body) {
+    Object? value;
+    try {
+      value = jsonDecode(body);
+    } catch (_) {
+      throw const CloudSourceFailure('这个 JSON 书源格式无法识别');
+    }
+    final root = value is List
+        ? value
+        : value is Map
+        ? (value['items'] ?? value['data'] ?? value['books'] ?? value['list'] ?? value['results'])
+        : null;
+    if (root is! List) throw const CloudSourceFailure('这个 JSON 书源里没有书籍列表');
+    final result = <CloudBookEntry>[];
+    for (final item in root) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      final title = _string(map, ['title', 'name', 'bookName', 'book_name']);
+      final link = _string(map, [
+        'url',
+        'link',
+        'bookUrl',
+        'book_url',
+        'href',
+        'external_url',
+      ]);
+      if (title.isEmpty || link.isEmpty) continue;
+      final base = Uri.tryParse(config.address.split(RegExp(r'\r?\n')).first);
+      final resolved = base == null
+          ? link
+          : base.resolve(link).toString();
+      final author = _string(map, ['author', 'author_name', 'authors']);
+      final summary = _string(map, [
+        'summary',
+        'description',
+        'intro',
+        'content_text',
+        'content_html',
+      ]);
+      if (result.any((entry) => entry.id == resolved)) continue;
+      result.add(
+        CloudBookEntry(
+          id: resolved,
+          name: title,
+          folder: false,
+          size: 0,
+          author: author,
+          summary: summary,
+          book: true,
+        ),
+      );
+      if (result.length >= _maxEntries) break;
+    }
+    if (result.isEmpty) throw const CloudSourceFailure('这个 JSON 书源里没有可阅读条目');
+    return result;
+  }
+
+  String _string(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+    }
+    return '';
   }
 
   String _child(XmlElement item, String name) {
@@ -1103,3 +1321,4 @@ class RssBookClient extends DirectLinkBookClient {
     return '';
   }
 }
+

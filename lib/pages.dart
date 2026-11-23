@@ -1573,7 +1573,7 @@ class FeedFooter extends StatelessWidget {
         ] else if (feed.hasMore)
           GlassTextButton(
             onPressed: feed.loadMore,
-            child: const AppText('加载更多'),
+            child: const AppText('加载下一页'),
           )
         else if (feed.items.isNotEmpty)
           AppText(
@@ -4141,20 +4141,9 @@ class InlineSearchResults extends StatelessWidget {
         onRetry: feed.searchNotice == null ? null : feed.refresh,
       );
     }
-    return NotificationListener<ScrollNotification>(
-      onNotification: (notification) {
-        if (notification.depth == 0 &&
-            !feed.loading &&
-            feed.hasMore &&
-            feed.error == null &&
-            notification.metrics.extentAfter < 400) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => feed.loadMore());
-        }
-        return false;
-      },
-      child: FeedRefresh(
-        feed: feed,
-        child: BookCollectionView.builder(
+    return FeedRefresh(
+      feed: feed,
+      child: BookCollectionView.builder(
           key: PageStorageKey(
             'inline-search-results-${feed.searchField.name}-${feed.query}',
           ),
@@ -4208,6 +4197,18 @@ class InlineSearchResults extends StatelessWidget {
                             ),
                         ],
                       ),
+                      if (feed.totalItems != null && feed.hasMore) ...[
+                        const SizedBox(height: 6),
+                        AppText(
+                          '当前已显示 ${books.length} 本；每页最多 50 本，点底部「加载下一页」继续。',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                       if (feed.searchNotice case final notice?) ...[
                         const SizedBox(height: 8),
                         AppText(
@@ -4268,7 +4269,6 @@ class InlineSearchResults extends StatelessWidget {
               ),
             );
           },
-        ),
       ),
     );
   }
