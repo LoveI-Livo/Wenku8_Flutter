@@ -177,6 +177,9 @@ class WebNovelReader {
     }
   }
 
+  static String decodeBytes(Uint8List bytes, ContentType? contentType) =>
+      _decode(bytes, contentType);
+
   static String _decode(Uint8List bytes, ContentType? contentType) {
     final header = contentType?.parameters['charset']?.toLowerCase();
     final head = utf8.decode(

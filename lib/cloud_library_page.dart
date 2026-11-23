@@ -888,6 +888,10 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
       if (matches.isEmpty) {
         showNovelFeedback(context, '没有搜到包含「$value」的书');
       }
+    } catch (error) {
+      if (mounted && token == _generation) {
+        setState(() => _error = cloudFailureMessage(error));
+      }
     } finally {
       if (mounted && token == _generation) {
         setState(() {

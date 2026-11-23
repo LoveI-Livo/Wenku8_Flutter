@@ -1200,7 +1200,7 @@ class RssBookClient extends DirectLinkBookClient {
       redirectMessage: '书源地址发生跳转，请填写最终地址',
     );
     final bytes = await _http.bytes(res, limit: 6 * 1024 * 1024);
-    final body = utf8.decode(bytes, allowMalformed: true).trim();
+    final body = WebNovelReader.decodeBytes(bytes, res.headers.contentType).trim();
     if (body.startsWith('{') || body.startsWith('[')) {
       return _jsonEntries(body);
     }
@@ -1327,7 +1327,24 @@ class RssBookClient extends DirectLinkBookClient {
   String _string(Map<String, dynamic> map, List<String> keys) {
     for (final key in keys) {
       final value = map[key];
-      if (value is String && value.trim().isNotEmpty) return value.trim();
+      if (value is String && value.trim().isNotEmpty) {
+        final text = value.trim();
+        return text.length <= 1200 ? text : '${text.substring(0, 1200)}…';
+      }
+      if (value is List) {
+        final names = [
+          for (final item in value)
+            if (item is String && item.trim().isNotEmpty)
+              item.trim()
+            else if (item is Map && item['name'] is String)
+              (item['name'] as String).trim(),
+        ].where((name) => name.isNotEmpty);
+        if (names.isNotEmpty) return names.join('、');
+      }
+      if (value is Map && value['name'] is String) {
+        final name = (value['name'] as String).trim();
+        if (name.isNotEmpty) return name;
+      }
     }
     return '';
   }
