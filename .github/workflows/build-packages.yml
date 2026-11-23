@@ -77,7 +77,7 @@ jobs:
           cd ..
           mkdir -p dist/Payload
           cp -R build/ios-xcode/Build/Products/Release-iphoneos/Runner.app dist/Payload/
-          VERSION=$(awk '/^version:/{print $2}' ../pubspec.yaml | cut -d+ -f1)
+          VERSION=$(awk '/^version:/{print $2}' pubspec.yaml | cut -d+ -f1)
           cd dist && zip -qry "qingxiaoshuo-wenku-${VERSION}-ios-unsigned.ipa" Payload
           rm -rf Payload
           ls -lh
