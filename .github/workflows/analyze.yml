@@ -24,6 +24,9 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
+      - name: Web source tests
+        run: flutter test test/cloud_web_test.dart
+
       - name: Analyze
         run: |
           set +e

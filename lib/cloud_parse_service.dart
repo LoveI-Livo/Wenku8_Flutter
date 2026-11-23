@@ -115,7 +115,7 @@ class CloudParseService {
       final request = await client.postUrl(endpoint);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.7.5');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.7.6');
       final uri = Uri.tryParse(resolvedUrl);
       final rawName = uri == null || uri.pathSegments.isEmpty
           ? ''

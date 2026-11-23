@@ -22,6 +22,14 @@ const _cloudSearchFix =
     '修复网盘搜索明明有文件却搜不到：除文件名、作者、书源简介外，未命中时会对体积较小的文件读取内部书名、作者、简介，再按关键词匹配；不下载原书到本机，单次检索有文件数和时间上限。';
 const _sourceSearchFix =
     '修复书源搜索：RSS/Atom 条目的简介现在会参与匹配和展示，搜索书名、作者、简介都能命中。';
+const _searchPage =
+    '搜索结果固定每页 50 条，底部“加载下一页”继续；不再自动无限滚动，也不再在 40 条处提前截断。';
+const _sourceMulti =
+    '小说书源支持一行填多个地址，最多 12 个；支持 RSS、Atom、JSON Feed、JSON 列表和普通网页目录。';
+const _sourceWeb =
+    '网页书源自动识别书名、作者、简介、章节目录和正文；RSS 条目链接到网页时也能在线阅读。';
+const _sourceEntryFix =
+    '修复书源条目被误判为非书导致书源搜索为空：书源条目现在不再依赖文件名扩展名。';
 const _cloudBatch =
     '网盘浏览交互调整：点右侧圆圈直接加入书架，不再先勾选再回到顶部点按钮；需要加入书单或一次处理多本时，点“批量选择”勾选后统一操作。';
 const _cloudDocs =
@@ -33,13 +41,16 @@ const _cloudMetadata =
 const _cloudCache =
     '网盘书封面与正文插图缓存单独列入「缓存与存储」，可查看占用并随时清理；正文在内存中解析，退出阅读后由系统回收，不占安装存储。';
 const _threeSearch =
-    '主搜索框拆成“文库搜索 / 网盘搜索 / 书源搜索”三个来源，支持书名、作者、标签、ID；网盘搜索覆盖所有已连接网盘（账号目录与直链），书源搜索检索 RSS/Atom。';
+    '主搜索框拆成“文库搜索 / 网盘搜索 / 书源搜索”三个来源，支持书名、作者、标签、ID；网盘搜索覆盖所有已连接网盘，书源搜索覆盖 RSS、Atom、JSON 和网页书源。';
 const _changes = [
+  _searchPage,
+  _sourceMulti,
+  _sourceWeb,
+  _sourceEntryFix,
+  _sourceSearchFix,
   _shelfFix,
   _cloudSearchFix,
-  _sourceSearchFix,
   _cloudBatch,
-  _cloudDocs,
   _cloudParse,
   _cloudAuto,
   _cloudShelf,
@@ -69,11 +80,14 @@ $releaseReadingNotice
 
 ### 本次更新
 
+- $_searchPage
+- $_sourceMulti
+- $_sourceWeb
+- $_sourceEntryFix
+- $_sourceSearchFix
 - $_shelfFix
 - $_cloudSearchFix
-- $_sourceSearchFix
 - $_cloudBatch
-- $_cloudDocs
 - $_cloudParse
 - $_cloudAuto
 - $_cloudShelf

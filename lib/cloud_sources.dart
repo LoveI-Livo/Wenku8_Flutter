@@ -1106,17 +1106,24 @@ class RssBookClient extends DirectLinkBookClient {
       return const CloudBookListing([]);
     }
     final entries = <String, CloudBookEntry>{};
+    var attempted = 0;
+    Object? lastFailure;
     for (final source in _sources) {
       if (source.contains('{query}')) continue;
+      attempted++;
       try {
         for (final entry in await _entriesFor(source, page: page)) {
           entries.putIfAbsent(entry.id, () => entry);
           if (entries.length >= _maxEntries) break;
         }
-      } catch (_) {
+      } catch (error) {
+        lastFailure = error;
         // 一个书源失效不影响其他书源。
       }
       if (entries.length >= _maxEntries) break;
+    }
+    if (entries.isEmpty && attempted > 0 && lastFailure != null) {
+      throw lastFailure;
     }
     return CloudBookListing(entries.values.toList(growable: false));
   }
