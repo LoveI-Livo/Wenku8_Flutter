@@ -11,7 +11,7 @@ const modEditionName = '轻小说文库 · 改版版';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
 const modEditionVersion = '0.7.6';
-const modEditionBuild = 3017;
+const modEditionBuild = 3018;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -84,7 +84,7 @@ const modEditionChanges = <ModChange>[
   ),
   ModChange(
     '更多小说书源',
-    '书源地址支持一行多个，最多 12 个；RSS、Atom、JSON Feed、JSON 列表和普通网页目录'
+    '书源地址支持一行多个，最多 200 个；RSS、Atom、JSON Feed、JSON 列表和普通网页目录，支持批量导入书源文件并逐个检测、删除失效书源'
         '都能识别，网页书源会自动提取书名、作者、简介、目录和正文。',
   ),
   ModChange(

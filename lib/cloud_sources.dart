@@ -1200,7 +1200,7 @@ class DirectLinkBookClient implements CloudBookClient {
 
 /// 小说书源：RSS、Atom、JSON Feed、JSON 列表和普通网页目录都走这里。
 ///
-/// 地址可以一行一个，最多 12 个；带 `{query}` / `{page}` 的地址会按关键词
+/// 地址可以一行一个，最多 200 个；带 `{query}` / `{page}` 的地址会按关键词
 /// 和页码替换。条目链接既可以是 txt/epub 文件，也可以是网页章节，阅读时
 /// 由网页读取器识别目录和正文。
 class RssBookClient extends DirectLinkBookClient {

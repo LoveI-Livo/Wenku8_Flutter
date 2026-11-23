@@ -23,9 +23,15 @@ const _cloudSearchFix =
 const _sourceSearchFix =
     '修复书源搜索：RSS/Atom 条目的简介现在会参与匹配和展示，搜索书名、作者、简介都能命中。';
 const _searchPage =
-    '搜索结果固定每页 50 条，底部“加载下一页”继续；不再自动无限滚动，也不再在 40 条处提前截断。';
+    '搜索结果固定每页 50 条；加载成功时继续下滑自动加载下一页，加载失败时停止自动请求并显示“加载下一页”按钮；不再在 40 条处提前截断。';
 const _sourceMulti =
-    '小说书源支持一行填多个地址，最多 12 个；支持 RSS、Atom、JSON Feed、JSON 列表和普通网页目录。';
+    '小说书源支持一行填多个地址，最多 200 个；支持 RSS、Atom、JSON Feed、JSON 列表和普通网页目录。';
+const _sourceFiles =
+    '书源管理支持批量导入 TXT、CSV、Legado 书源 JSON、OPML 和 HTML 书源文件，可一次导入多个文件；导入后逐个检测有效或失效，一键删除失效书源。';
+const _sourceFilter =
+    '搜索时可以指定固定来源：书源搜索可选某一个书源，网盘搜索可选某一个已连接网盘，不必每次全量搜索。';
+const _linkFix =
+    '修复“关联到 App”：部分文件管理器只给一次性读取权限时不再直接报错；新增独立关联入口，无法长期授权时自动保存副本，原文件仍保留。';
 const _sourceWeb =
     '网页书源自动识别书名、作者、简介、章节目录和正文；RSS 条目链接到网页时也能在线阅读。';
 const _sourceEntryFix =
@@ -45,6 +51,9 @@ const _threeSearch =
 const _changes = [
   _searchPage,
   _sourceMulti,
+  _sourceFiles,
+  _sourceFilter,
+  _linkFix,
   _sourceWeb,
   _sourceEntryFix,
   _sourceSearchFix,

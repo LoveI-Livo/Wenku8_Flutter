@@ -183,7 +183,7 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.direct =>
                       '任意 HTTPS 文件直链，粘贴后直接流式读取，不保存账号 Cookie。',
                     CloudSourceKind.rss =>
-                      '小说书源：支持 RSS / Atom / JSON Feed / JSON 列表和普通网页目录。一行一个地址，最多 12 个；带 {query} 或 {page} 的地址会按关键词和页码替换。',
+                      '小说书源：支持 RSS / Atom / JSON Feed / JSON 列表和普通网页目录。一行一个地址，最多 200 个；带 {query} 或 {page} 的地址会按关键词和页码替换。',
                   }, style: const TextStyle(fontSize: 13, height: 1.65)),
                   const SizedBox(height: 12),
                   if (settings[kind] case final config?) ...[
@@ -485,7 +485,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
             if (widget.kind.isDirectLink) ...[
               AppText(
                 widget.kind == CloudSourceKind.rss
-                    ? '填写小说书源地址，一行一个，最多 12 个。支持 RSS、Atom、'
+                    ? '填写小说书源地址，一行一个，最多 200 个。支持 RSS、Atom、'
                           'JSON Feed、JSON 列表和普通网页目录；网页里的章节会按目录和正文自动识别。'
                           '搜索地址可以用 {query} 代表关键词、{page} 代表页码。'
                     : '在${widget.kind.label}网页复制文件的下载直链（https 开头、带 sign 参数的地址），粘贴到下方。'
@@ -502,7 +502,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
                     ? 'https://example.com/feed.xml\nhttps://example.com/search?q={query}&page={page}'
                     : 'https://wwx.lanzoui.com/… 或迅雷直链',
                 helper: widget.kind == CloudSourceKind.rss
-                    ? '支持 RSS / Atom / JSON / 网页目录；一行一个，最多 12 个。'
+                    ? '支持 RSS / Atom / JSON / 网页目录；一行一个，最多 200 个。'
                     : '分享页地址不是直链；请在下载按钮上右键或长按复制真实下载地址。',
               ),
               GlassTextButton(
