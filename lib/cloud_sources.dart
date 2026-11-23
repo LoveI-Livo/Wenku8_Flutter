@@ -356,11 +356,16 @@ class CloudBookEntry {
     required this.folder,
     this.size = 0,
     this.author = '',
+    this.summary = '',
   });
   final String id, name;
   final bool folder;
   final int size;
   final String author;
+
+  /// RSS/Atom 或目录接口能直接提供的简介；WebDAV 通常为空，需要读取文件
+  /// 元数据后再补。只用于搜索和展示，不落盘。
+  final String summary;
   bool get isBook => !folder && supportsBookImport(name);
 }
 
@@ -1029,7 +1034,7 @@ class RssBookClient extends DirectLinkBookClient {
   Future<CloudBookListing> list(String folder, {int page = 1}) async {
     if (page > 1) return const CloudBookListing([]);
     final uri = Uri.parse(root);
-    final res = await CloudHttp().request(
+    final res = await _http.request(
       'GET',
       uri,
       headers: (_) => {
@@ -1041,7 +1046,7 @@ class RssBookClient extends DirectLinkBookClient {
       allowHttp: config.allowHttp,
       redirectMessage: '书源地址发生跳转，请填写最终 RSS/Atom 地址',
     );
-    final bytes = await CloudHttp().bytes(res, limit: 4 * 1024 * 1024);
+    final bytes = await _http.bytes(res, limit: 4 * 1024 * 1024);
     final document = XmlDocument.parse(
       utf8.decode(bytes, allowMalformed: true),
     );
@@ -1058,6 +1063,7 @@ class RssBookClient extends DirectLinkBookClient {
           folder: false,
           size: 0,
           author: author.trim(),
+          summary: summary.trim(),
         ),
       );
     }

@@ -145,6 +145,9 @@ key.properties
 /tools/update-mirror/.env*
 /tools/update-mirror/public/
 
+# Private deployment secrets must never enter the repository.
+/server/cloud-parse/config.php
+
 # Tests and device acceptance material remain in the private development tree.
 /test/
 /integration_test/

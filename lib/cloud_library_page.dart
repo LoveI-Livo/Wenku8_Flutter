@@ -790,6 +790,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
   final _folders = <({String id, String name})>[];
   final _selected = <String, CloudBookEntry>{};
   final _imported = <String>{};
+  final _addedToShelf = <String>{};
   String? _readingOnline;
   List<CloudBookEntry> _entries = [];
   int? _next;
@@ -797,7 +798,8 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
       _searching = false,
       _importing = false,
       _cancelled = false,
-      _committing = false;
+      _committing = false,
+      _batch = false;
   int _generation = 0, _received = 0;
   int? _total;
   String? _error, _current, _loadedFolder, _query;
@@ -848,7 +850,13 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
             if (entry.folder) {
               pending.add(entry.id);
             } else if (entry.isBook &&
-                entry.name.toLowerCase().contains(value.toLowerCase())) {
+                (entry.name.toLowerCase().contains(value.toLowerCase()) ||
+                    entry.author
+                        .toLowerCase()
+                        .contains(value.toLowerCase()) ||
+                    entry.summary
+                        .toLowerCase()
+                        .contains(value.toLowerCase()))) {
               matches[entry.id] = entry;
             }
           }
@@ -911,6 +919,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
       _folders.add((id: entry.id, name: entry.name));
       _entries = [];
       _selected.clear();
+      _batch = false;
       _next = null;
     });
     _load();
@@ -922,6 +931,7 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
       _folders.removeLast();
       _entries = [];
       _selected.clear();
+      _batch = false;
       _next = null;
     });
     _load();
@@ -942,7 +952,56 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
     }
   }
 
-  Future<void> _import(List<CloudBookEntry> entries) async {
+  void _toggleBatch() {
+    if (_importing) return;
+    setState(() {
+      _batch = !_batch;
+      if (!_batch) _selected.clear();
+    });
+  }
+
+  void _toggleSelection(CloudBookEntry entry) {
+    if (_importing) return;
+    setState(() {
+      if (_selected.containsKey(entry.id)) {
+        _selected.remove(entry.id);
+      } else {
+        _selected[entry.id] = entry;
+      }
+    });
+  }
+
+  /// 默认状态下点右侧圆圈就是一次明确的“加入书架”，不再让用户先勾选、
+  /// 再回到页面顶部点按钮。批量模式仍保留在顶部统一操作。
+  Future<void> _addShelfEntry(CloudBookEntry entry) async {
+    final add = widget.onAddShelf;
+    if (add == null) {
+      _toggleSelection(entry);
+      return;
+    }
+    if (_importing) return;
+    setState(() => _importing = true);
+    try {
+      await add(entry, widget.config);
+      if (!mounted) return;
+      setState(() => _addedToShelf.add(entry.id));
+      showNovelFeedback(
+        context,
+        '已加入书架 · ${widget.config.kind.label}，点开即在线阅读',
+      );
+    } catch (error) {
+      if (mounted) {
+        showNovelFeedback(
+          context,
+          '加入书架未完成：${cloudFailureMessage(error)}',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+Future<void> _import(List<CloudBookEntry> entries) async {
     if (_importing || entries.isEmpty) return;
     setState(() {
       _importing = true;
@@ -1079,6 +1138,13 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                             ),
                           ),
                         ),
+                        GlassTextButton(
+                          key: const ValueKey('cloud-batch-toggle'),
+                          onPressed: _loading || _importing
+                              ? null
+                              : _toggleBatch,
+                          child: AppText(_batch ? '完成' : '批量选择'),
+                        ),
                         GlassIconButton(
                           icon: CupertinoIcons.refresh,
                           label: '刷新网盘目录',
@@ -1091,8 +1157,8 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                     const SizedBox(height: 12),
                     AppText(
                       widget.config.kind.isDirectLink
-                          ? '直链书籍可加入书架或书单在线阅读，不下载原文件。搜索请用主界面并切到“网盘搜索”。'
-                          : '点书直接在线读取，不下载到本机；勾选后可“加入书架”或“导入到书单”。搜索请用主界面并切到“网盘搜索”。',
+                          ? '点右侧圆圈直接加入书架；点“批量选择”后可勾选多本加入书单。搜索请用主界面并切到“网盘搜索”。'
+                          : '点书在线读取，不下载到本机；点右侧圆圈直接加入书架。需要批量时点“批量选择”，勾选多本后统一加入书单或书架。搜索请用主界面并切到“网盘搜索”。',
                       style: const TextStyle(height: 1.65),
                     ),
                     const SizedBox(height: 16),
@@ -1124,7 +1190,15 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                           '只读取文件信息，不会把原文件保存到本机。',
                           style: TextStyle(fontSize: 12, height: 1.5),
                         ),
-                    ] else if (_selected.isNotEmpty) ...[
+                    ] else if (_batch && _selected.isNotEmpty) ...[
+                      AppText(
+                        '已选 ${_selected.length} 本',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       if (widget.onAddShelf != null) ...[
                         GlassPillButton(
                           icon: CupertinoIcons.book,
@@ -1132,17 +1206,23 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                           onPressed: _importing
                               ? null
                               : () async {
+                                  final selected = _selected.values.toList();
                                   setState(() => _importing = true);
                                   try {
                                     await Future.wait([
-                                      for (final entry in _selected.values)
+                                      for (final entry in selected)
                                         widget.onAddShelf!(
                                           entry,
                                           widget.config,
                                         ),
                                     ]);
                                     if (!mounted) return;
-                                    _selected.clear();
+                                    setState(() {
+                                      _selected.clear();
+                                      _addedToShelf.addAll(
+                                        selected.map((entry) => entry.id),
+                                      );
+                                    });
                                     showNovelFeedback(
                                       context,
                                       '已加入书架 · ${widget.config.kind.label}，点开即在线阅读',
@@ -1284,14 +1364,24 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                                       _loading ||
                                       _readingOnline != null
                                   ? null
-                                  : () => entry.folder
-                                        ? _enter(entry)
-                                        : widget.onReadCloud != null
-                                        ? _readOnline(entry)
-                                        : () => showNovelFeedback(
-                                            context,
-                                            '请先在下方勾选这本书，再点“导入到书单（不下载）”',
-                                          ),
+                                  : () {
+                                      if (_batch && !entry.folder) {
+                                        _toggleSelection(entry);
+                                        return;
+                                      }
+                                      if (entry.folder) {
+                                        _enter(entry);
+                                        return;
+                                      }
+                                      if (widget.onReadCloud != null) {
+                                        _readOnline(entry);
+                                        return;
+                                      }
+                                      showNovelFeedback(
+                                        context,
+                                        '请点右侧圆圈加入书架，或先点“批量选择”再导入书单。',
+                                      );
+                                    },
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 14,
@@ -1308,7 +1398,9 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                                     ),
                                     if (!entry.folder)
                                       AppText(
-                                        _imported.contains(entry.id)
+                                        _addedToShelf.contains(entry.id)
+                                            ? '已在书架 · 点开在线阅读'
+                                            : _imported.contains(entry.id)
                                             ? '已在书单 · 点开在线阅读'
                                             : _readingOnline == entry.id
                                             ? '正在打开在线阅读…'
@@ -1335,19 +1427,27 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                             )
                           else
                             GlassIconButton(
-                              icon: _selected.containsKey(entry.id)
-                                  ? CupertinoIcons.checkmark_circle_fill
-                                  : CupertinoIcons.circle,
-                              label: '选择 ${entry.name}',
+                              icon: _batch
+                                  ? (_selected.containsKey(entry.id)
+                                        ? CupertinoIcons.checkmark_circle_fill
+                                        : CupertinoIcons.circle)
+                                  : (_addedToShelf.contains(entry.id) ||
+                                            _imported.contains(entry.id)
+                                        ? CupertinoIcons.checkmark_circle_fill
+                                        : CupertinoIcons.circle),
+                              label: _batch
+                                  ? '选择 ${entry.name}'
+                                  : (_addedToShelf.contains(entry.id) ||
+                                            _imported.contains(entry.id)
+                                        ? '${entry.name} 已在书架'
+                                        : '加入书架 ${entry.name}'),
                               onPressed: _importing
                                   ? null
-                                  : () => setState(() {
-                                      if (_selected.containsKey(entry.id)) {
-                                        _selected.remove(entry.id);
-                                      } else {
-                                        _selected[entry.id] = entry;
-                                      }
-                                    }),
+                                  : _batch
+                                  ? () => _toggleSelection(entry)
+                                  : widget.onAddShelf != null
+                                  ? () => _addShelfEntry(entry)
+                                  : () => _toggleSelection(entry),
                             ),
                         ],
                       ),

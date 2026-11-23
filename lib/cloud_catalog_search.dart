@@ -1,20 +1,27 @@
 import 'dart:async';
-import 'dart:convert';
 
+import 'book_search.dart';
 import 'catalog.dart';
 import 'cloud_document_service.dart';
+import 'cloud_parse_service.dart';
 import 'cloud_sources.dart';
 
 enum CloudSearchScope { all, netDisks, sources }
 
 /// 全局搜索里的网盘 / 书源索引。
 ///
-/// 搜索已登录的网盘账号目录和直链书源，不下载文件；
-/// 命中的条目以远程书元数据返回，可直接加入书单并在线阅读。
+/// 先按文件名、作者和书源简介匹配；没有命中时，再对体积较小的文件做一次
+/// 主机/内存元数据识别，读取书名、作者、简介。只读取元数据，不把原文件
+/// 保存到本机，也不会对每个网盘文件都发起解析。
 class CloudCatalogSearch {
   CloudCatalogSearch._();
   static final instance = CloudCatalogSearch._();
   final CloudSourceSettings settings = CloudSourceSettings();
+
+  static const _walkBudget = Duration(seconds: 12);
+  static const _probeBudget = Duration(seconds: 12);
+  static const _maxProbeBytes = 8 * 1024 * 1024;
+  static const _maxProbeFiles = 12;
 
   /// 每次搜索都重新读取当前已连接来源，新添加的网盘会自动进入搜索，
   /// 不需要重启 App，也不依赖固定列表。
@@ -38,55 +45,58 @@ class CloudCatalogSearch {
         )
         .toList();
     if (configs.isEmpty) return const [];
+
+    final parseSettings = CloudParseSettings.instance;
+    await parseSettings.load();
     final results = <Novel>[];
     await Future.wait(
       configs.map((config) async {
         CloudBookClient? client;
         try {
           client = CloudBookClient(config);
-          final matches = await _searchClient(
+          final walk = await _searchClient(
             client,
             value,
-          ).timeout(const Duration(seconds: 10));
-          for (final entry in matches.take(40)) {
-            // Account providers resolve the real download address only when
-            // the book is opened. Resolving every search hit here would send
-            // hundreds of requests and make full-disk search unusable.
-            final lazy =
-                config.kind == CloudSourceKind.quark ||
-                config.kind == CloudSourceKind.lanzou;
-            final url = lazy
-                ? Uri(
-                    scheme: 'cloud',
-                    host: config.kind.name,
-                    pathSegments: [entry.id],
-                  ).toString()
-                : await client.directLink(entry);
-            if (url == null || url.isEmpty) continue;
-            results.add(
-              CloudDocumentService.instance.metadata(
-                entry.name,
-                url,
-                author: entry.author.isEmpty
-                    ? '${config.kind.label} · 全盘搜索'
-                    : entry.author,
-                cookie: config.cookie,
-                authorization: config.username.trim().isEmpty
-                    ? null
-                    : 'Basic ' +
-                          base64Encode(
-                            utf8.encode(
-                              '${config.username.trim()}:${config.password}',
-                            ),
-                          ),
-                sourceLabel: config.kind.label,
-                remoteEntryId: entry.id,
-                remoteKind: config.kind.name,
-              ),
+          ).timeout(_walkBudget);
+
+          if (walk.matches.isNotEmpty) {
+            for (final entry in walk.matches.take(40)) {
+              results.add(_novelFor(entry, config));
+            }
+            return;
+          }
+
+          // 文件名、作者、RSS 简介都没有命中时，只对少量小文件做元数据识别。
+          // 这样可以搜到 TXT/EPUB 内部写的书名、作者和简介，同时避免把整个
+          // 网盘的大文件都拉一遍。
+          if (!parseSettings.enabled || walk.files.isEmpty) return;
+          final candidates = _probeCandidates(walk.files);
+          for (var start = 0; start < candidates.length; start += 3) {
+            final batch = candidates.skip(start).take(3);
+            final probed = await Future.wait<Novel?>(
+              batch.map((entry) async {
+                try {
+                  return await CloudDocumentService.instance
+                      .enrich(
+                        _novelFor(entry, config),
+                        cloudOnly: true,
+                      )
+                      .timeout(_probeBudget);
+                } catch (_) {
+                  return null;
+                }
+              }),
             );
+            for (final novel in probed.whereType<Novel>()) {
+              if (_matches(value, novel) &&
+                  !results.any((existing) => existing.id == novel.id)) {
+                results.add(novel);
+              }
+            }
+            if (results.length >= 40) return;
           }
         } catch (_) {
-          // 单个来源超时或未登录不影响其他来源。
+          // 单个来源超时、未登录或格式不支持不影响其他来源。
         } finally {
           client?.close();
         }
@@ -95,16 +105,62 @@ class CloudCatalogSearch {
     return results;
   }
 
-  Future<List<CloudBookEntry>> _searchClient(
+  Novel _novelFor(CloudBookEntry entry, CloudSourceConfig config) =>
+      CloudDocumentService.instance.cloudBook(entry, config);
+
+  Iterable<CloudBookEntry> _probeCandidates(List<CloudBookEntry> files) {
+    final small = files.where(
+      (entry) =>
+          entry.isBook &&
+          entry.size > 0 &&
+          entry.size <= _maxProbeBytes &&
+          !entry.folder,
+    );
+    final ordered = small.toList()
+      ..sort((a, b) {
+        final priority = _probePriority(a.name) - _probePriority(b.name);
+        return priority != 0 ? priority : a.size.compareTo(b.size);
+      });
+    return ordered.take(_maxProbeFiles);
+  }
+
+  int _probePriority(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.txt') ||
+        lower.endsWith('.md') ||
+        lower.endsWith('.html') ||
+        lower.endsWith('.htm') ||
+        lower.endsWith('.xhtml')) {
+      return 0;
+    }
+    if (lower.endsWith('.epub') ||
+        lower.endsWith('.fb2') ||
+        lower.endsWith('.docx') ||
+        lower.endsWith('.odt')) {
+      return 1;
+    }
+    return 2;
+  }
+
+  bool _matches(String query, Novel novel) => BookSearch(query).matches(
+    title: novel.title,
+    author: novel.author,
+    tags: novel.genre,
+    summary: novel.summary,
+    id: '${novel.remoteEntryId ?? novel.id}',
+  );
+
+  Future<_CloudSearchWalk> _searchClient(
     CloudBookClient client,
     String query,
   ) async {
-    final value = query.toLowerCase();
+    final pattern = BookSearch(query);
     final matches = <String, CloudBookEntry>{};
+    final files = <String, CloudBookEntry>{};
     final pending = <String>[client.root];
     final visited = <String>{};
     var folders = 0;
-    while (pending.isNotEmpty && folders < 60 && matches.length < 100) {
+    while (pending.isNotEmpty && folders < 80 && files.length < 300) {
       final folder = pending.removeAt(0);
       if (!visited.add(folder)) continue;
       folders++;
@@ -112,14 +168,29 @@ class CloudCatalogSearch {
       for (final entry in listing.entries) {
         if (entry.folder) {
           pending.add(entry.id);
-        } else if (entry.isBook &&
-            (entry.name.toLowerCase().contains(value) ||
-                entry.author.toLowerCase().contains(value) ||
-                entry.id.toLowerCase().contains(value))) {
-          matches[entry.id] = entry;
+        } else if (entry.isBook) {
+          files[entry.id] = entry;
+          if (pattern.matches(
+            title: entry.name,
+            author: entry.author,
+            tags: '',
+            summary: entry.summary,
+            id: entry.id,
+          )) {
+            matches[entry.id] = entry;
+          }
         }
       }
     }
-    return matches.values.toList();
+    return _CloudSearchWalk(
+      matches: matches.values.toList(),
+      files: files.values.toList(),
+    );
   }
+}
+
+class _CloudSearchWalk {
+  const _CloudSearchWalk({required this.matches, required this.files});
+  final List<CloudBookEntry> matches;
+  final List<CloudBookEntry> files;
 }

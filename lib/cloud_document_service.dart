@@ -9,6 +9,7 @@ import 'package:html/parser.dart' as html;
 import 'package:xml/xml.dart' as xml;
 
 import 'book_documents.dart';
+import 'book_identity.dart';
 import 'catalog.dart';
 import 'cloud_book_media.dart';
 import 'cloud_parse_service.dart';
@@ -34,7 +35,10 @@ class CloudDocumentService {
     for (var i = 0; i < 8; i++) {
       value = (value << 8) | digest[i];
     }
-    return 2_000_000_000 + (value & 0x0FFFFFFF);
+    // 0x40000000..0x5fffffff: stable and below localBookIdStart. The old
+    // 2_000_000_000 range overlapped local-book backup/ID validation and made
+    // cloud shelf records silently disappear.
+    return cloudBookIdStart + (value & 0x1fffffff);
   }
 
   /// 只生成书架元数据，不联网、不下载。
@@ -88,8 +92,10 @@ class CloudDocumentService {
   /// Reads the cloud object once into memory to recognize embedded title,
   /// author, summary and cover. No original file is written to the device.
   /// Parsing failures keep the filename-based shelf record instead of
-  /// preventing the book from being added.
-  Future<Novel> enrich(Novel novel) async {
+  /// preventing the book from being added. When [cloudOnly] is true (search
+  /// indexing), failure returns the original metadata instead of downloading
+  /// the book to the phone.
+  Future<Novel> enrich(Novel novel, {bool cloudOnly = false}) async {
     final cached = _metadata[novel.id];
     if (cached != null && _enriched.contains(novel.id)) return cached;
     final url = novel.remoteUrl;
@@ -122,6 +128,7 @@ class CloudDocumentService {
         _enriched.add(novel.id);
         return enriched;
       }
+      if (cloudOnly) return novel;
       final bytes = await _fetch(
         resolved,
         cookie: novel.remoteCookie,
@@ -191,6 +198,7 @@ class CloudDocumentService {
     return metadata(
       entry.name,
       url,
+      summary: entry.summary.isEmpty ? null : entry.summary,
       author: entry.author.isEmpty
           ? '${config.kind.label} · 在线阅读'
           : entry.author,
