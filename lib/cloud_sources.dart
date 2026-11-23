@@ -276,8 +276,7 @@ class CloudSourceConfig {
       // 允许保存全部停用的书源；地址与状态保留，重新启用后立即恢复。
       if ((entries.isEmpty && sources.isEmpty) ||
           entries.length > maxBookSources ||
-          sources.length > maxBookSources ||
-          address.length > 8 * 1024 * 1024) {
+          sources.length > maxBookSources) {
         throw const CloudSourceFailure(
           '小说书源最多 $maxBookSources 个；请检查地址是否为空或格式是否异常',
         );
