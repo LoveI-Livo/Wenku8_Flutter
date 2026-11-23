@@ -187,7 +187,7 @@ class WebNovelReader {
       allowMalformed: true,
     );
     final meta = RegExp(
-      "charset\\s*=\\s*[\"']?([a-zA-Z0-9_\\-]+)",
+      "(?:charset|encoding)\\s*=\\s*[\"']?([a-zA-Z0-9_\\-]+)",
       caseSensitive: false,
     ).firstMatch(head)?.group(1)?.toLowerCase();
     final name = header ?? meta;
