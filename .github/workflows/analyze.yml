@@ -25,7 +25,7 @@ jobs:
         run: flutter pub get
 
       - name: Web source tests
-        run: flutter test test/cloud_web_test.dart
+        run: flutter test test/cloud_web_test.dart test/book_source_import_test.dart
 
       - name: Analyze
         run: |
