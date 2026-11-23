@@ -1253,6 +1253,8 @@ class RssBookClient extends DirectLinkBookClient {
       final title = _child(item, 'title');
       String link = '';
       for (final node in item.findElements('link')) {
+        final rel = node.getAttribute('rel')?.trim().toLowerCase();
+        if (rel != null && rel != '' && rel != 'alternate') continue;
         final href = node.getAttribute('href');
         if (href != null && href.trim().isNotEmpty) {
           link = href;

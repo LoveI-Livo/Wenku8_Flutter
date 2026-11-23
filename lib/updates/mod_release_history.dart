@@ -18,7 +18,7 @@ class ModRelease {
 const modReleaseHistory = <ModRelease>[
   ModRelease(
     version: '0.7.6',
-    date: '2026-11-24',
+    date: '2026-11-23',
     summary: '搜索每页 50 条，小说书源支持更多格式与多地址',
     changes: [
       '搜索结果固定每页 50 条，底部“加载下一页”继续；不再自动无限滚动，也不再在 40 条处提前截断。',
