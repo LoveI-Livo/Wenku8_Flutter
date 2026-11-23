@@ -43,6 +43,18 @@ void main() {
     expect(release!.assetFor(['arm64-v8a'])?.name, contains('arm64-v8a'));
   });
 
+  test('旧版检查器兼容的 universal 包名能被选中', () {
+    final release = AppRelease.fromGithub(
+      releaseJson(
+        version: '0.7.7',
+        assetName: 'wenku8-0.7.7-universal.apk',
+      ),
+      'LoveI-Livo/qingxiaoshuo-wenku',
+    );
+    expect(release, isNotNull);
+    expect(release!.assetFor(['arm64-v8a'])?.name, contains('universal'));
+  });
+
   test('低版本能检测到高版本，同版本不重复提示', () {
     final release = AppRelease.fromGithub(
       releaseJson(),
