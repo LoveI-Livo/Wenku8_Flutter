@@ -140,6 +140,10 @@ class BookSourceFileReader {
         'ruleContent',
         'ruleExplore',
         'ruleReview',
+        'header',
+        'loginUrl',
+        'coverDecodeJs',
+        'bookUrlPattern',
       ];
       final rules = <String, dynamic>{};
       for (final key in ruleKeys) {
@@ -182,20 +186,25 @@ class BookSourceFileReader {
   }
 
   static String _legadoSearch(String base, String search) {
-    final searchUrl = search.contains('{{') || search.startsWith('/')
-        ? search
-        : search;
+    final raw = search.trim();
+    if (raw.isEmpty) return base;
+    // 阅读书源的 searchUrl 支持在逗号后跟 JSON 请求配置，例如：
+    // /search.php,{"method":"post","body":"key={{key}}"}
+    // 只解析逗号前的地址，JSON 配置原样保留给请求层。
+    final config = RegExp(r',\s*(\{.*\})\s*$', dotAll: true).firstMatch(raw);
+    final address = config == null ? raw : raw.substring(0, config.start);
+    final suffix = config == null ? '' : raw.substring(config.start);
     final Uri baseUri;
     try {
       baseUri = Uri.parse(base);
     } catch (_) {
-      return searchUrl;
+      return raw;
     }
     String target;
     try {
-      target = baseUri.resolve(searchUrl).toString();
+      target = baseUri.resolve(address).toString();
     } catch (_) {
-      target = searchUrl;
+      target = address;
     }
     target = target
         .replaceAll(RegExp('%7b', caseSensitive: false), '{')
@@ -208,12 +217,16 @@ class BookSourceFileReader {
           RegExp(r'\{\{?\s*page\s*\}\}?', caseSensitive: false),
           '{page}',
         );
-    if (!target.contains('{query}')) {
-      // 没有关键词占位符的搜索地址不能用于按书名搜索；保留站点首页作为网页书源，
-      // 仍可通过浏览目录/详情页读取。
+    final lowerSuffix = suffix.toLowerCase();
+    final hasKeyword =
+        target.contains('{query}') ||
+        lowerSuffix.contains('{{key}}') ||
+        lowerSuffix.contains('{query}');
+    if (!hasKeyword) {
+      // 没有关键词占位符的搜索地址不能用于按书名搜索；保留站点首页作为网页书源。
       return base;
     }
-    return target;
+    return '$target$suffix';
   }
 
   static List<ImportedBookSource> _xml(String text) {

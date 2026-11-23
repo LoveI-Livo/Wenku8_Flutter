@@ -17,8 +17,10 @@
 ## 部署步骤
 
 1. 在网站根目录下新建目录，例如 `cloud-parse`。
-2. 上传两个文件：
+2. 上传这些文件：
    - `cloud-parse/index.php`
+   - `cloud-parse/cover.php`（封面代理）
+   - `cloud-parse/manage.php`（可道云封面管理页）
    - `cloud-parse/config.php.example`
 3. 复制 `config.php.example` 为同目录的 `config.php`，只修改 `config.php`，
    给 `token` 写一段至少 32 位的随机字符串。可以用下面的命令生成：
@@ -36,6 +38,12 @@ https://你的域名/cloud-parse/index.php
 ```
 
 App 里进入「网盘在线阅读 → 云端主机解析」，填写这个地址和同一个 token。
+
+封面从 0.8.2 起默认直接写入可道云：在 `config.php` 填写 `kodbox_dav`、
+`kodbox_user`、`kodbox_password` 和 `kodbox_cover_dir` 后，App 上传的封面会出现在
+可道云「个人空间/云端封面」，App 只保存 `cover.php?f=...` 的远端地址；可道云
+写入失败时才在主机 `covers` 留兜底。管理页为
+`https://你的域名/cloud-parse/manage.php?token=你的密钥`。
 
 ## Nginx 示例
 

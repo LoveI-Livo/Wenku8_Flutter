@@ -121,20 +121,26 @@ class CloudDocumentService {
       );
       if (remote != null) {
         final coverBytes = remote.coverBytes;
-        if (coverBytes != null && coverBytes.isNotEmpty) {
-          try {
-            await CloudBookMedia.saveCover(novel.id, coverBytes);
-          } catch (_) {
-            // Metadata remains usable even when cover caching is unavailable.
+        String? coverUrl;
+        if (coverBytes != null && coverBytes.isNotEmpty && !cloudOnly) {
+          coverUrl = await _publishCover(novel.id, coverBytes);
+          if (coverUrl == null) {
+            try {
+              await CloudBookMedia.saveCover(novel.id, coverBytes);
+            } catch (_) {
+              // 主机不可用时封面只在运行期内存中，不写本机磁盘。
+            }
           }
         }
         final enriched = novel.withMetadata(
           title: remote.title,
           author: remote.author,
           summary: remote.summary,
-          coverUrl: coverBytes == null || coverBytes.isEmpty
-              ? null
-              : CloudBookMedia.marker(novel.id),
+          coverUrl:
+              coverUrl ??
+              (coverBytes == null || coverBytes.isEmpty || cloudOnly
+                  ? null
+                  : CloudBookMedia.marker(novel.id)),
         );
         _metadata[novel.id] = enriched;
         _enriched.add(novel.id);
@@ -491,12 +497,10 @@ class CloudDocumentService {
     CloudRemoteDocument remote,
   ) async {
     final coverBytes = remote.coverBytes;
+    String? coverUrl;
     if (coverBytes != null && coverBytes.isNotEmpty) {
-      try {
-        await CloudBookMedia.saveCover(id, coverBytes);
-      } catch (_) {
-        // The remote chapters remain readable without a cached cover.
-      }
+      coverUrl = await _publishCover(id, coverBytes);
+      if (coverUrl == null) await CloudBookMedia.saveCover(id, coverBytes);
     }
     final media = <String, Uint8List>{};
     for (final entry in remote.media.entries) {
@@ -537,6 +541,7 @@ class CloudDocumentService {
       author: remote.author,
       summary: remote.summary,
       coverBytes: coverBytes,
+      coverUrl: coverUrl,
     );
     final full = _withSource(parsed, source);
     return _CloudDocument(full, bodies, coverBytes: coverBytes);
@@ -563,18 +568,20 @@ class CloudDocumentService {
     } else {
       parsed = _parse(id, name, url, bytes);
     }
+    var published = parsed.novel;
     if (parsed.coverBytes != null) {
-      try {
+      final coverUrl = await _publishCover(id, parsed.coverBytes!);
+      if (coverUrl != null) {
+        published = published.withMetadata(coverUrl: coverUrl);
+      } else {
         await CloudBookMedia.saveCover(id, parsed.coverBytes!);
-      } catch (_) {
-        // Metadata stays usable even when the platform cache is unavailable.
       }
     }
     for (final entry in parsed.media.entries) {
       CloudBookMedia.cacheMedia(id, entry.key, entry.value);
     }
     return _CloudDocument(
-      parsed.novel,
+      published,
       parsed.bodies,
       coverBytes: parsed.coverBytes,
     );
@@ -968,6 +975,14 @@ class CloudDocumentService {
     );
   }
 
+  Future<String?> _publishCover(int id, Uint8List bytes) async {
+    try {
+      return await CloudParseService.instance.uploadCover(id, bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Novel _novel(
     int id,
     String name,
@@ -977,6 +992,7 @@ class CloudDocumentService {
     String? author,
     String? summary,
     Uint8List? coverBytes,
+    String? coverUrl,
   }) => Novel(
     id: id,
     title: _cleanName(title?.trim().isNotEmpty == true ? title! : name),
@@ -987,7 +1003,8 @@ class CloudDocumentService {
         : '来自网盘直链，在线阅读，不下载原文件。',
     colors: const [Color(0xFF225577), Color(0xFF44AACC)],
     chapters: chapters,
-    coverUrl: coverBytes == null ? null : CloudBookMedia.marker(id),
+    coverUrl:
+        coverUrl ?? (coverBytes == null ? null : CloudBookMedia.marker(id)),
     chapterCount: chapters.length,
     isComplete: true,
     remoteUrl: url,

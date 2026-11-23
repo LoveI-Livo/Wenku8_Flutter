@@ -17,6 +17,19 @@ class ModRelease {
 /// of changelog text.
 const modReleaseHistory = <ModRelease>[
   ModRelease(
+    version: '0.8.2',
+    date: '2026-11-24',
+    summary: '封面直传可道云、Legado 书源引擎补全',
+    changes: [
+      '网盘封面改为直接写入可道云「个人空间/云端封面」，App 只保存远端 URL，本机不再保存封面图片。',
+      '旧版 data URI 封面首次启动自动迁移到云端；迁移失败即清空，不会回写本机。',
+      '普通文库书封面继续按原图源请求；清空本地数据或图片缓存后仍正常加载，不受网盘封面迁移影响。',
+      'Legado 书源 searchUrl 支持逗号后的 POST/Header JSON 配置，搜索请求真实发出。',
+      '补全目录 nextTocUrl 翻页、正文 nextContentUrl 连续抓取、& 规则合并；HTML/JSON、@ 链式、class/id/tag、!位置、##正则全部保留。',
+      '新增 Legado 端到端测试：POST 搜索、详情、目录分页、正文分页和 & 合并全部通过。',
+    ],
+  ),
+  ModRelease(
     version: '0.8.1',
     date: '2026-11-24',
     summary: '书架隔离、网盘封面、下载中心与书源分组',

@@ -6,8 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Cover cache for books that are read directly from a cloud drive.
 ///
-/// Only the cover thumbnail is cached, never the book file. The cache lets the
-/// shelf keep showing a cover after restart without downloading the whole book.
+/// 网盘封面从 0.8.2 起直接写入可道云，App 只在运行期保留缩略图内存，
+/// 不再把封面写到本机磁盘；旧版封面缓存会在启动时清理。
 abstract final class CloudBookMedia {
   static const scheme = 'wenku-cloud-cover:';
   static const mediaScheme = 'wenku-cloud-media:';
@@ -35,10 +35,16 @@ abstract final class CloudBookMedia {
   static Future<void> pruneLegacyDisk() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool('cloud_media_disk_migrated_v1') == true) return;
-      final directory = await mediaDirectory();
-      if (await directory.exists()) await directory.delete(recursive: true);
-      await prefs.setBool('cloud_media_disk_migrated_v1', true);
+      if (prefs.getBool('cloud_media_disk_migrated_v1') != true) {
+        final media = await mediaDirectory();
+        if (await media.exists()) await media.delete(recursive: true);
+        await prefs.setBool('cloud_media_disk_migrated_v1', true);
+      }
+      if (prefs.getBool('cloud_cover_disk_migrated_v1') != true) {
+        final covers = await cacheDirectory();
+        if (await covers.exists()) await covers.delete(recursive: true);
+        await prefs.setBool('cloud_cover_disk_migrated_v1', true);
+      }
     } catch (_) {
       // 缓存目录被占用时下次启动再清理。
     }
@@ -135,11 +141,6 @@ abstract final class CloudBookMedia {
     }
     final value = Uint8List.fromList(bytes).asUnmodifiableView();
     _memory[id] = value;
-    final file = await _file(id);
-    await file.parent.create(recursive: true);
-    final temporary = File('${file.path}.tmp');
-    await temporary.writeAsBytes(value, flush: true);
-    await temporary.rename(file.path);
   }
 
   static bool handlesMedia(String? url) => url?.startsWith(mediaScheme) == true;

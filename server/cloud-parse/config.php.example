@@ -1,8 +1,12 @@
 <?php
-// 复制为 config.php，改成自己的长随机密钥；App 里填写同一个密钥。
 return [
-    'token' => 'CHANGE-ME-TO-A-LONG-RANDOM-TOKEN',
+    'token' => '请替换为自己的随机密钥',
     'max_bytes' => 64 * 1024 * 1024,
-    // 仅本地联调时可设为 true；线上保持 false，避免被用来访问内网。
     'allow_private' => false,
+    // 可选：封面直接写入可道云，App 只保存 cover.php 的远端地址。
+    // 不填写时退回主机 covers 目录。
+    'kodbox_dav' => 'https://你的可道云域名/index.php/dav/',
+    'kodbox_user' => '可道云账号',
+    'kodbox_password' => '可道云密码',
+    'kodbox_cover_dir' => '个人空间/云端封面',
 ];

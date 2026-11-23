@@ -34,6 +34,7 @@ import 'reader_underline.dart';
 import 'reader_annotation_range.dart';
 import 'reading_activity.dart';
 import 'reading_moments.dart';
+import 'cloud_parse_service.dart';
 export 'reading_entry.dart';
 
 class ReadingPosition {
@@ -821,7 +822,61 @@ class LibraryState extends ChangeNotifier {
         'shelf': state._shelf.map((id) => '$id').toList(),
       });
     }
+    await state._migrateEmbeddedCovers();
     return state;
+  }
+
+  /// 0.8.1 曾把网盘封面编码成 data URI 塞进书籍元数据。0.8.2 改为把图片
+  /// 上传到用户自己的云端解析主机，只留下远端 URL；旧封面在这里迁移，
+  /// 迁移失败则清空，绝不再把图片写回本机。
+  Future<void> _migrateEmbeddedCovers() async {
+    final keys = _prefs
+        .getKeys()
+        .where((key) => key.startsWith('novel_meta_'))
+        .toList(growable: false);
+    for (final key in keys) {
+      final raw = _prefs.getString(key);
+      if (raw == null || raw.isEmpty || !raw.contains('data:image')) continue;
+      Map<String, dynamic>? snapshot;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) snapshot = Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        continue;
+      }
+      final cover = snapshot?['coverUrl'];
+      if (snapshot == null ||
+          cover is! String ||
+          !cover.startsWith('data:image')) {
+        continue;
+      }
+      final id = int.tryParse(key.substring('novel_meta_'.length)) ?? 0;
+      String? remote;
+      try {
+        final separator = cover.indexOf(',');
+        final bytes = separator > 0
+            ? base64Decode(cover.substring(separator + 1))
+            : Uint8List(0);
+        if (id > 0 && bytes.isNotEmpty) {
+          remote = await CloudParseService.instance.uploadCover(id, bytes);
+        }
+      } catch (_) {
+        remote = null;
+      }
+      snapshot['coverUrl'] = remote;
+      try {
+        await writeLibraryPreference(_prefs, key, jsonEncode(snapshot));
+        final novel = _known[id];
+        if (novel != null) {
+          _known[id] = remote == null
+              ? novel.withMetadata(resetCover: true)
+              : novel.withMetadata(coverUrl: remote);
+          _persistedNovels[id] = _known[id]!;
+        }
+      } catch (_) {
+        // 写失败时保留原记录，下一次启动继续迁移；不会复制新图片。
+      }
+    }
   }
 
   Future<void> loadFonts() async {

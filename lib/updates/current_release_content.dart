@@ -54,7 +54,8 @@ const _parseProbe = '云端主机解析新增“测试接口”，不拉取书�
 const _sourcePicker = '书源或网盘超过 40 个时，搜索来源改为可搜索的独立列表页，按名称或地址快速筛选。';
 const _shelfIsolation =
     '普通书架与网络书架彻底隔离：普通书架只保留轻小说文库书，网盘书和书源书只出现在「网络」书架；普通书架不再显示“在线”来源标签。';
-const _cloudCoverEdit = '网盘书详情页可更换或删除封面，封面随书籍数据保存；清理正文缓存或重启 App 后仍保留。';
+const _cloudCoverEdit =
+    '网盘书详情页可更换或删除封面；封面直接上传到可道云「个人空间/云端封面」，App 只保存远端图片地址，不写本机数据。';
 const _localAvatar = '「我的」页头像不再依赖登录：未登录也能从相册更换或恢复默认头像，头像保存在 App 支持目录，清理缓存不会丢。';
 const _downloadCenter = '新增下载中心：集中查看已下载小说，可保存到系统文件夹；支持不限速、1/2/5/10 MB/s 下载限速。';
 const _dockCustom = '底栏显示可自定义：设置页可单独隐藏发现、书架、本地、网络，「我的」作为设置入口始终保留。';
@@ -72,7 +73,18 @@ const _cacheFix =
 const _accountFix = '账号加载失败不再只显示“登录失败”：错误原因直接展示，可重新加载；登录失败不会静默清空已有状态。';
 const _onlineLabel = '网盘书的“在线读取”不再和来源信息挤在同一行，详情页只保留独立阅读入口。';
 
+const _cloudCoverKodbox =
+    '网盘封面彻底不再占本机空间：图片由解析主机直接写入可道云「个人空间/云端封面」，App 只保存远端 URL；旧版 data URI 封面首次启动自动迁移，迁移失败就清空，不会重新落盘。';
+const _legadoEngine =
+    '阅读/Legado 书源引擎补齐真实请求：searchUrl 逗号后的 POST/Header JSON 配置生效，目录 nextTocUrl 可翻页，正文 nextContentUrl 连续抓取，& 规则合并；支持 HTML/JSON 规则、@ 链式、class/id/tag 简写、!位置和 ##正则，搜索、详情、目录、正文都走书源原规则。';
+const _normalCover =
+    '普通文库书封面保持原链路：清空本地数据或图片缓存后，仍按文库图片源正常请求，不依赖网盘封面，也不写入可道云；只有网盘书封面走云端。';
+
 const _changes = [
+  _cloudCoverKodbox,
+  _legadoEngine,
+  _normalCover,
+
   _shelfIsolation,
   _cloudCoverEdit,
   _localAvatar,
@@ -132,20 +144,11 @@ $releaseReadingNotice
 
 ### 本次更新
 
-- $_searchPage
-- $_sourceMulti
-- $_sourceWeb
-- $_sourceEntryFix
-- $_sourceSearchFix
-- $_shelfFix
-- $_cloudSearchFix
-- $_cloudBatch
+- $_cloudCoverKodbox
+- $_legadoEngine
+- $_normalCover
+- $_cloudCoverEdit
 - $_cloudParse
-- $_cloudAuto
-- $_cloudShelf
-- $_cloudMetadata
-- $_cloudCache
-- $_threeSearch
 
 ### 后续维护
 

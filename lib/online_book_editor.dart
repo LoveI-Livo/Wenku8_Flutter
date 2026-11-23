@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -11,6 +10,7 @@ import 'book_documents.dart';
 import 'legacy_cover.dart';
 import 'book_categories.dart';
 import 'catalog.dart';
+import 'cloud_parse_service.dart';
 import 'feature_pages.dart' show FeatureEntry, FeatureError, featurePadding;
 import 'library_state.dart';
 import 'local_book_edit_widgets.dart';
@@ -41,6 +41,7 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
   late String? _coverUrl = widget.book.coverUrl;
   String? get _originalCoverUrl => widget.book.coverUrl;
   Uint8List? _coverBytes;
+  bool _coverChanged = false;
   LocalLibraryPreferences? _groups;
   String _group = LocalLibraryPreferences.unfiled;
   bool _busy = false;
@@ -84,17 +85,10 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
       if (bytes.isEmpty || bytes.length > 4 * 1024 * 1024) {
         throw const FormatException('封面不能为空或超过 4 MiB');
       }
-      final name = selected.name.toLowerCase();
-      final mime = name.endsWith('.png')
-          ? 'image/png'
-          : name.endsWith('.webp')
-          ? 'image/webp'
-          : 'image/jpeg';
-      final encoded = 'data:$mime;base64,${base64Encode(bytes)}';
       LegacyCover.forget(widget.book.id);
       setState(() {
         _coverBytes = bytes;
-        _coverUrl = encoded;
+        _coverChanged = true;
       });
     } catch (error) {
       if (mounted) {
@@ -113,6 +107,7 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
     setState(() {
       _coverBytes = null;
       _coverUrl = null;
+      _coverChanged = true;
     });
   }
 
@@ -148,13 +143,28 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
           !groups.groups.containsKey(_group)) {
         throw const FormatException('分类已变化，请重新选择分类');
       }
+      var coverUrl = _coverUrl;
+      if (_coverChanged) {
+        if (_coverBytes != null) {
+          setState(() => _error = '正在上传封面到云端…');
+          coverUrl = await CloudParseService.instance.uploadCover(
+            widget.book.id,
+            _coverBytes!,
+          );
+          LegacyCover.forget(widget.book.id);
+          _coverUrl = coverUrl;
+        } else {
+          coverUrl = null;
+        }
+      }
       final updated = widget.book.withMetadata(
         title: title,
         author: author,
         genre: _tags.join(' '),
         summary: _summary.text.trim(),
-        coverUrl: _coverUrl,
-        resetCover: _coverUrl == null && _originalCoverUrl != null,
+        coverUrl: coverUrl,
+        resetCover:
+            _coverChanged && coverUrl == null && _originalCoverUrl != null,
       );
       await widget.library.rememberNovel(updated);
       await widget.library.setShelfMembership(
@@ -255,7 +265,8 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
                   onPressed: _busy ? null : _chooseCover,
                   child: AppText('更换封面'),
                 ),
-                if (_coverUrl != null && _coverUrl != _originalCoverUrl)
+                if (_coverChanged ||
+                    (_coverUrl != null && _coverUrl != _originalCoverUrl))
                   GlassTextButton(
                     key: const ValueKey('online-edit-cover-remove'),
                     compact: true,
@@ -266,8 +277,8 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
             ),
             const SizedBox(height: 10),
             AppText(
-              '这本书不在本机保存文件，修改只更新书架信息与阅读记录；'
-              '自选封面会随书籍信息保存，清理缓存不会删除。',
+              '这本书不在本机保存文件，修改只更新书架信息与阅读记录。'
+              '更换封面会上传到云端解析主机，本机只保存图片地址，不占用本地空间。',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.5,

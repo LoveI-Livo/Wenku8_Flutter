@@ -13,7 +13,7 @@
 declare(strict_types=1);
 
 const CLOUD_PARSE_API_VERSION = '1';
-const CLOUD_PARSE_VERSION = '0.8.0';
+const CLOUD_PARSE_VERSION = '0.8.2';
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Cloud-Parse-Api: ' . CLOUD_PARSE_API_VERSION);
@@ -38,7 +38,7 @@ if ($maxBytes < 1 || $maxBytes > 128 * 1024 * 1024) {
 }
 
 $raw = file_get_contents('php://input');
-if ($raw === false || strlen($raw) > 1024 * 1024) {
+if ($raw === false || strlen($raw) > 8 * 1024 * 1024) {
     fail('请求内容无效');
 }
 $input = json_decode($raw, true);
@@ -57,8 +57,72 @@ if (($input['test'] ?? false) === true) {
             'test' => true,
             'version' => CLOUD_PARSE_VERSION,
             'api_version' => CLOUD_PARSE_API_VERSION,
-            'capabilities' => ['epub', 'text', 'docx', 'html', 'fb2', 'cover', 'media', 'cookie', 'authorization', 'userAgent', 'headers'],
+            'capabilities' => ['epub', 'text', 'docx', 'html', 'fb2', 'cover', 'cover_upload', 'media', 'cookie', 'authorization', 'userAgent', 'headers'],
             'time' => time(),
+        ],
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+    );
+    exit;
+}
+
+// 封面托管：App 只保存远端地址。图片优先通过 WebDAV 直接写入可道云，
+// 在可道云「个人空间/云端封面」中由用户管理；主机 covers 只作为旧数据兜底。
+if (($input['action'] ?? '') === 'cover.upload') {
+    $image = (string)($input['image'] ?? '');
+    if ($image === '' || strlen($image) > 7 * 1024 * 1024) {
+        fail('封面图片为空或超过 4 MiB');
+    }
+    $bytes = base64_decode($image, true);
+    if ($bytes === false || $bytes === '' || strlen($bytes) > 4 * 1024 * 1024) {
+        fail('封面图片数据无效或超过 4 MiB');
+    }
+    $kind = '';
+    if (strncmp($bytes, "\xFF\xD8\xFF", 3) === 0) {
+        $kind = 'jpg';
+        $mime = 'image/jpeg';
+    } elseif (strncmp($bytes, "\x89PNG\r\n\x1A\n", 8) === 0) {
+        $kind = 'png';
+        $mime = 'image/png';
+    } elseif (strncmp($bytes, 'GIF8', 4) === 0) {
+        $kind = 'gif';
+        $mime = 'image/gif';
+    } elseif (strncmp($bytes, 'RIFF', 4) === 0 && substr($bytes, 8, 4) === 'WEBP') {
+        $kind = 'webp';
+        $mime = 'image/webp';
+    } elseif (strncmp($bytes, 'BM', 2) === 0) {
+        $kind = 'bmp';
+        $mime = 'image/bmp';
+    } else {
+        fail('只支持 JPEG、PNG、WebP、GIF 或 BMP 封面');
+    }
+    $hash = substr(hash('sha256', $bytes . '|' . (string)($input['bookId'] ?? '')), 0, 32);
+    $file = $hash . '.' . $kind;
+    $storage = 'host';
+    if (!empty($config['kodbox_dav']) && kodboxPutCover($bytes, $file, $config)) {
+        $storage = 'kodbox';
+    }
+    if ($storage !== 'kodbox') {
+        // 只有可道云写入失败时才在主机留一份兜底，正常上传不会重复占空间。
+        $covers = __DIR__ . '/covers';
+        if (!is_dir($covers) && !@mkdir($covers, 0755, true) && !is_dir($covers)) {
+            fail('可道云和主机都无法保存封面', 500);
+        }
+        $path = $covers . '/' . $file;
+        if (!is_file($path) && @file_put_contents($path, $bytes, LOCK_EX) === false) {
+            fail('可道云和主机都无法保存封面', 500);
+        }
+    }
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ||
+        strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+    $origin = ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    $dir = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/cloud-parse/index.php'))), '/');
+    echo json_encode(
+        [
+            'ok' => true,
+            'url' => $origin . $dir . '/cover.php?f=' . rawurlencode($file),
+            'mime' => $mime,
+            'bytes' => strlen($bytes),
+            'storage' => $storage,
         ],
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
     );
@@ -131,6 +195,87 @@ if (strlen($json) > 64 * 1024 * 1024) {
 }
 echo $json;
 exit;
+
+function davRequest(string $method, string $url, array $config, ?string $body = null, array $headers = [], string $depth = ''): array
+{
+    $user = (string)($config['kodbox_user'] ?? '');
+    $password = (string)($config['kodbox_password'] ?? '');
+    $headers[] = 'Accept: */*';
+    if ($user !== '' || $password !== '') {
+        $headers[] = 'Authorization: Basic ' . base64_encode($user . ':' . $password);
+    }
+    if ($depth !== '') $headers[] = 'Depth: ' . $depth;
+    if ($body !== null) {
+        $headers[] = 'Content-Length: ' . strlen($body);
+        $headers[] = 'Expect:';
+    }
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        if ($body !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        $response = curl_exec($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $type = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        curl_close($ch);
+        return [$status, is_string($response) ? $response : '', $type];
+    }
+    $context = stream_context_create([
+        'http' => [
+            'method' => $method,
+            'header' => implode("\r\n", $headers),
+            'content' => $body ?? '',
+            'timeout' => 30,
+            'ignore_errors' => true,
+        ],
+    ]);
+    $response = @file_get_contents($url, false, $context);
+    $status = 0;
+    if (isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $m)) {
+        $status = (int)$m[1];
+    }
+    return [$status, is_string($response) ? $response : '', ''];
+}
+
+function kodboxCoverUrl(array $config, string $name): string
+{
+    $dav = rtrim((string)($config['kodbox_dav'] ?? ''), '/') . '/';
+    $dir = trim((string)($config['kodbox_cover_dir'] ?? '个人空间/云端封面'), '/');
+    $url = $dav;
+    foreach ($dir === '' ? [] : explode('/', $dir) as $part) {
+        $url .= rawurlencode($part) . '/';
+    }
+    return $url . rawurlencode($name);
+}
+
+function kodboxPutCover(string $bytes, string $file, array $config): bool
+{
+    $dav = rtrim((string)($config['kodbox_dav'] ?? ''), '/') . '/';
+    if ($dav === '/') return false;
+    $dir = trim((string)($config['kodbox_cover_dir'] ?? '个人空间/云端封面'), '/');
+    $path = $dav;
+    foreach ($dir === '' ? [] : explode('/', $dir) as $part) {
+        $path .= rawurlencode($part) . '/';
+        [$status] = davRequest('MKCOL', $path, $config);
+        if ($status !== 201 && $status !== 405 && $status !== 301 && $status !== 200) {
+            // 目录已存在时 WebDAV 通常返回 405；其他状态继续尝试 PUT。
+        }
+    }
+    [$status] = davRequest(
+        'PUT',
+        kodboxCoverUrl($config, $file),
+        $config,
+        $bytes,
+        ['Content-Type: application/octet-stream']
+    );
+    return $status >= 200 && $status < 300;
+}
 
 function fail(string $message, int $status = 400): void
 {

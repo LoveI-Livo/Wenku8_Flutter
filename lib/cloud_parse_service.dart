@@ -122,7 +122,7 @@ class CloudParseService {
       final request = await client.postUrl(uri);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.1');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.2');
       request.write(
         jsonEncode({
           'token': value,
@@ -166,6 +166,84 @@ class CloudParseService {
     }
   }
 
+  /// 把用户选择的封面托管到云端接口，返回远端图片 URL。
+  /// App 只保存 URL，不把图片字节写进书架或本机文件。
+  Future<String> uploadCover(int bookId, Uint8List bytes) async {
+    if (bytes.isEmpty || bytes.length > _maxImageBytes) {
+      throw const FormatException('封面不能为空或超过 4 MiB');
+    }
+    final settings = CloudParseSettings.instance;
+    await settings.load();
+    final endpoint = Uri.tryParse(settings.endpoint.trim());
+    if (endpoint == null ||
+        endpoint.host.isEmpty ||
+        settings.token.trim().isEmpty) {
+      throw const FormatException(
+        '请先在「网盘在线阅读 → 云端主机解析」填写接口地址和密钥，封面会上传到该主机，不占本机空间',
+      );
+    }
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20)
+      ..idleTimeout = const Duration(seconds: 20);
+    try {
+      final request = await client.postUrl(endpoint);
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.2');
+      request.write(
+        jsonEncode({
+          'token': settings.token,
+          'action': 'cover.upload',
+          'bookId': bookId,
+          'image': base64Encode(bytes),
+          'apiVersion': contractVersion,
+        }),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 40),
+      );
+      final data = <int>[];
+      await for (final chunk in response.timeout(const Duration(seconds: 15))) {
+        data.addAll(chunk);
+        if (data.length > 512 * 1024) break;
+      }
+      Map<String, dynamic>? map;
+      try {
+        final decoded = jsonDecode(utf8.decode(data));
+        if (decoded is Map) map = Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        map = null;
+      }
+      final url = map?['url'];
+      if (response.statusCode == 200 &&
+          map?['ok'] == true &&
+          url is String &&
+          url.trim().isNotEmpty) {
+        final parsed = Uri.tryParse(url.trim());
+        if (parsed != null &&
+            parsed.host.isNotEmpty &&
+            (parsed.scheme == 'https' || parsed.scheme == 'http')) {
+          return url.trim();
+        }
+      }
+      final error = map?['error'];
+      if (error is String && error.trim().isNotEmpty) {
+        throw FormatException(error.trim());
+      }
+      throw FormatException(
+        '封面上传失败（HTTP ${response.statusCode}），请确认主机已更新到 0.8.2 接口',
+      );
+    } on FormatException {
+      rethrow;
+    } on SocketException catch (failure) {
+      throw FormatException('无法连接封面主机：${failure.message}');
+    } on TimeoutException {
+      throw const FormatException('封面上传超时，请检查主机状态');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<CloudRemoteDocument?> parse(
     Novel novel, {
     required String resolvedUrl,
@@ -183,7 +261,7 @@ class CloudParseService {
       final request = await client.postUrl(endpoint);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.1');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.2');
       final uri = Uri.tryParse(resolvedUrl);
       final rawName = uri == null || uri.pathSegments.isEmpty
           ? ''
