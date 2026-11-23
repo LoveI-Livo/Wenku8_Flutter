@@ -131,7 +131,7 @@ function fetchRemote(string $url, string $cookie, string $authorization, int $ma
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_USERAGENT => 'Wenku8Mod-CloudParse/0.7.4',
+        CURLOPT_USERAGENT => 'Wenku8Mod-CloudParse/0.7.7',
         CURLOPT_WRITEFUNCTION => function ($curl, $chunk) use (&$buffer, &$tooLarge, $maxBytes): int {
             if ($tooLarge) {
                 return 0;
