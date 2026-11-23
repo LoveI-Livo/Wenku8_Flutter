@@ -231,6 +231,16 @@ class BookDocuments {
           );
   }
 
+  /// 把 App 内下载好的文件导出到用户在系统文件选择器里指定的文件夹。
+  /// Android 使用 ACTION_CREATE_DOCUMENT，iOS 使用文档导出面板。
+  Future<String?> exportText(String path, String name) async {
+    final value = await channel.invokeMapMethod<String, dynamic>('exportText', {
+      'path': path,
+      'name': name,
+    });
+    return value?['path'] as String?;
+  }
+
   Future<BookDocumentSelection?> pickFont() async {
     final value = await channel.invokeMapMethod<String, dynamic>('pickFont');
     return value == null
@@ -358,7 +368,9 @@ class BookDocuments {
         : (name: value['name'] as String, path: value['path'] as String);
   }
 
-  Future<List<BookDocumentSelection>> pickBooks({bool sourceFiles = false}) async {
+  Future<List<BookDocumentSelection>> pickBooks({
+    bool sourceFiles = false,
+  }) async {
     final values = await channel.invokeListMethod<dynamic>(
       'pickBooks',
       sourceFiles ? const {'sourceFiles': true} : null,

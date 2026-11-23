@@ -172,6 +172,7 @@ class Novel {
     String? genre,
     String? summary,
     String? coverUrl,
+    bool resetCover = false,
   }) => Novel(
     id: id,
     title: title ?? this.title,
@@ -181,7 +182,7 @@ class Novel {
     colors: colors,
     chapters: chapters,
     isComplete: isComplete,
-    coverUrl: coverUrl ?? this.coverUrl,
+    coverUrl: resetCover ? null : coverUrl ?? this.coverUrl,
     lastUpdate: lastUpdate,
     chapterCount: chapterCount,
     navigation: navigation,

@@ -23,10 +23,11 @@ class BookDocuments internal constructor(
 ) : MethodChannel.MethodCallHandler {
     private val io = Executors.newSingleThreadExecutor()
     private val preferences = activity.getSharedPreferences("book_documents", 0)
-    private data class Pending(val method: String, val result: MethodChannel.Result, val deferred: Boolean = false, val linkText: Boolean = false, val linkOriginals: Boolean = false, val sourceFiles: Boolean = false)
+    private data class Pending(val method: String, val result: MethodChannel.Result, val deferred: Boolean = false, val linkText: Boolean = false, val linkOriginals: Boolean = false, val sourceFiles: Boolean = false, val payload: String? = null)
     private var pending: Pending? = null
     private var closed = false
     private val root = File(activity.cacheDir, "book-documents").apply { mkdirs() }
+    private val downloadRoot = File(activity.filesDir, "downloads").apply { mkdirs() }
     private val importRoot get() = imports.root
     private val scanner = BookFolderScanner(activity)
     private val links = BookTextLinks(activity)
@@ -59,8 +60,11 @@ class BookDocuments internal constructor(
     private fun bookTextFile(path: String): File {
         val candidate = File(path).canonicalFile
         val cloud = File(activity.cacheDir, "cloud-book-import").canonicalFile
+        val downloads = downloadRoot.canonicalFile
+        val flutterDownloads = File(activity.filesDir, "app_flutter/downloads").canonicalFile
         require(candidate.isFile && (candidate.parentFile == root.canonicalFile ||
             imports.initialized && candidate.parentFile == importRoot.canonicalFile ||
+            candidate.parentFile == downloads || candidate.parentFile == flutterDownloads ||
             candidate.path.startsWith(cloud.path + File.separator))) { "文件路径无效" }
         return candidate
     }
@@ -123,6 +127,20 @@ class BookDocuments internal constructor(
                         @Suppress("DEPRECATION") activity.startActivityForResult(intent, ALL_REQUEST)
                     } else activity.requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), ALL_REQUEST)
                 } catch (_: Exception) { pending = null; result.error("permission", "系统未提供共享存储授权，请选择指定文件夹", null) }
+            }
+            "exportText" -> {
+                if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
+                val source = bookTextFile(call.argument<String>("path") ?: "")
+                val title = (call.argument<String>("name") ?: source.name).ifBlank { "下载的小说.txt" }
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TITLE, title)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                }
+                pending = Pending("exportText", result, payload = source.path)
+                try { @Suppress("DEPRECATION") activity.startActivityForResult(intent, REQUEST) }
+                catch (_: Exception) { pending = null; result.error("picker", "系统文件选择器不可用", null) }
             }
             "pickBook", "pickBooks", "pickDictionaryFiles", "pickTextReference", "pickOriginalReference", "pickFont", "pickImage", "openSync", "createSync", "selectScanFolder" -> {
                 if (pending != null) { result.error("busy", "请先完成当前文件选择", null); return }
@@ -287,7 +305,13 @@ class BookDocuments internal constructor(
         if (uris.isEmpty()) { operation.result.success(null); return true }
         val uri = uris.first()
         background(operation.result) {
-            if (operation.method == "selectScanFolder") {
+            if (operation.method == "exportText") {
+                val source = File(operation.payload ?: throw IllegalArgumentException("文件路径无效"))
+                activity.contentResolver.openOutputStream(uri)?.use { output ->
+                    source.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw IllegalStateException("无法写入所选文件夹")
+                mapOf("name" to name(uri, source.name), "path" to uri.toString())
+            } else if (operation.method == "selectScanFolder") {
                 scanner.select(uri, data.flags)
             } else if (operation.method == "pickImage") {
                 val display = name(uri, "图片")
@@ -338,8 +362,8 @@ class BookDocuments internal constructor(
                                 // of failing with a permission error.
                             }
                         }
-                        if (operation.deferred) return@map imports.queue.select(selected, display, if (operation.sourceFiles) 16L * 1024 * 1024 else BookArchiveImport.limit(display))
-                        val maximum = if (operation.sourceFiles) 16L * 1024 * 1024 else BookArchiveImport.limit(display)
+                        if (operation.deferred) return@map imports.queue.select(selected, display, if (operation.sourceFiles) Long.MAX_VALUE else BookArchiveImport.limit(display))
+                        val maximum = if (operation.sourceFiles) Long.MAX_VALUE else BookArchiveImport.limit(display)
                         val destination = File.createTempFile("import-", ".source", root)
                         target = destination
                         copy(selected, destination, maximum)

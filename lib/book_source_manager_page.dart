@@ -44,18 +44,21 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
     _sources = config == null
         ? const []
         : (config.sources.isNotEmpty
-              ? List<CloudBookSource>.from(config.sources)
-              : config.effectiveSources)
-            .toList(growable: true);
+                  ? List<CloudBookSource>.from(config.sources)
+                  : config.effectiveSources)
+              .toList(growable: true);
     setState(() {});
   }
 
-  CloudSourceConfig? get _baseConfig => _config ??
+  CloudSourceConfig? get _baseConfig =>
+      _config ??
       (_sources.isEmpty
           ? null
           : CloudSourceConfig(
               kind: CloudSourceKind.rss,
-              allowHttp: _sources.any((source) => source.url.startsWith('http://')),
+              allowHttp: _sources.any(
+                (source) => source.url.startsWith('http://'),
+              ),
               sources: _sources,
             ));
 
@@ -66,7 +69,8 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
     } else {
       final base = _baseConfig;
       if (base == null) return false;
-      final allowHttp = base.allowHttp ||
+      final allowHttp =
+          base.allowHttp ||
           sources.any((source) => source.url.startsWith('http://'));
       await widget.settings.save(
         CloudSourceKind.rss,
@@ -90,7 +94,7 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
       if (mounted) setState(() => _busy = false);
       return;
     }
-    final seen = _sources.map((source) => source.url).toSet();
+    final seen = _sources.map((source) => source.key).toSet();
     final added = <CloudBookSource>[];
     final failures = <String>[];
     try {
@@ -101,17 +105,30 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         }
         try {
           final bytes = await File(selection.path!).readAsBytes();
-          for (final source in await BookSourceFileReader.read(selection.name, bytes)) {
-            if (!seen.add(source.url)) continue;
-            added.add(CloudBookSource(url: source.url, name: source.name));
+          final parsed = await BookSourceFileReader.read(selection.name, bytes);
+          final group = parsed.length > 1 ? _groupName(selection.name) : '';
+          for (final source in parsed) {
+            final item = CloudBookSource(
+              url: source.url,
+              name: source.name,
+              group: source.group.isNotEmpty ? source.group : group,
+              rules: source.rules,
+            );
+            if (!seen.add(item.key)) continue;
+            added.add(item);
           }
         } catch (error) {
-          failures.add('${selection.name}：${error is FormatException ? error.message : '格式无法识别'}');
+          failures.add(
+            '${selection.name}：${error is FormatException ? error.message : '格式无法识别'}',
+          );
         }
       }
       if (added.isNotEmpty) {
         final before = _sources.length;
-        _sources = [..._sources, ...added].take(maxBookSources).toList(growable: true);
+        _sources = [
+          ..._sources,
+          ...added,
+        ].take(maxBookSources).toList(growable: true);
         await _save();
         final kept = _sources.length - before;
         _status = kept < added.length
@@ -121,7 +138,8 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         _status = '没有新增书源';
       }
       if (failures.isNotEmpty) {
-        _status = '${_status ?? ''}；${failures.length} 个文件未导入：${failures.first}';
+        _status =
+            '${_status ?? ''}；${failures.length} 个文件未导入：${failures.first}';
       }
     } finally {
       await _documents.releaseBooks(selections);
@@ -134,16 +152,25 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
     }
   }
 
-  int _mergeImported(Iterable<ImportedBookSource> values) {
-    final seen = _sources.map((source) => source.url).toSet();
+  int _mergeImported(Iterable<ImportedBookSource> values, {String group = ''}) {
+    final seen = _sources.map((source) => source.key).toSet();
     final added = <CloudBookSource>[];
     for (final source in values) {
-      if (!seen.add(source.url)) continue;
-      added.add(CloudBookSource(url: source.url, name: source.name));
+      final item = CloudBookSource(
+        url: source.url,
+        name: source.name,
+        group: source.group,
+        rules: source.rules,
+      );
+      if (!seen.add(item.key)) continue;
+      added.add(item);
     }
     if (added.isEmpty) return 0;
     final before = _sources.length;
-    _sources = [..._sources, ...added].take(maxBookSources).toList(growable: true);
+    _sources = [
+      ..._sources,
+      ...added,
+    ].take(maxBookSources).toList(growable: true);
     return _sources.length - before;
   }
 
@@ -164,7 +191,10 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         'clipboard.txt',
         Uint8List.fromList(utf8.encode(text)),
       );
-      final count = _mergeImported(values);
+      final count = _mergeImported(
+        values,
+        group: values.length > 1 ? '剪贴板' : '',
+      );
       if (count > 0) await _save();
       if (mounted) {
         setState(() {
@@ -186,8 +216,7 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
     if (_sources.isEmpty) return;
     final text = [
       '# 轻小说文库 · 小说书源',
-      for (final source in _sources)
-        '${source.label} | ${source.url}',
+      for (final source in _sources) '${source.label} | ${source.url}',
     ].join('\n');
     await Clipboard.setData(ClipboardData(text: text));
     if (mounted) showNovelFeedback(context, '已复制 ${_sources.length} 个书源到剪贴板');
@@ -227,7 +256,9 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
       await _save();
       if (mounted) {
         setState(() {
-          _status = probe.valid ? '${source.label} 有效' : '${source.label} 失效：${probe.message}';
+          _status = probe.valid
+              ? '${source.label} 有效'
+              : '${source.label} 失效：${probe.message}';
         });
       }
     } finally {
@@ -250,9 +281,9 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
       final batch = _sources.skip(start).take(4).toList();
       final results = await Future.wait(
         batch.map((source) async {
-          final client = RssBookClient(base, sources: [source.url]);
+          final client = RssBookClient(base, sourceEntries: [source]);
           try {
-            final probe = await client.probe(source.url);
+            final probe = await client.probe(source.url, entry: source);
             return source.copyWith(
               status: probe.valid ? 'valid' : 'invalid',
               message: probe.message,
@@ -269,7 +300,9 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         _checked = checked.length;
         _status = '正在检测 $_checked / ${_sources.length}';
         for (final result in results) {
-          final index = _sources.indexWhere((source) => source.url == result.url);
+          final index = _sources.indexWhere(
+            (source) => source.url == result.url,
+          );
           if (index >= 0) _sources[index] = result;
         }
       });
@@ -297,22 +330,70 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         title: const Text('删除失效书源？'),
         content: Text('将删除 ${invalid.length} 个检测失败的书源。网络临时中断也会显示失败，请确认后继续。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('删除')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('删除'),
+          ),
         ],
       ),
     );
     if (ok != true) return;
     setState(() {
-      _sources = _sources.where((source) => !source.invalid).toList(growable: true);
+      _sources = _sources
+          .where((source) => !source.invalid)
+          .toList(growable: true);
       _status = '已删除 ${invalid.length} 个失效书源';
     });
     await _save();
   }
 
   Future<void> _deleteOne(CloudBookSource source) async {
-    setState(() => _sources = _sources.where((item) => item.url != source.url).toList(growable: true));
+    setState(
+      () => _sources = _sources
+          .where((item) => item.url != source.url)
+          .toList(growable: true),
+    );
     await _save();
+  }
+
+  String _groupName(String fileName) {
+    final base = fileName.replaceFirst(RegExp(r'\.[^.]+$'), '').trim();
+    return base.isEmpty ? '书源包' : base;
+  }
+
+  List<String> get _groups {
+    final values = <String>{};
+    for (final source in _sources) {
+      if (source.group.trim().isNotEmpty) values.add(source.group.trim());
+    }
+    return values.toList(growable: false);
+  }
+
+  Future<void> _openGroup(String group) async {
+    final base = _baseConfig;
+    if (base == null) return;
+    final opened = await pushNovelPage<bool>(
+      context,
+      BookSourceGroupPage(
+        group: group,
+        sources: _sources.where((source) => source.group == group).toList(),
+        base: base,
+        onSave: (values) async {
+          _sources = [
+            ..._sources.where((source) => source.group != group),
+            ...values,
+          ];
+          await _save();
+        },
+      ),
+      reduceMotion: false,
+      slot: ('book-source-group', group),
+    );
+    if (opened == true || mounted) _load();
   }
 
   @override
@@ -325,7 +406,10 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
             label: '返回',
             onPressed: () => Navigator.pop(context),
           ),
-          title: const ArchiveRouteTitle(title: '小说书源', code: 'SOURCES / HEALTH'),
+          title: const ArchiveRouteTitle(
+            title: '小说书源',
+            code: 'SOURCES / HEALTH',
+          ),
           actions: [
             GlassIconButton(
               icon: CupertinoIcons.refresh,
@@ -337,27 +421,47 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         body: ListView.builder(
           padding: EdgeInsets.fromLTRB(
             24,
-            MediaQuery.paddingOf(context).top + FrostedHeader.toolbarHeight + 20,
+            MediaQuery.paddingOf(context).top +
+                FrostedHeader.toolbarHeight +
+                20,
             24,
             MediaQuery.paddingOf(context).bottom + 32,
           ),
-          itemCount: _sources.isEmpty ? 2 : _sources.length + 2,
+          itemCount: _sources.isEmpty
+              ? 2
+              : _groups.length +
+                    _sources.where((source) => source.group.isEmpty).length +
+                    2,
           itemBuilder: (context, index) {
             if (index == 0) return _header();
-            final sourceIndex = index - 1;
-            if (sourceIndex < _sources.length) {
+            final groups = _groups;
+            if (index <= groups.length) {
+              final group = groups[index - 1];
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _sourceRow(_sources[sourceIndex]),
+                child: _groupRow(group),
+              );
+            }
+            final ungrouped = _sources
+                .where((source) => source.group.isEmpty)
+                .toList(growable: false);
+            final sourceIndex = index - groups.length - 1;
+            if (sourceIndex < ungrouped.length) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _sourceRow(ungrouped[sourceIndex]),
               );
             }
             return Padding(
               padding: const EdgeInsets.only(top: 4),
               child: GlassTextButton(
-                onPressed: _busy || _checking ? null : () async {
-                  await _save();
-                  if (context.mounted) showNovelFeedback(context, '书源已保存');
-                },
+                onPressed: _busy || _checking
+                    ? null
+                    : () async {
+                        await _save();
+                        if (context.mounted)
+                          showNovelFeedback(context, '书源已保存');
+                      },
                 child: const AppText('保存书源'),
               ),
             );
@@ -375,8 +479,10 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         const ArchiveSection(title: '书源管理', code: 'BOOK SOURCES'),
         const SizedBox(height: 10),
         const AppText(
-          '支持 TXT 地址列表、CSV、Legado 书源 JSON、OPML 订阅表和含订阅链接的 HTML；'
-          '最多 10000 个书源。导入后先检测，再一键清理失效书源；搜索时可以指定某一个书源。',
+          '支持 TXT 地址列表、CSV、Legado 书源 JSON（含 ruleSearch/ruleBookInfo/'
+          'ruleToc/ruleContent 规则）、OPML 订阅表和含订阅链接的 HTML。'
+          '一个包内含多个书源时按文件名折叠成组，点进去查看全部；单条书源直接显示。'
+          '导入后先检测，再一键清理失效书源。',
           style: TextStyle(fontSize: 13, height: 1.65),
         ),
         const SizedBox(height: 16),
@@ -421,7 +527,9 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
           AppText(
             _status!,
             key: const ValueKey('book-source-status'),
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
         if (_sources.isNotEmpty) ...[
@@ -443,6 +551,43 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
             message: '点“导入书源文件”选择分享的书源文件，或“从剪贴板导入”粘贴书源文本。',
           ),
       ],
+    );
+  }
+
+  Widget _groupRow(String group) {
+    final groupSources = _sources
+        .where((source) => source.group == group)
+        .toList();
+    final enabled = groupSources.where((source) => source.enabled).length;
+    return ContentPanel(
+      key: ValueKey('book-source-group-$group'),
+      onTap: _checking ? null : () => _openGroup(group),
+      child: Row(
+        children: [
+          const ArchiveIcon(CupertinoIcons.folder, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppText(
+                  group,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                AppText(
+                  '书源包 · ${groupSources.length} 个书源 · 启用 $enabled 个，点开查看全部',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const ArchiveIcon(CupertinoIcons.chevron_right, size: 14),
+        ],
+      ),
     );
   }
 
@@ -482,12 +627,21 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
                   source.url,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 if (source.message.isNotEmpty) ...[
                   const SizedBox(height: 3),
                   AppText(
-                    '${!source.enabled ? '已停用' : source.valid ? '有效' : source.invalid ? '失效' : '未检测'} · ${source.message}',
+                    '${!source.enabled
+                        ? '已停用'
+                        : source.valid
+                        ? '有效'
+                        : source.invalid
+                        ? '失效'
+                        : '未检测'} · ${source.message}',
                     style: TextStyle(fontSize: 12, color: statusColor),
                   ),
                 ],
@@ -511,6 +665,326 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
                 icon: CupertinoIcons.trash,
                 label: '删除书源',
                 onPressed: _checking ? null : () => _deleteOne(source),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 点开一个书源包：用虚拟列表展示全部书源，避免 3000 条一次性建满。
+class BookSourceGroupPage extends StatefulWidget {
+  const BookSourceGroupPage({
+    super.key,
+    required this.group,
+    required this.sources,
+    required this.base,
+    required this.onSave,
+  });
+  final String group;
+  final List<CloudBookSource> sources;
+  final CloudSourceConfig base;
+  final Future<void> Function(List<CloudBookSource>) onSave;
+
+  @override
+  State<BookSourceGroupPage> createState() => _BookSourceGroupPageState();
+}
+
+class _BookSourceGroupPageState extends State<BookSourceGroupPage> {
+  late List<CloudBookSource> _sources = List.from(widget.sources);
+  bool _checking = false;
+  int _checked = 0;
+  String? _status;
+
+  Future<void> _save() async {
+    try {
+      await widget.onSave(_sources);
+    } catch (_) {
+      if (mounted) showNovelFeedback(context, '书源保存失败，请重试');
+    }
+  }
+
+  Future<void> _toggle(CloudBookSource source, bool enabled) async {
+    final index = _sources.indexWhere((item) => item.key == source.key);
+    if (index < 0) return;
+    setState(() => _sources[index] = source.copyWith(enabled: enabled));
+    await _save();
+  }
+
+  Future<void> _delete(CloudBookSource source) async {
+    setState(() => _sources.removeWhere((item) => item.key == source.key));
+    await _save();
+    if (mounted) showNovelFeedback(context, '已删除 ${source.label}');
+  }
+
+  Future<void> _checkOne(CloudBookSource source) async {
+    if (_checking) return;
+    setState(() {
+      _checking = true;
+      _status = '正在检测 ${source.label}';
+    });
+    final client = RssBookClient(widget.base, sourceEntries: [source]);
+    try {
+      final probe = await client.probe(source.url, entry: source);
+      final index = _sources.indexWhere((item) => item.key == source.key);
+      if (index >= 0) {
+        setState(() {
+          _sources[index] = source.copyWith(
+            status: probe.valid ? 'valid' : 'invalid',
+            message: probe.message,
+            checkedAt: DateTime.now(),
+          );
+        });
+      }
+      await _save();
+      if (mounted) {
+        setState(
+          () => _status = probe.valid
+              ? '${source.label} 有效'
+              : '${source.label} 失效：${probe.message}',
+        );
+      }
+    } finally {
+      client.close();
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _checkAll() async {
+    if (_checking || _sources.isEmpty) return;
+    setState(() {
+      _checking = true;
+      _checked = 0;
+      _status = '正在检测 0 / ${_sources.length}';
+    });
+    final checked = <CloudBookSource>[];
+    for (var start = 0; start < _sources.length; start += 4) {
+      final batch = _sources.skip(start).take(4).toList();
+      final results = await Future.wait(
+        batch.map((source) async {
+          final client = RssBookClient(widget.base, sourceEntries: [source]);
+          try {
+            final probe = await client.probe(source.url, entry: source);
+            return source.copyWith(
+              status: probe.valid ? 'valid' : 'invalid',
+              message: probe.message,
+              checkedAt: DateTime.now(),
+            );
+          } finally {
+            client.close();
+          }
+        }),
+      );
+      checked.addAll(results);
+      if (!mounted) return;
+      setState(() {
+        _checked = checked.length;
+        _status = '正在检测 $_checked / ${_sources.length}';
+      });
+    }
+    _sources = checked;
+    await _save();
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _status =
+          '检测完成：${checked.where((source) => source.valid).length} 个有效，'
+          '${checked.where((source) => source.invalid).length} 个失效';
+    });
+  }
+
+  Future<void> _deleteGroup() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('删除书源包“${widget.group}”？'),
+        content: Text('将删除这个包内的 ${_sources.length} 个书源。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await widget.onSave(const []);
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Atmosphere(
+      child: GlassHeaderLayout(
+        header: ArchiveHeaderBar(
+          leading: GlassIconButton(
+            icon: CupertinoIcons.back,
+            label: '返回',
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: ArchiveRouteTitle(
+            title: widget.group,
+            code: 'SOURCES / PACKAGE',
+          ),
+          actions: [
+            GlassIconButton(
+              icon: CupertinoIcons.refresh,
+              label: '检测本组',
+              onPressed: _checking ? null : _checkAll,
+            ),
+            GlassIconButton(
+              icon: CupertinoIcons.trash,
+              label: '删除整个书源包',
+              onPressed: _checking ? null : _deleteGroup,
+            ),
+          ],
+        ),
+        body: ListView.builder(
+          padding: EdgeInsets.fromLTRB(
+            24,
+            MediaQuery.paddingOf(context).top +
+                FrostedHeader.toolbarHeight +
+                20,
+            24,
+            MediaQuery.paddingOf(context).bottom + 32,
+          ),
+          itemCount: _sources.length + 2,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AppText(
+                      '共 ${_sources.length} 个书源，启用 ${_sources.where((source) => source.enabled).length} 个。'
+                      '每个书源都可单独检测、停用或删除。',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (_status != null) ...[
+                      const SizedBox(height: 8),
+                      AppText(
+                        _status!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }
+            final source = _sources[index - 1];
+            if (index <= _sources.length) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _row(source),
+              );
+            }
+            return GlassTextButton(
+              onPressed: () async {
+                await _save();
+                if (context.mounted) showNovelFeedback(context, '书源已保存');
+              },
+              child: const AppText('保存书源'),
+            );
+          },
+        ),
+      ),
+    ),
+  );
+
+  Widget _row(CloudBookSource source) {
+    final color = !source.enabled
+        ? Theme.of(context).colorScheme.onSurfaceVariant
+        : source.valid
+        ? const Color(0xFF2E7D32)
+        : source.invalid
+        ? Theme.of(context).colorScheme.error
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+    return ContentPanel(
+      key: ValueKey('book-source-${source.key}'),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ArchiveIcon(
+            source.valid
+                ? CupertinoIcons.checkmark_circle
+                : source.invalid
+                ? CupertinoIcons.xmark_circle
+                : CupertinoIcons.circle,
+            size: 20,
+            color: color,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppText(
+                  source.label,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 3),
+                AppText(
+                  source.url,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (source.isLegado) ...[
+                  const SizedBox(height: 3),
+                  AppText(
+                    '阅读/Legado 规则书源',
+                    style: TextStyle(fontSize: 12, color: color),
+                  ),
+                ],
+                if (source.message.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  AppText(
+                    '${!source.enabled
+                        ? '已停用'
+                        : source.valid
+                        ? '有效'
+                        : source.invalid
+                        ? '失效'
+                        : '未检测'} · ${source.message}',
+                    style: TextStyle(fontSize: 12, color: color),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppControls.toggle(
+                context,
+                value: source.enabled,
+                onChanged: _checking ? null : (value) => _toggle(source, value),
+              ),
+              GlassIconButton(
+                icon: CupertinoIcons.refresh,
+                label: '检测这个书源',
+                onPressed: _checking ? null : () => _checkOne(source),
+              ),
+              GlassIconButton(
+                icon: CupertinoIcons.trash,
+                label: '删除书源',
+                onPressed: _checking ? null : () => _delete(source),
               ),
             ],
           ),

@@ -30,7 +30,7 @@ class CloudCatalogSearch {
   static const _maxProbeBytes = 8 * 1024 * 1024;
   static const _maxProbeFiles = 12;
   static const _maxResults = 500;
-  static const _cacheLifetime = Duration(minutes: 10);
+  static const _cacheLifetime = Duration(minutes: 1);
   String? _cacheQuery;
   CloudSearchScope? _cacheScope;
   String? _cacheTarget;
@@ -67,7 +67,7 @@ class CloudCatalogSearch {
                 : config.effectiveSources) {
           result.add(
             CloudSearchTarget(
-              key: 'rss:${source.url}',
+              key: 'rss:${source.key}',
               label:
                   '${source.label} · ${Uri.tryParse(source.url)?.host ?? ''}',
               url: source.url,
@@ -134,10 +134,10 @@ class CloudCatalogSearch {
                               ? config.sources.any(
                                   (source) =>
                                       source.enabled &&
-                                      'rss:${source.url}' == key,
+                                      'rss:${source.key}' == key,
                                 )
                               : config.effectiveSources.any(
-                                  (source) => 'rss:${source.url}' == key,
+                                  (source) => 'rss:${source.key}' == key,
                                 )),
                     )
                   : keys.contains(config.kind.name) ||
@@ -155,14 +155,14 @@ class CloudCatalogSearch {
       configs.map((config) async {
         CloudBookClient? client;
         try {
-          final selectedUrls = config.kind == CloudSourceKind.rss
-              ? [
-                  for (final key in keys)
-                    if (key.startsWith('rss:')) key.substring(4),
-                ]
-              : const <String>[];
-          client = config.kind == CloudSourceKind.rss && selectedUrls.isNotEmpty
-              ? RssBookClient(config, sources: selectedUrls)
+          final selectedSources = config.kind == CloudSourceKind.rss
+              ? config.effectiveSources
+                    .where((source) => keys.contains('rss:${source.key}'))
+                    .toList(growable: false)
+              : const <CloudBookSource>[];
+          client =
+              config.kind == CloudSourceKind.rss && selectedSources.isNotEmpty
+              ? RssBookClient(config, sourceEntries: selectedSources)
               : CloudBookClient(config, settings: settings);
           final walk = await _searchClient(client, value).timeout(_walkBudget);
 
@@ -235,8 +235,18 @@ class CloudCatalogSearch {
         }
       }),
     );
+    // 已经在本机识别过的网盘书也参与搜索。在线目录偶尔超时、分页或
+    // 站点改版时，书架里已有的书不能从搜索里消失。
+    if (results.length < _maxResults) {
+      for (final known in CloudDocumentService.instance.knownBooks) {
+        if (results.any((existing) => existing.id == known.id)) continue;
+        if (_matches(value, known)) results.add(known);
+        if (results.length >= _maxResults) break;
+      }
+    }
     lastFailure = failures.isEmpty ? null : failures.take(2).join('；');
     final cached = List<Novel>.unmodifiable(results);
+    if (cached.isEmpty) return cached;
     _cache = cached;
     _cacheQuery = value;
     _cacheScope = scope;

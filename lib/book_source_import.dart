@@ -9,14 +9,22 @@ import 'package:xml/xml.dart';
 /// 支持：纯文本一行一个、`名称 | 地址`、CSV、Legado 书源 JSON、
 /// 自定义 `sources` JSON、OPML 订阅列表和含订阅链接的 HTML。
 class ImportedBookSource {
-  const ImportedBookSource(this.name, this.url);
-  final String name, url;
+  const ImportedBookSource(
+    this.name,
+    this.url, {
+    this.group = '',
+    this.rules = const {},
+  });
+  final String name, url, group;
+  final Map<String, dynamic> rules;
+  bool get isLegado => rules.isNotEmpty;
 }
 
 class BookSourceFileReader {
   BookSourceFileReader._();
 
-  static const maxBytes = 4 * 1024 * 1024;
+  // 用户明确要求不限制书源包大小；真正由设备存储和系统选择器兜底。
+  static const maxBytes = 1 << 30;
 
   static Future<List<ImportedBookSource>> read(
     String fileName,
@@ -59,7 +67,9 @@ class BookSourceFileReader {
 
   static bool _looksXml(String text) {
     final value = text.trimLeft();
-    return value.startsWith('<?xml') || value.startsWith('<opml') || value.startsWith('<rss');
+    return value.startsWith('<?xml') ||
+        value.startsWith('<opml') ||
+        value.startsWith('<rss');
   }
 
   static bool _looksHtml(String text) {
@@ -75,40 +85,94 @@ class BookSourceFileReader {
       throw const FormatException('JSON 书源文件格式无法识别');
     }
     final result = <ImportedBookSource>[];
-    void add(String? name, String? url) {
+    void add(
+      String? name,
+      String? url, {
+      Map<String, dynamic> rules = const {},
+      String group = '',
+    }) {
       final clean = _url(url);
       if (clean == null) return;
       final label = (name ?? '').trim();
-      if (result.any((source) => source.url == clean)) return;
-      result.add(ImportedBookSource(label.isEmpty ? _host(clean) : label, clean));
+      final identity = rules.isEmpty
+          ? clean
+          : '$clean|$label|${jsonEncode(rules)}';
+      for (final source in result) {
+        final existing = source.rules.isEmpty
+            ? source.url
+            : '${source.url}|${source.name}|${jsonEncode(source.rules)}';
+        if (existing == identity) return;
+      }
+      result.add(
+        ImportedBookSource(
+          label.isEmpty ? _host(clean) : label,
+          clean,
+          group: group,
+          rules: rules,
+        ),
+      );
     }
 
-    void walk(Object? value) {
+    void walk(Object? value, {String group = ''}) {
       if (value is String) {
         add(null, value);
         return;
       }
       if (value is List) {
         for (final item in value) {
-          walk(item);
+          walk(item, group: group);
         }
         return;
       }
       if (value is! Map) return;
       final map = Map<String, dynamic>.from(value);
-      final name = (map['bookSourceName'] ?? map['name'] ?? map['title'] ?? '').toString();
-      // Legado 书源：优先用 searchUrl，保留 {{key}} / {{page}} 占位符。
+      final name = (map['bookSourceName'] ?? map['name'] ?? map['title'] ?? '')
+          .toString();
+      final sourceGroup = (map['bookSourceGroup'] ?? group).toString();
+      final base = (map['bookSourceUrl'] ?? map['url'] ?? map['link'] ?? '')
+          .toString()
+          .trim();
       final search = (map['searchUrl'] ?? '').toString().trim();
-      final base = (map['bookSourceUrl'] ?? map['url'] ?? map['link'] ?? '').toString().trim();
-      if (base.isNotEmpty) {
-        if (search.isNotEmpty && map['enabled'] != false) {
-          add(name, _legadoSearch(base, search));
-        } else if (map['enabled'] != false) {
-          add(name, base);
+      final ruleKeys = const [
+        'ruleSearch',
+        'ruleBookInfo',
+        'ruleToc',
+        'ruleContent',
+        'ruleExplore',
+        'ruleReview',
+      ];
+      final rules = <String, dynamic>{};
+      for (final key in ruleKeys) {
+        final rule = map[key];
+        if (rule == null || (rule is String && rule.trim().isEmpty)) continue;
+        rules[key] = rule;
+      }
+      if (base.isNotEmpty && map['enabled'] != false) {
+        if (rules.isNotEmpty) {
+          var searchUrl = search.isEmpty ? base : search;
+          // Legado 允许相对地址；保存前解析成绝对地址，导入后即可直接搜索。
+          if (searchUrl.isNotEmpty && !searchUrl.startsWith('http')) {
+            searchUrl =
+                Uri.tryParse(base)?.resolve(searchUrl).toString() ?? searchUrl;
+          }
+          rules['searchUrl'] = _legadoSearch(base, searchUrl);
+          add(name, base, rules: rules, group: sourceGroup);
+        } else if (search.isNotEmpty) {
+          add(name, _legadoSearch(base, search), group: sourceGroup);
+        } else {
+          add(name, base, group: sourceGroup);
         }
       }
-      for (final key in const ['sources', 'books', 'items', 'data', 'list', 'results']) {
-        if (map[key] case final Object nested) walk(nested);
+      for (final key in const [
+        'sources',
+        'books',
+        'items',
+        'data',
+        'list',
+        'results',
+        'bookSources',
+      ]) {
+        if (map[key] case final Object nested) walk(nested, group: sourceGroup);
       }
     }
 
@@ -136,8 +200,14 @@ class BookSourceFileReader {
     target = target
         .replaceAll(RegExp('%7b', caseSensitive: false), '{')
         .replaceAll(RegExp('%7d', caseSensitive: false), '}')
-        .replaceAll(RegExp(r'\{\{?\s*key\s*\}\}?', caseSensitive: false), '{query}')
-        .replaceAll(RegExp(r'\{\{?\s*page\s*\}\}?', caseSensitive: false), '{page}');
+        .replaceAll(
+          RegExp(r'\{\{?\s*key\s*\}\}?', caseSensitive: false),
+          '{query}',
+        )
+        .replaceAll(
+          RegExp(r'\{\{?\s*page\s*\}\}?', caseSensitive: false),
+          '{page}',
+        );
     if (!target.contains('{query}')) {
       // 没有关键词占位符的搜索地址不能用于按书名搜索；保留站点首页作为网页书源，
       // 仍可通过浏览目录/详情页读取。
@@ -155,10 +225,16 @@ class BookSourceFileReader {
     }
     final result = <ImportedBookSource>[];
     for (final outline in document.findAllElements('outline')) {
-      final url = _url(outline.getAttribute('xmlUrl') ?? outline.getAttribute('url'));
+      final url = _url(
+        outline.getAttribute('xmlUrl') ?? outline.getAttribute('url'),
+      );
       if (url == null) continue;
       if (result.any((source) => source.url == url)) continue;
-      final label = (outline.getAttribute('text') ?? outline.getAttribute('title') ?? _host(url)).trim();
+      final label =
+          (outline.getAttribute('text') ??
+                  outline.getAttribute('title') ??
+                  _host(url))
+              .trim();
       result.add(ImportedBookSource(label.isEmpty ? _host(url) : label, url));
     }
     return result;
@@ -171,7 +247,9 @@ class BookSourceFileReader {
       final href = _url(anchor.attributes['href']);
       if (href == null) continue;
       final lower = href.toLowerCase();
-      if (!RegExp(r'(\.xml|\.rss|\.atom|\.json|feed|rss|atom)(?:$|[?#])').hasMatch(lower)) {
+      if (!RegExp(
+        r'(\.xml|\.rss|\.atom|\.json|feed|rss|atom)(?:$|[?#])',
+      ).hasMatch(lower)) {
         continue;
       }
       if (result.any((source) => source.url == href)) continue;
@@ -185,7 +263,8 @@ class BookSourceFileReader {
     final result = <ImportedBookSource>[];
     for (final raw in text.split(RegExp(r'\r?\n'))) {
       final line = raw.trim();
-      if (line.isEmpty || line.startsWith('#') || line.startsWith('//')) continue;
+      if (line.isEmpty || line.startsWith('#') || line.startsWith('//'))
+        continue;
       final values = line.split(RegExp(r'\s*[|\t,]\s*'));
       final urlValue = values.firstWhere(
         (value) => value.trim().startsWith('http'),

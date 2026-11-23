@@ -1016,7 +1016,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       44,
       MediaQuery.textScalerOf(context).scale(13) * 1.4 + 10,
     );
-    return row * 2 + 22 + (_searchSource == SearchSource.library ? 0 : 40);
+    return row * 2 + 24 + (_searchSource == SearchSource.library ? 0 : 48);
   }
 
   String get _searchTargetLabel {
@@ -1100,7 +1100,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
         const SizedBox(height: 4),
         if (_searchSource != SearchSource.library)
           SizedBox(
-            height: 34,
+            height: 44,
             child: Align(
               alignment: Alignment.centerLeft,
               child: GlassTextButton(
@@ -2340,6 +2340,7 @@ class _ShelfPageState extends State<ShelfPage>
 
   bool _matches(int id, String term) {
     if (widget.networkOnly && !isCloudBookId(id)) return false;
+    if (!widget.networkOnly && isCloudBookId(id)) return false;
     if (_cacheOnly && _offline?.availableOffline(id) != true) return false;
     final book = _known(id);
     if (!bookshelfMatchesCategory(id, state, book: book)) return false;
@@ -2471,8 +2472,9 @@ class _ShelfPageState extends State<ShelfPage>
     );
   }
 
-  Set<int> _scope(Set<int> ids) =>
-      widget.networkOnly ? ids.where(isCloudBookId).toSet() : ids;
+  Set<int> _scope(Set<int> ids) => widget.networkOnly
+      ? ids.where(isCloudBookId).toSet()
+      : ids.where((id) => !isCloudBookId(id)).toSet();
 
   ({Set<int> all, List<int> saved, List<int> featured}) _projectBooks() {
     final query = _query.text.trim().toLowerCase();
@@ -2993,7 +2995,9 @@ class _ShelfPageState extends State<ShelfPage>
   Widget _gridRow(BuildContext context, Novel book) => BookGridTile(
     key: ValueKey('shelf-grid-book-${book.id}'),
     book: book,
-    sourceLabel: bookshelfSource(book.id, _offline, book: book),
+    sourceLabel: widget.networkOnly
+        ? bookshelfSource(book.id, _offline, book: book)
+        : null,
     coverHeroTag: CoverHeroTag(this, book.id),
     progress: _progressLabel(book),
     onTap: () => openDetail(
@@ -3021,7 +3025,9 @@ class _ShelfPageState extends State<ShelfPage>
   Widget _row(BuildContext context, Novel book) => NovelRow(
     key: ValueKey('shelf-book-${book.id}'),
     novel: book,
-    sourceLabel: bookshelfSource(book.id, _offline, book: book),
+    sourceLabel: widget.networkOnly
+        ? bookshelfSource(book.id, _offline, book: book)
+        : null,
     coverHeroTag: CoverHeroTag(this, book.id),
     onTap: () => openDetail(
       context,
@@ -3617,6 +3623,42 @@ class SettingsPage extends StatelessWidget {
             onChanged: (value) =>
                 state.setNavigationMode(localReaderMode: value),
           ),
+          const Divider(height: 22),
+          Padding(
+            padding: const EdgeInsets.only(left: 33, bottom: 4),
+            child: AppText(
+              '底栏显示',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          for (final entry in const [
+            (0, '发现'),
+            (1, '书架'),
+            (2, '本地'),
+            (3, '网络'),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: _toggleSetting(
+                context,
+                keyName: 'settings-dock-${entry.$1}',
+                icon: entry.$1 == 0
+                    ? CupertinoIcons.house
+                    : entry.$1 == 1
+                    ? CupertinoIcons.book
+                    : entry.$1 == 2
+                    ? CupertinoIcons.folder
+                    : CupertinoIcons.cloud,
+                title: entry.$2,
+                description: '在底栏显示 ${entry.$2}；我的固定保留',
+                value: state.dockTabVisible(entry.$1),
+                onChanged: (value) => state.setDockTabVisible(entry.$1, value),
+              ),
+            ),
         ],
       ),
     ),
@@ -6049,7 +6091,9 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
       style: TextStyle(fontSize: 18, height: 1.2, fontWeight: FontWeight.w700),
     ),
     actions: [
-      if (!isLocalBook(novel.id) && novel.remoteUrl != null)
+      if (!isLocalBook(novel.id) &&
+          (novel.remoteUrl != null ||
+              CloudDocumentService.instance.handles(novel.id)))
         GlassIconButton(
           key: const ValueKey('detail-online-settings'),
           icon: CupertinoIcons.gear_alt,

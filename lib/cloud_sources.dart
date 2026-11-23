@@ -22,6 +22,7 @@ part 'cloud_123.dart';
 part 'cloud_aliyun.dart';
 part 'cloud_xunlei.dart';
 part 'cloud_web.dart';
+part 'legado_reader.dart';
 
 enum CloudSourceKind {
   webdav('OpenList / WebDAV'),
@@ -95,14 +96,21 @@ class CloudBookSource {
   const CloudBookSource({
     required this.url,
     this.name = '',
+    this.group = '',
     this.enabled = true,
     this.status = '',
     this.message = '',
     this.checkedAt,
+    this.rules = const {},
   });
-  final String url, name, status, message;
+  final String url, name, group, status, message;
   final bool enabled;
   final DateTime? checkedAt;
+
+  /// Legado/阅读书源的规则。为空时按普通网页/RSS/JSON 书源处理。
+  final Map<String, dynamic> rules;
+  bool get isLegado => rules.isNotEmpty;
+  String get key => isLegado ? '$url|$name|${jsonEncode(rules)}' : url;
   String get label =>
       name.trim().isNotEmpty ? name.trim() : Uri.tryParse(url)?.host ?? url;
   bool get valid => status == 'valid';
@@ -110,6 +118,8 @@ class CloudBookSource {
   Map<String, Object> toRecord() => {
     'url': url,
     'name': name,
+    if (group.isNotEmpty) 'group': group,
+    if (rules.isNotEmpty) 'rules': rules,
     if (!enabled) 'enabled': false,
     if (status.isNotEmpty) 'status': status,
     if (message.isNotEmpty) 'message': message,
@@ -124,7 +134,11 @@ class CloudBookSource {
     return CloudBookSource(
       url: url,
       name: (map['name'] ?? '').toString(),
+      group: (map['group'] ?? '').toString(),
       enabled: map['enabled'] != false,
+      rules: map['rules'] is Map
+          ? Map<String, dynamic>.from(map['rules'] as Map)
+          : const {},
       status: (map['status'] ?? '').toString(),
       message: (map['message'] ?? '').toString(),
       checkedAt: map['checkedAt'] is int
@@ -135,14 +149,18 @@ class CloudBookSource {
   CloudBookSource copyWith({
     String? url,
     String? name,
+    String? group,
     bool? enabled,
     String? status,
     String? message,
     DateTime? checkedAt,
+    Map<String, dynamic>? rules,
   }) => CloudBookSource(
     url: url ?? this.url,
     name: name ?? this.name,
+    group: group ?? this.group,
     enabled: enabled ?? this.enabled,
+    rules: rules ?? this.rules,
     status: status ?? this.status,
     message: message ?? this.message,
     checkedAt: checkedAt ?? this.checkedAt,
@@ -973,6 +991,27 @@ abstract class CloudBookClient {
 
 /// A bounded, cancellable request. Redirects are followed explicitly so DAV
 /// Basic authentication and Quark sessions never leak to unrelated origins.
+/// 下载限速只作用于当前由下载中心发起的请求。0 或 null 表示不限速。
+abstract final class CloudThrottle {
+  static double? bytesPerSecond;
+  static int _bytes = 0;
+  static final _clock = Stopwatch();
+
+  static Future<void> consume(int bytes) async {
+    final rate = bytesPerSecond;
+    if (rate == null || rate <= 0 || bytes <= 0) return;
+    if (!_clock.isRunning) _clock.start();
+    _bytes += bytes;
+    final target = Duration(microseconds: (_bytes / rate * 1000000).round());
+    final elapsed = _clock.elapsed;
+    if (target > elapsed) await Future<void>.delayed(target - elapsed);
+    if (_clock.elapsed > const Duration(seconds: 20)) {
+      _clock.reset();
+      _bytes = 0;
+    }
+  }
+}
+
 class CloudHttp {
   CloudHttp({HttpClient Function()? clientFactory})
     : _factory = clientFactory ?? HttpClient.new;
@@ -1080,6 +1119,7 @@ class CloudHttp {
           throw const CloudSourceFailure('网盘返回的数据过大');
         }
         result.add(part);
+        await CloudThrottle.consume(part.length);
       }
     } catch (_) {
       if (_closed) throw const CloudTransferCancelled();
@@ -1129,6 +1169,7 @@ class CloudHttp {
         }
         sink.add(part);
         await sink.flush();
+        await CloudThrottle.consume(part.length);
         onProgress?.call(received, total);
       }
       if (received == 0 || (total != null && received != total)) {
@@ -1616,23 +1657,41 @@ class DirectLinkBookClient implements CloudBookClient {
 /// 和页码替换。条目链接既可以是 txt/epub 文件，也可以是网页章节，阅读时
 /// 由网页读取器识别目录和正文。
 class RssBookClient extends DirectLinkBookClient {
-  RssBookClient(super.config, {List<String>? sources}) : _override = sources;
+  RssBookClient(
+    super.config, {
+    List<String>? sources,
+    List<CloudBookSource>? sourceEntries,
+  }) : _override = sources,
+       _entriesOverride = sourceEntries;
 
   static const _maxSources = maxBookSources;
   static const _maxEntries = 500;
   final List<String>? _override;
+  final List<CloudBookSource>? _entriesOverride;
 
-  List<String> get _sources =>
-      (_override ??
-              config.effectiveSources.map((source) => source.url).toList())
+  List<CloudBookSource> get _sourceObjects {
+    if (_entriesOverride case final entries?) {
+      return entries.take(_maxSources).toList(growable: false);
+    }
+    if (_override case final urls?) {
+      return urls
           .map((value) => value.trim())
           .where((value) => value.isNotEmpty)
+          .map((value) => CloudBookSource(url: value))
           .take(_maxSources)
           .toList(growable: false);
+    }
+    return config.effectiveSources.take(_maxSources).toList(growable: false);
+  }
 
-  Future<void> _parallel(
-    List<String> sources,
-    Future<void> Function(String source) action,
+  List<String> get _sources => [
+    for (final source in _sourceObjects)
+      if (!source.isLegado) source.url,
+  ];
+
+  Future<void> _parallel<T>(
+    List<T> sources,
+    Future<void> Function(T source) action,
   ) async {
     var next = 0;
     Future<void> worker() async {
@@ -1649,7 +1708,39 @@ class RssBookClient extends DirectLinkBookClient {
   }
 
   /// 体检单个书源：能解析出至少一本书或一个目录才算有效。
-  Future<CloudBookSourceProbe> probe(String source) async {
+  Future<CloudBookSourceProbe> probe(
+    String source, {
+    CloudBookSource? entry,
+  }) async {
+    final object =
+        entry ?? _sourceObjects.where((item) => item.url == source).firstOrNull;
+    if (object != null && LegadoReader.supports(object)) {
+      try {
+        final listing = await LegadoReader.search(
+          object,
+          '测试',
+          allowHttp: config.allowHttp,
+          cookie: config.cookie,
+          authorization: authHeaders[HttpHeaders.authorizationHeader] ?? '',
+        ).timeout(const Duration(seconds: 15));
+        if (listing.entries.isNotEmpty) {
+          return CloudBookSourceProbe(
+            valid: true,
+            message: 'Legado 规则识别到 ${listing.entries.length} 本书',
+            books: listing.entries.length,
+          );
+        }
+        return const CloudBookSourceProbe(
+          valid: false,
+          message: 'Legado 规则没有识别到书籍',
+        );
+      } catch (error) {
+        return CloudBookSourceProbe(
+          valid: false,
+          message: cloudFailureMessage(error),
+        );
+      }
+    }
     final target = source
         .replaceAll('{query}', Uri.encodeQueryComponent('测试'))
         .replaceAll('{page}', '1');
@@ -1708,9 +1799,29 @@ class RssBookClient extends DirectLinkBookClient {
     if (value.isEmpty) return const CloudBookListing([]);
     final entries = <String, CloudBookEntry>{};
     final pattern = BookSearch(value);
-    await _parallel(_sources, (source) async {
-      final hasQuery = source.contains('{query}');
-      final target = source
+    await _parallel(_sourceObjects, (source) async {
+      if (LegadoReader.supports(source)) {
+        try {
+          final listing = await LegadoReader.search(
+            source,
+            value,
+            page: page,
+            allowHttp: config.allowHttp,
+            cookie: config.cookie,
+            authorization: authHeaders[HttpHeaders.authorizationHeader] ?? '',
+          );
+          for (final entry in listing.entries) {
+            entries.putIfAbsent(entry.id, () => entry);
+            if (entries.length >= _maxEntries) return;
+          }
+        } catch (_) {
+          // 一个 Legado 书源规则失效不影响其它书源。
+        }
+        return;
+      }
+      final sourceUrl = source.url;
+      final hasQuery = sourceUrl.contains('{query}');
+      final target = sourceUrl
           .replaceAll('{query}', Uri.encodeQueryComponent(value))
           .replaceAll('{page}', '$page');
       try {

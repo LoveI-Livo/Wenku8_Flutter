@@ -100,6 +100,7 @@ class XunleiBookClient implements CloudBookClient {
         if (body != null) 'content-type': 'application/json',
       },
       body: body == null ? null : utf8.encode(jsonEncode(body)),
+      allowedStatuses: const {400},
     );
     final bytes = await http.bytes(res);
     Map<String, dynamic> data;
@@ -186,11 +187,8 @@ class XunleiBookClient implements CloudBookClient {
       query: {
         if (config.driveId.trim().isNotEmpty) 'space': config.driveId.trim(),
         '__type': 'drive',
-        'refresh': 'true',
-        '__sync': 'true',
         'parent_id': folder,
         'page_token': token,
-        'with_audit': 'true',
         'limit': '100',
         'filters':
             '{"phase":{"eq":"PHASE_TYPE_COMPLETE"},"trashed":{"eq":false}}',

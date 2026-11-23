@@ -29,20 +29,27 @@ class HomeNavigation extends ChangeNotifier {
   List<int> get tabs {
     // 0 发现 / 1 书架 / 2 本地 / 3 网络 / 4 我的。网络书架始终保留，
     // 它和普通书架共用同一套功能，只是数据范围限定为网盘和小说书源。
-    if (localReader) return combinedShelf ? const [1, 3, 4] : const [2, 3, 4];
-    if (combinedShelf) {
-      return cachedShelf ? const [1, 3, 4] : const [0, 1, 3, 4];
-    }
-    return cachedShelf ? const [1, 2, 3, 4] : const [0, 1, 2, 3, 4];
+    final base = localReader
+        ? (combinedShelf ? const [1, 3, 4] : const [2, 3, 4])
+        : combinedShelf
+        ? (cachedShelf ? const [1, 3, 4] : const [0, 1, 3, 4])
+        : (cachedShelf ? const [1, 2, 3, 4] : const [0, 1, 2, 3, 4]);
+    final visible = base
+        .where((tab) => tab == 4 || preferences.dockTabVisible(tab))
+        .toList();
+    if (!visible.contains(4)) visible.add(4);
+    return visible.isEmpty ? const [4] : visible;
   }
 
-  int destination(int current) => tabs.contains(current)
-      ? current
-      : localReader
-      ? combinedShelf
-            ? 1
-            : 2
-      : 1;
+  int destination(int current) {
+    final visible = tabs;
+    if (visible.contains(current)) return current;
+    if (localReader && visible.contains(combinedShelf ? 1 : 2)) {
+      return combinedShelf ? 1 : 2;
+    }
+    if (visible.contains(1)) return 1;
+    return visible.first;
+  }
 
   void _changed() {
     final next = _read();

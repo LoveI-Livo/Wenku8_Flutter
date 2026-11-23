@@ -45,6 +45,7 @@ import 'reader_appearance.dart';
 import 'reader_illustrations.dart';
 import 'app_palette.dart';
 import 'book_open_monitor.dart';
+import 'cloud_book_media.dart';
 import 'reading_widget_controller.dart';
 import 'reading_widget_cards.dart';
 import 'reading_widget_settings_page.dart';
@@ -59,6 +60,7 @@ Future<void> main() async {
   // Do not hold the first frame while Android is applying window insets.
   unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
   final state = await LibraryState.load();
+  unawaited(CloudBookMedia.pruneLegacyDisk());
   if (state.appPalette.source == AppPaletteSource.system ||
       !state.appPalette.themedIcon) {
     await state.refreshSystemPalette();

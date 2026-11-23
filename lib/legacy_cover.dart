@@ -1,23 +1,70 @@
 import 'dart:async';
 
+import 'dart:convert';
 import 'dart:typed_data';
 import 'legacy_transport.dart';
 
 /// Bounded cover cache. Source previews use local seeds only.
 abstract final class LegacyCover {
   static final _cache = LegacyCoverCache(request: _request);
-  static String urlFor(int aid) => 'https://img.wenku8.com/image/${aid ~/ 1000}/$aid/${aid}s.jpg';
+  static final _customUrls = <int, String>{};
+  static String urlFor(int aid) =>
+      'https://img.wenku8.com/image/${aid ~/ 1000}/$aid/${aid}s.jpg';
+
   static Future<Uint8List?> _request(int aid) async {
+    final custom = _customUrls[aid];
+    if (custom != null && custom.isNotEmpty) {
+      if (custom.startsWith('data:')) {
+        try {
+          final comma = custom.indexOf(',');
+          if (comma < 0) return null;
+          final header = custom.substring(0, comma),
+              data = custom.substring(comma + 1);
+          if (!header.contains(';base64')) return null;
+          return base64Decode(data);
+        } catch (_) {
+          return null;
+        }
+      }
+      try {
+        return await LegacyTransport.illustration(
+          custom,
+          cacheForViewing: false,
+        );
+      } catch (_) {
+        return null;
+      }
+    }
     try {
-      return await LegacyTransport.illustration(urlFor(aid), cacheForViewing: false);
+      return await LegacyTransport.illustration(
+        urlFor(aid),
+        cacheForViewing: false,
+      );
     } catch (_) {
       return null;
     }
   }
-  static void clear() => _cache.clear();
+
+  static void clear() {
+    _cache.clear();
+    _customUrls.clear();
+  }
+
+  static void forget(int aid) {
+    _customUrls.remove(aid);
+    _cache.forget(aid);
+  }
+
   static int get encodedBytes => _cache.encodedBytes;
-  static Uint8List? peek(int aid, {String? url}) => _cache.peek(aid);
-  static Future<Uint8List> bytes(int aid, {String? url}) => _cache.load(aid);
+  static Uint8List? peek(int aid, {String? url}) {
+    if (url != null && url.isNotEmpty) _customUrls[aid] = url;
+    return _cache.peek(aid);
+  }
+
+  static Future<Uint8List> bytes(int aid, {String? url}) {
+    if (url != null && url.isNotEmpty) _customUrls[aid] = url;
+    return _cache.load(aid);
+  }
 
   /// Explicit local fixtures never query a remote cover endpoint.
   static void seedLocalBytes(int aid, Uint8List bytes) =>
@@ -50,6 +97,13 @@ class LegacyCoverCache {
     _pending.clear();
     _failures.clear();
     _encodedBytes = 0;
+  }
+
+  void forget(int aid) {
+    final entry = _entries.remove(aid);
+    if (entry != null) _encodedBytes -= entry.bytes.length;
+    _pending.remove(aid);
+    _failures.remove(aid);
   }
 
   _CoverEntry? _touch(int aid) {

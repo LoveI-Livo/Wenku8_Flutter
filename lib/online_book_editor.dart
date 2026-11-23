@@ -1,8 +1,14 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'app_interactions.dart';
 import 'app_ui.dart';
+import 'book_documents.dart';
+import 'legacy_cover.dart';
 import 'book_categories.dart';
 import 'catalog.dart';
 import 'feature_pages.dart' show FeatureEntry, FeatureError, featurePadding;
@@ -32,6 +38,9 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
   late final _author = TextEditingController(text: widget.book.author);
   late final _summary = TextEditingController(text: widget.book.summary);
   late List<String> _tags = widget.book.tags;
+  late String? _coverUrl = widget.book.coverUrl;
+  String? get _originalCoverUrl => widget.book.coverUrl;
+  Uint8List? _coverBytes;
   LocalLibraryPreferences? _groups;
   String _group = LocalLibraryPreferences.unfiled;
   bool _busy = false;
@@ -62,6 +71,49 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
     } catch (_) {
       if (mounted) setState(() => _error = '分类读取失败，请返回后重试');
     }
+  }
+
+  Future<void> _chooseCover() async {
+    if (_busy) return;
+    final documents = BookDocuments();
+    BookDocumentSelection? selected;
+    try {
+      selected = await documents.pickImage();
+      if (selected == null) return;
+      final bytes = await File(selected.path!).readAsBytes();
+      if (bytes.isEmpty || bytes.length > 4 * 1024 * 1024) {
+        throw const FormatException('封面不能为空或超过 4 MiB');
+      }
+      final name = selected.name.toLowerCase();
+      final mime = name.endsWith('.png')
+          ? 'image/png'
+          : name.endsWith('.webp')
+          ? 'image/webp'
+          : 'image/jpeg';
+      final encoded = 'data:$mime;base64,${base64Encode(bytes)}';
+      LegacyCover.forget(widget.book.id);
+      setState(() {
+        _coverBytes = bytes;
+        _coverUrl = encoded;
+      });
+    } catch (error) {
+      if (mounted) {
+        showNovelFeedback(
+          context,
+          error is FormatException ? error.message : '封面读取失败，请重新选择',
+        );
+      }
+    } finally {
+      if (selected != null) await documents.releaseBooks([selected]);
+    }
+  }
+
+  void _removeCover() {
+    LegacyCover.forget(widget.book.id);
+    setState(() {
+      _coverBytes = null;
+      _coverUrl = null;
+    });
   }
 
   Future<void> _chooseGroup() async {
@@ -101,7 +153,10 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
         author: author,
         genre: _tags.join(' '),
         summary: _summary.text.trim(),
+        coverUrl: _coverUrl,
+        resetCover: _coverUrl == null && _originalCoverUrl != null,
       );
+      await widget.library.rememberNovel(updated);
       await widget.library.setShelfMembership(
         updated.id,
         widget.library.contains(updated.id),
@@ -148,7 +203,24 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
   Widget _identity() => Row(
     crossAxisAlignment: CrossAxisAlignment.center,
     children: [
-      NovelCover(widget.book, width: 88, height: 124),
+      _coverBytes != null
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(ArchiveDesign.coverRadius),
+              child: Image.memory(
+                _coverBytes!,
+                width: 88,
+                height: 124,
+                fit: BoxFit.cover,
+              ),
+            )
+          : NovelCover(
+              widget.book.withMetadata(
+                coverUrl: _coverUrl,
+                resetCover: _coverUrl == null,
+              ),
+              width: 88,
+              height: 124,
+            ),
       const SizedBox(width: 20),
       Expanded(
         child: Column(
@@ -172,9 +244,30 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                GlassTextButton(
+                  key: const ValueKey('online-edit-cover'),
+                  compact: true,
+                  onPressed: _busy ? null : _chooseCover,
+                  child: AppText('更换封面'),
+                ),
+                if (_coverUrl != null && _coverUrl != _originalCoverUrl)
+                  GlassTextButton(
+                    key: const ValueKey('online-edit-cover-remove'),
+                    compact: true,
+                    onPressed: _busy ? null : _removeCover,
+                    child: const AppText('删除自选封面'),
+                  ),
+              ],
+            ),
             const SizedBox(height: 10),
             AppText(
-              '这本书不在本机保存文件，修改只更新书架信息与阅读记录。',
+              '这本书不在本机保存文件，修改只更新书架信息与阅读记录；'
+              '自选封面会随书籍信息保存，清理缓存不会删除。',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.5,

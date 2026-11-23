@@ -94,13 +94,19 @@ class WenkuAccount extends ChangeNotifier {
       busy = true;
       notifyListeners();
       await refreshProfile();
+      error = null;
     } on OnlineAuthenticationRequired {
       await client.clearSession();
       authenticated = false;
       profile = null;
-    } catch (_) {
+      error = null;
+    } catch (failure) {
+      // 以前这里把异常吞掉，主页面只会一直显示“登录失败”而没有原因。
+      // 保留会话并允许下一次重试，同时把真实原因交给账号页展示。
       authenticated = false;
       profile = null;
+      error = '账号资料加载失败：${describeError(failure)}';
+      _initialized = false;
     } finally {
       busy = false;
       notifyListeners();

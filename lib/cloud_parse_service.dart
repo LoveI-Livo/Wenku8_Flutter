@@ -122,7 +122,7 @@ class CloudParseService {
       final request = await client.postUrl(uri);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.0');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.1');
       request.write(
         jsonEncode({
           'token': value,
@@ -183,7 +183,7 @@ class CloudParseService {
       final request = await client.postUrl(endpoint);
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.0');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.8.1');
       final uri = Uri.tryParse(resolvedUrl);
       final rawName = uri == null || uri.pathSegments.isEmpty
           ? ''

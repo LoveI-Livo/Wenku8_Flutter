@@ -44,6 +44,7 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
   private var pickerKind = "pickBooks"
   private var deferred = false
   private var linkOriginals = false
+  private var pickerSourceFiles = false
   private var pickerExport: URL?
   private var originalBrightness: CGFloat?
   private var sink: FlutterEventSink?
@@ -86,7 +87,7 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
         } catch { completeFailure(error, result) }
         return
       }
-      if ["pickBook", "pickBooks", "pickDictionaryFiles", "pickImage", "pickFont", "pickTextReference", "pickOriginalReference", "selectScanFolder", "createSync", "openSync"].contains(call.method) {
+      if ["pickBook", "pickBooks", "pickDictionaryFiles", "pickImage", "pickFont", "pickTextReference", "pickOriginalReference", "selectScanFolder", "createSync", "openSync", "exportText"].contains(call.method) {
         presentPicker(call.method, args, result)
         return
       }
@@ -282,6 +283,22 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
     pickerKind = kind
     deferred = kind != "pickDictionaryFiles" && args["deferred"] as? Bool == true
     linkOriginals = kind != "pickDictionaryFiles" && (args["linkOriginals"] as? Bool == true || kind == "pickTextReference" || kind == "pickOriginalReference")
+    pickerSourceFiles = args["sourceFiles"] as? Bool == true
+    if kind == "exportText" {
+      let path = args["path"] as? String ?? ""
+      let source = URL(fileURLWithPath: path)
+      guard FileManager.default.fileExists(atPath: source.path) else {
+        pickerResult = nil
+        result(FlutterError(code: "export_missing", message: "下载文件不存在，请重新下载", details: nil))
+        return
+      }
+      let picker: UIDocumentPickerViewController
+      if #available(iOS 14.0, *) { picker = UIDocumentPickerViewController(forExporting: [source], asCopy: true) }
+      else { picker = UIDocumentPickerViewController(url: source, in: .exportToService) }
+      picker.delegate = self
+      controller.present(picker, animated: true)
+      return
+    }
     if kind == "createSync" {
       io.async {
         do {
@@ -334,6 +351,7 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
       DispatchQueue.main.async {
         self.pickerResult = nil
         self.pickerExport = nil
+        self.pickerSourceFiles = false
         result(kind == "pickBooks" || kind == "pickDictionaryFiles" ? [] : nil)
       }
     }
@@ -342,6 +360,7 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
   func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
     guard let result = pickerResult else { return }
     let kind = pickerKind, deferred = self.deferred, export = pickerExport, linkOriginals = self.linkOriginals
+    let sourceFiles = self.pickerSourceFiles
     io.async {
       defer {
         if let export { try? self.sync().releaseCreation(export) }
@@ -349,6 +368,11 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
       do {
         if kind == "pickDictionaryFiles" && urls.count > 64 {
           throw BookDocumentFailure(code: "dictionary_selection", message: "一次最多选择 64 个词典文件")
+        }
+        if kind == "exportText" {
+          let value: [String: Any] = (try? urls.first.map { ["name": $0.lastPathComponent, "path": $0.path] }) ?? [:]
+          DispatchQueue.main.async { self.pickerResult = nil; self.pickerExport = nil; result(value) }
+          return
         }
         if kind == "createSync" || kind == "openSync" {
           let value = try urls.first.map { try self.sync().select($0, created: kind == "createSync") }
@@ -373,7 +397,7 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
             self.references[token] = source
             return ["name": source.lastPathComponent, "token": token]
           }
-          do { return try self.stage(source, kind: kind) }
+          do { return try self.stage(source, kind: kind, unlimited: sourceFiles) }
           catch {
             if kind != "pickBooks" && kind != "pickDictionaryFiles" { throw error }
             return ["name": source.lastPathComponent, "error": error.localizedDescription]
@@ -387,13 +411,13 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
     }
   }
 
-  private func stage(_ source: URL, kind: String) throws -> [String: Any] {
+  private func stage(_ source: URL, kind: String, unlimited: Bool = false) throws -> [String: Any] {
     let scope = source.startAccessingSecurityScopedResource()
     defer { if scope { source.stopAccessingSecurityScopedResource() } }
     if kind == "pickDictionaryFiles" && source.lastPathComponent.range(of: #"\.(mdx|mdd|mobi|ifo|idx(?:\.gz)?|dict(?:\.dz)?|syn|zip)$"#, options: [.regularExpression, .caseInsensitive]) == nil {
       throw BookDocumentFailure(code: "dictionary_format", message: "请选择 MDX、MDD、MOBI 词典、StarDict 文件或 ZIP 词典包")
     }
-    let maximum = kind == "pickDictionaryFiles" ? 512 * 1024 * 1024 : kind == "pickImage" ? 20 * 1024 * 1024 : kind == "pickFont" ? 32 * 1024 * 1024 : BookImportFormatPolicy.byteLimit(source.pathExtension)
+    let maximum = unlimited ? Int64.max : kind == "pickDictionaryFiles" ? 512 * 1024 * 1024 : kind == "pickImage" ? 20 * 1024 * 1024 : kind == "pickFont" ? 32 * 1024 * 1024 : BookImportFormatPolicy.byteLimit(source.pathExtension)
     let workspace = try store()
     var staged: URL?, failure: Error?, coordinationError: NSError?
     NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordinationError) { readable in

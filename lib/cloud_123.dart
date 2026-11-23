@@ -13,8 +13,10 @@ class Pan123BookClient implements CloudBookClient {
   CloudSourceConfig config;
   final CloudSourceSettings? settings;
   final CloudHttp http;
-  static const _api = 'https://www.123pan.com/b/api';
-  static const _origin = 'https://www.123pan.com';
+  // 2026 年官网已把网页端迁到 yun.123pan.com；旧域名仍作为兼容回退。
+  static const _api = 'https://yun.123pan.com/b/api';
+  static const _origins = ['https://yun.123pan.com', 'https://www.123pan.com'];
+  static const _origin = 'https://yun.123pan.com';
   String? _token;
   final Map<String, String> _nextTokens = {};
 
@@ -32,9 +34,9 @@ class Pan123BookClient implements CloudBookClient {
     return _token!;
   }
 
-  Map<String, String> _headers() => {
-    'origin': _origin,
-    'referer': '$_origin/',
+  Map<String, String> _headers([String origin = _origin]) => {
+    'origin': origin,
+    'referer': '$origin/',
     'authorization': 'Bearer $_accessToken',
     'user-agent':
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36',
@@ -51,33 +53,62 @@ class Pan123BookClient implements CloudBookClient {
     final uri = Uri.parse(
       '$_api$path',
     ).replace(queryParameters: query.isEmpty ? null : query);
-    final res = await http.request(
-      body == null ? 'GET' : 'POST',
-      uri,
-      headers: (_) => {
-        ..._headers(),
-        'accept': 'application/json',
-        if (body != null) 'content-type': 'application/json',
-      },
-      body: body == null ? null : utf8.encode(jsonEncode(body)),
-    );
-    final bytes = await http.bytes(res);
-    final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
-    if (decoded is! Map<String, dynamic>) {
-      throw const CloudSourceFailure('123 云盘返回的数据格式有误');
-    }
-    final code = _int(decoded['code']);
-    if (code != 0 && code != 200) {
-      final message = '${decoded['message'] ?? decoded['msg'] ?? ''}'.trim();
-      if (code == 401 || code == 403 || message.contains('登录')) {
-        throw const CloudSourceFailure(
-          '123 云盘登录已失效，请重新登录官网账号',
-          authentication: true,
+    Map<String, dynamic>? decoded;
+    Object? lastFailure;
+    for (final origin in _origins) {
+      try {
+        final res = await http.request(
+          body == null ? 'GET' : 'POST',
+          uri,
+          headers: (_) => {
+            ..._headers(origin),
+            'accept': 'application/json',
+            if (body != null) 'content-type': 'application/json',
+          },
+          body: body == null ? null : utf8.encode(jsonEncode(body)),
+          allowedStatuses: const {400, 401, 403, 404},
         );
+        final bytes = await http.bytes(res);
+        final value = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+        if (value is! Map<String, dynamic>) {
+          throw const CloudSourceFailure('123 云盘返回的数据格式有误');
+        }
+        final code = _int(value['code']);
+        if (code == 0 || code == 200) return value;
+        final message = '${value['message'] ?? value['msg'] ?? ''}'.trim();
+        if (code == 401 || code == 403 || message.contains('登录')) {
+          throw const CloudSourceFailure(
+            '123 云盘登录已失效，请重新登录官网账号',
+            authentication: true,
+          );
+        }
+        // 旧域名返回 404 时换新域名再试；其他业务错误直接返回给 UI。
+        if (res.statusCode == 404 || code == 404) {
+          lastFailure = CloudSourceFailure(
+            message.isEmpty ? '123 云盘目录不存在，请刷新后重试' : message,
+          );
+          continue;
+        }
+        decoded = value;
+        lastFailure = message.isEmpty ? null : message;
+        if (message.isNotEmpty) {
+          throw CloudSourceFailure(message);
+        }
+      } on CloudSourceFailure catch (error) {
+        lastFailure = error;
+        if (error.authentication) rethrow;
+        continue;
+      } catch (error) {
+        lastFailure = error;
+        continue;
       }
-      throw CloudSourceFailure(message.isEmpty ? '123 云盘暂时无法完成请求' : message);
     }
-    return decoded;
+    if (decoded != null) return decoded;
+    throw CloudSourceFailure(
+      lastFailure is CloudSourceFailure
+          ? lastFailure.message
+          : '123 云盘暂时无法完成请求，请刷新后重试',
+    );
   }
 
   @override

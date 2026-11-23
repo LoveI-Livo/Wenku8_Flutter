@@ -29,6 +29,7 @@ class CloudDocumentService {
   final Map<int, Novel> _metadata = {};
   final Set<int> _enriched = {};
   final Map<int, Map<int, String>> _webChapterUrls = {};
+  final Map<int, String> _legadoPayloads = {};
 
   static int idForUrl(String url) {
     final digest = sha256.convert(utf8.encode(url)).bytes;
@@ -62,7 +63,7 @@ class CloudDocumentService {
       id: id,
       title: _cleanName(title?.trim().isNotEmpty == true ? title! : name),
       author: author?.trim().isNotEmpty == true ? author! : '网盘书源',
-      genre: '在线读取',
+      genre: '',
       summary: summary?.trim().isNotEmpty == true
           ? summary!.trim()
           : '来自网盘直链，在线阅读，不下载原文件。',
@@ -91,6 +92,10 @@ class CloudDocumentService {
 
   Novel? known(int id) => _metadata[id];
 
+  /// 已识别过的网盘/书源书。搜索先查在线目录，目录暂时没返回时用它兜底，
+  /// 已经加入书架的书仍然能被书名、作者和来源搜到。
+  Iterable<Novel> get knownBooks => _metadata.values;
+
   /// Reads the cloud object once into memory to recognize embedded title,
   /// author, summary and cover. No original file is written to the device.
   /// Parsing failures keep the filename-based shelf record instead of
@@ -102,6 +107,11 @@ class CloudDocumentService {
     if (cached != null && _enriched.contains(novel.id)) return cached;
     final url = novel.remoteUrl;
     if (url == null || !handles(novel.id)) return novel;
+    if (url.startsWith('legado://')) {
+      final full = await detail(novel);
+      _enriched.add(novel.id);
+      return full;
+    }
     try {
       final resolved = await _resolveCloudUrl(url, novel);
       final remote = await CloudParseService.instance.parse(
@@ -222,6 +232,9 @@ class CloudDocumentService {
       _metadata[novel.id] = cached.novel;
       return cached.novel;
     }
+    if (url.startsWith('legado://')) {
+      return _detailFromLegado(novel, url);
+    }
     if (novel.remoteKind == CloudSourceKind.rss.name &&
         _looksLikeWebPage(url)) {
       return _detailFromWeb(novel, url);
@@ -295,6 +308,37 @@ class CloudDocumentService {
     return full;
   }
 
+  Future<Novel> _detailFromLegado(Novel novel, String payload) async {
+    final parsed = await LegadoReader.detail(
+      payload,
+      allowHttp: false,
+      cookie: novel.remoteCookie ?? '',
+      authorization: novel.remoteAuthorization ?? '',
+    );
+    final document = parsed.document;
+    final chapters = <NovelChapter>[
+      for (var index = 0; index < document.chapters.length; index++)
+        NovelChapter(document.chapters[index].title, '', id: index + 1),
+    ];
+    final full = novel
+        .withMetadata(
+          title: document.title,
+          author: document.author,
+          summary: document.summary,
+          coverUrl: document.coverUrl,
+        )
+        .withChapters(chapters);
+    _documents[novel.id] = _CloudDocument(full, <int, String>{});
+    _legadoPayloads[novel.id] = payload;
+    _webChapterUrls[novel.id] = {
+      for (var index = 0; index < document.chapters.length; index++)
+        index + 1: document.chapters[index].url,
+    };
+    _metadata[novel.id] = full;
+    _enriched.add(novel.id);
+    return full;
+  }
+
   /// 网盘搜索的兜底：文件名/元数据都没命中时，检查已解析正文是否包含关键词。
   /// 只在少量小文件上调用，解析结果同时留给详情页复用。
   Future<bool> containsText(Novel novel, String query) async {
@@ -330,6 +374,16 @@ class CloudDocumentService {
     if (cached != null && cached.isNotEmpty) return cached;
     final url = _webChapterUrls[id]?[chapter.id];
     if (url == null) return cached ?? '';
+    if (_legadoPayloads[id] case final payload?) {
+      final text = await LegadoReader.content(
+        url,
+        payload: payload,
+        cookie: document.novel.remoteCookie ?? '',
+        authorization: document.novel.remoteAuthorization ?? '',
+      );
+      document.bodies[chapter.id] = text;
+      return text;
+    }
     final novel = document.novel;
     final text = await WebNovelReader.content(
       url,
@@ -446,12 +500,9 @@ class CloudDocumentService {
     }
     final media = <String, Uint8List>{};
     for (final entry in remote.media.entries) {
-      try {
-        await CloudBookMedia.saveMedia(id, entry.key, entry.value);
-        media[entry.key] = entry.value;
-      } catch (_) {
-        // One broken illustration must not discard the chapter text.
-      }
+      final marker = CloudBookMedia.cacheMedia(id, entry.key, entry.value);
+      if (marker.isEmpty) continue;
+      media[entry.key] = Uint8List(0);
     }
     final mediaMarkers = media.map(
       (key, _) => MapEntry(
@@ -488,7 +539,7 @@ class CloudDocumentService {
       coverBytes: coverBytes,
     );
     final full = _withSource(parsed, source);
-    return _CloudDocument(full, bodies, coverBytes: coverBytes, media: media);
+    return _CloudDocument(full, bodies, coverBytes: coverBytes);
   }
 
   Future<_CloudDocument> _parseAsync(
@@ -520,13 +571,13 @@ class CloudDocumentService {
       }
     }
     for (final entry in parsed.media.entries) {
-      try {
-        await CloudBookMedia.saveMedia(id, entry.key, entry.value);
-      } catch (_) {
-        // One broken illustration must not discard the readable text.
-      }
+      CloudBookMedia.cacheMedia(id, entry.key, entry.value);
     }
-    return parsed;
+    return _CloudDocument(
+      parsed.novel,
+      parsed.bodies,
+      coverBytes: parsed.coverBytes,
+    );
   }
 
   _CloudDocument _parse(int id, String name, String url, Uint8List bytes) {
@@ -930,7 +981,7 @@ class CloudDocumentService {
     id: id,
     title: _cleanName(title?.trim().isNotEmpty == true ? title! : name),
     author: author?.trim().isNotEmpty == true ? author! : '网盘书源',
-    genre: '在线读取',
+    genre: '',
     summary: summary?.trim().isNotEmpty == true
         ? _limit(summary!.trim(), 500)
         : '来自网盘直链，在线阅读，不下载原文件。',

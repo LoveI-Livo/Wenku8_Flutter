@@ -549,6 +549,16 @@ class LibraryState extends ChangeNotifier {
     _openRecentOnLaunch = _prefs.get('openRecentOnLaunch') == true;
     _startPage = AppStartPage.parseOrDefault(_prefs.get('startPage'));
     _combinedShelf = _prefs.get('combinedShelf') == true;
+    final dockTabs = _prefs.get('dockTabs');
+    if (dockTabs is List) {
+      final parsed = dockTabs
+          .map((value) => int.tryParse('$value'))
+          .whereType<int>()
+          .where((tab) => tab >= 0 && tab <= 4)
+          .toSet();
+      if (parsed.isNotEmpty) _dockTabs = parsed;
+    }
+    _dockTabs.add(4); // 设置入口永远保留，避免把自己锁在底栏之外。
     _blockedTags = BlockedTags.fromRecord(
       _prefs.get(BlockedTags.preferenceKey),
     );
@@ -771,6 +781,7 @@ class LibraryState extends ChangeNotifier {
   bool _hasDiscoveryShelfQuery = false;
   bool _keepScreenOn = false;
   bool _forcePortrait = false;
+  Set<int> _dockTabs = {0, 1, 2, 3, 4};
   bool _adaptWhenOffline = true, _localReaderMode = false;
   Set<ReadingEntry> _directReadingPages = {};
   bool _directReadingEnabled = false;
@@ -961,6 +972,8 @@ class LibraryState extends ChangeNotifier {
   bool directReadingOn(ReadingEntry page) =>
       directReading && _directReadingPages.contains(page);
   bool get combinedShelf => _combinedShelf;
+  Set<int> get dockTabs => Set.unmodifiable(_dockTabs);
+  bool dockTabVisible(int tab) => _dockTabs.contains(tab);
   List<String> get recentSearches => List.unmodifiable(_recentSearches);
   String get shelfSort => _shelfSort;
   String get shelfFilter => _shelfFilter;
@@ -1417,6 +1430,35 @@ class LibraryState extends ChangeNotifier {
       await writeLibraryPreference(_prefs, 'startPage', value.name);
       _startPage = value;
       if (!_disposed) _settings.notifyListeners();
+    });
+  }
+
+  Future<void> setDockTabVisible(int tab, bool visible) async {
+    if (_restoreBarrier case final barrier?) {
+      return barrier.future.then((_) => setDockTabVisible(tab, visible));
+    }
+    if (tab < 0 || tab > 4) return;
+    if (tab == 4 && !visible) return; // 我的页面承载设置，不允许隐藏。
+    await _queuePositionWrite(() async {
+      final next = {..._dockTabs};
+      if (visible) {
+        next.add(tab);
+      } else {
+        next.remove(tab);
+      }
+      if (next.isEmpty) next.add(4);
+      if (next.length == _dockTabs.length && next.containsAll(_dockTabs))
+        return;
+      await writeLibraryPreference(
+        _prefs,
+        'dockTabs',
+        next.map((value) => '$value').toList()..sort(),
+      );
+      _dockTabs = next;
+      if (!_disposed) {
+        _navigationChanges.notifyListeners();
+        _settings.notifyListeners();
+      }
     });
   }
 
