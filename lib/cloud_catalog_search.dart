@@ -37,6 +37,9 @@ class CloudCatalogSearch {
   DateTime? _cacheAt;
   List<Novel>? _cache;
 
+  /// 最近一次搜索中被跳过的来源错误，页面可用来提示“不是没书，而是源没连上”。
+  String? lastFailure;
+
   /// 每次搜索都重新读取当前已连接来源，新添加的网盘会自动进入搜索，
   /// 不需要重启 App，也不依赖固定列表。
   Future<void> reload() async {
@@ -58,13 +61,15 @@ class CloudCatalogSearch {
       };
       if (!allowed) continue;
       if (config.kind == CloudSourceKind.rss) {
-        for (final source in config.sources.isNotEmpty
-            ? config.sources.where((value) => value.enabled)
-            : config.effectiveSources) {
+        for (final source
+            in config.sources.isNotEmpty
+                ? config.sources.where((value) => value.enabled)
+                : config.effectiveSources) {
           result.add(
             CloudSearchTarget(
               key: 'rss:${source.url}',
-              label: '${source.label} · ${Uri.tryParse(source.url)?.host ?? ''}',
+              label:
+                  '${source.label} · ${Uri.tryParse(source.url)?.host ?? ''}',
               url: source.url,
             ),
           );
@@ -73,7 +78,9 @@ class CloudCatalogSearch {
         final host = Uri.tryParse(config.address)?.host;
         result.add(
           CloudSearchTarget(
-            key: config.kind.name,
+            key: config.connectionId.isEmpty
+                ? config.kind.name
+                : '${config.kind.name}:${config.connectionId}',
             label: host == null || host.isEmpty
                 ? config.label
                 : '${config.label} · $host',
@@ -88,20 +95,25 @@ class CloudCatalogSearch {
     String query, {
     CloudSearchScope scope = CloudSearchScope.all,
     String? sourceKey,
+    Set<String>? sourceKeys,
     bool refresh = false,
   }) async {
     final value = query.trim();
     if (value.isEmpty) return const [];
+    final keys = sourceKeys ?? {if (sourceKey != null) sourceKey};
+    final cacheKey = keys.isEmpty ? '' : (keys.toList()..sort()).join('\n');
     if (!refresh &&
         _cache != null &&
         _cacheQuery == value &&
         _cacheScope == scope &&
-        _cacheTarget == sourceKey &&
+        _cacheTarget == cacheKey &&
         _cacheAt != null &&
         DateTime.now().difference(_cacheAt!) < _cacheLifetime) {
       return _cache!;
     }
     await settings.load();
+    lastFailure = null;
+    final failures = <String>[];
     final configs = settings.configs
         .where(
           (config) => switch (scope) {
@@ -112,13 +124,26 @@ class CloudCatalogSearch {
           },
         )
         .where(
-          (config) => sourceKey == null ||
+          (config) =>
+              keys.isEmpty ||
               (config.kind == CloudSourceKind.rss
-                  ? sourceKey.startsWith('rss:') &&
-                      (config.sources.isNotEmpty
-                          ? config.sources.any((source) => source.enabled && 'rss:${source.url}' == sourceKey)
-                          : config.effectiveSources.any((source) => 'rss:${source.url}' == sourceKey))
-                  : config.kind.name == sourceKey),
+                  ? keys.any(
+                      (key) =>
+                          key.startsWith('rss:') &&
+                          (config.sources.isNotEmpty
+                              ? config.sources.any(
+                                  (source) =>
+                                      source.enabled &&
+                                      'rss:${source.url}' == key,
+                                )
+                              : config.effectiveSources.any(
+                                  (source) => 'rss:${source.url}' == key,
+                                )),
+                    )
+                  : keys.contains(config.kind.name) ||
+                        keys.contains(
+                          '${config.kind.name}:${config.connectionId}',
+                        )),
         )
         .toList();
     if (configs.isEmpty) return const [];
@@ -130,18 +155,16 @@ class CloudCatalogSearch {
       configs.map((config) async {
         CloudBookClient? client;
         try {
-          final selectedUrl = sourceKey != null &&
-                  config.kind == CloudSourceKind.rss &&
-                  sourceKey.startsWith('rss:')
-              ? sourceKey.substring(4)
-              : null;
-          client = config.kind == CloudSourceKind.rss && selectedUrl != null
-              ? RssBookClient(config, sources: [selectedUrl])
+          final selectedUrls = config.kind == CloudSourceKind.rss
+              ? [
+                  for (final key in keys)
+                    if (key.startsWith('rss:')) key.substring(4),
+                ]
+              : const <String>[];
+          client = config.kind == CloudSourceKind.rss && selectedUrls.isNotEmpty
+              ? RssBookClient(config, sources: selectedUrls)
               : CloudBookClient(config);
-          final walk = await _searchClient(
-            client,
-            value,
-          ).timeout(_walkBudget);
+          final walk = await _searchClient(client, value).timeout(_walkBudget);
 
           if (walk.matches.isNotEmpty) {
             for (final entry in walk.matches) {
@@ -165,10 +188,7 @@ class CloudCatalogSearch {
               batch.map((entry) async {
                 try {
                   return await CloudDocumentService.instance
-                      .enrich(
-                        _novelFor(entry, config),
-                        cloudOnly: true,
-                      )
+                      .enrich(_novelFor(entry, config), cloudOnly: true)
                       .timeout(_probeBudget);
                 } catch (_) {
                   return null;
@@ -183,18 +203,44 @@ class CloudCatalogSearch {
             }
             if (results.length >= _maxResults) return;
           }
-        } catch (_) {
-          // 单个来源超时、未登录或格式不支持不影响其他来源。
+          // 正文兜底：只对最小的几个文本文件解析正文，避免为了搜索把整个
+          // 网盘都下载下来。搜“妹妹”这类只出现在正文里的词也能命中。
+          final textCandidates = candidates
+              .where(
+                (entry) =>
+                    entry.size > 0 &&
+                    entry.size <= 2 * 1024 * 1024 &&
+                    RegExp(
+                      r'\.(?:txt|md|markdown|html?|xhtml)$',
+                      caseSensitive: false,
+                    ).hasMatch(entry.name),
+              )
+              .take(4);
+          for (final entry in textCandidates) {
+            if (results.length >= _maxResults) return;
+            final novel = _novelFor(entry, config);
+            if (results.any((existing) => existing.id == novel.id)) continue;
+            if (await CloudDocumentService.instance.containsText(
+              novel,
+              value,
+            )) {
+              results.add(novel);
+            }
+          }
+        } catch (failure) {
+          // 单个来源超时、未登录或格式不支持不影响其他来源，但要记录原因。
+          failures.add('${config.label}：${cloudFailureMessage(failure)}');
         } finally {
           client?.close();
         }
       }),
     );
+    lastFailure = failures.isEmpty ? null : failures.take(2).join('；');
     final cached = List<Novel>.unmodifiable(results);
     _cache = cached;
     _cacheQuery = value;
     _cacheScope = scope;
-    _cacheTarget = sourceKey;
+    _cacheTarget = cacheKey;
     _cacheAt = DateTime.now();
     return cached;
   }
@@ -271,18 +317,21 @@ class CloudCatalogSearch {
     final matches = <String, CloudBookEntry>{};
     final files = <String, CloudBookEntry>{};
     final pending = <String>[client.root];
+    final matchedFolders = <String>{};
     final visited = <String>{};
     var folders = 0;
-    while (pending.isNotEmpty && folders < 120 && files.length < 600) {
+    // OpenList/NAS 的书常按文件夹分组。除了匹配文件名，也要匹配文件夹名，
+    // 命中文件夹后把里面的书都算作结果；否则“妹妹”这种目录名明明存在，
+    // 却因为里面的文件名不含关键词而搜不到。
+    while (pending.isNotEmpty && folders < 500 && files.length < 3000) {
       final folder = pending.removeAt(0);
       if (!visited.add(folder)) continue;
       folders++;
+      final includeFolder = matchedFolders.contains(folder);
       final listing = await client.list(folder);
       for (final entry in listing.entries) {
         if (entry.folder) {
           pending.add(entry.id);
-        } else if (entry.isBook) {
-          files[entry.id] = entry;
           if (pattern.matches(
             title: entry.name,
             author: entry.author,
@@ -290,6 +339,18 @@ class CloudCatalogSearch {
             summary: entry.summary,
             id: entry.id,
           )) {
+            matchedFolders.add(entry.id);
+          }
+        } else if (entry.isBook) {
+          files[entry.id] = entry;
+          if (includeFolder ||
+              pattern.matches(
+                title: entry.name,
+                author: entry.author,
+                tags: '',
+                summary: entry.summary,
+                id: entry.id,
+              )) {
             matches[entry.id] = entry;
           }
         }

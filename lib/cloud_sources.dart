@@ -65,7 +65,11 @@ enum CloudSourceKind {
 const int maxBookSources = 10000;
 
 class CloudBookSourceProbe {
-  const CloudBookSourceProbe({required this.valid, this.message = '', this.books = 0});
+  const CloudBookSourceProbe({
+    required this.valid,
+    this.message = '',
+    this.books = 0,
+  });
   final bool valid;
   final String message;
   final int books;
@@ -83,7 +87,8 @@ class CloudBookSource {
   final String url, name, status, message;
   final bool enabled;
   final DateTime? checkedAt;
-  String get label => name.trim().isNotEmpty ? name.trim() : Uri.tryParse(url)?.host ?? url;
+  String get label =>
+      name.trim().isNotEmpty ? name.trim() : Uri.tryParse(url)?.host ?? url;
   bool get valid => status == 'valid';
   bool get invalid => status == 'invalid';
   Map<String, Object> toRecord() => {
@@ -133,6 +138,7 @@ class CloudBookSource {
 class CloudSourceConfig {
   const CloudSourceConfig({
     required this.kind,
+    this.connectionId = '',
     this.address = '',
     this.username = '',
     this.password = '',
@@ -146,6 +152,9 @@ class CloudSourceConfig {
     this.sources = const [],
   });
   final CloudSourceKind kind;
+
+  /// 同一个网盘类型可以连接多个账号/地址；空值只用于旧记录。
+  final String connectionId;
   final String address, username, password, cookie;
   final bool allowHttp;
   final String bucket, region, prefix, sessionToken;
@@ -156,7 +165,8 @@ class CloudSourceConfig {
 
   List<CloudBookSource> get effectiveSources {
     if (kind != CloudSourceKind.rss) return const [];
-    if (sources.isNotEmpty) return sources.where((source) => source.enabled).toList(growable: false);
+    if (sources.isNotEmpty)
+      return sources.where((source) => source.enabled).toList(growable: false);
     return address
         .split(RegExp(r'\r?\n'))
         .map((value) => value.trim())
@@ -167,6 +177,7 @@ class CloudSourceConfig {
 
   CloudSourceConfig withAllowHttp(bool value) => CloudSourceConfig(
     kind: kind,
+    connectionId: connectionId,
     address: address,
     username: username,
     password: password,
@@ -180,20 +191,25 @@ class CloudSourceConfig {
     sources: sources,
   );
 
-  CloudSourceConfig withSources(List<CloudBookSource> value) => CloudSourceConfig(
-    kind: kind,
-    address: value.where((source) => source.enabled).map((source) => source.url).join('\n'),
-    username: username,
-    password: password,
-    cookie: cookie,
-    allowHttp: allowHttp,
-    bucket: bucket,
-    region: region,
-    prefix: prefix,
-    sessionToken: sessionToken,
-    pathStyle: pathStyle,
-    sources: value,
-  );
+  CloudSourceConfig withSources(List<CloudBookSource> value) =>
+      CloudSourceConfig(
+        kind: kind,
+        connectionId: connectionId,
+        address: value
+            .where((source) => source.enabled)
+            .map((source) => source.url)
+            .join('\n'),
+        username: username,
+        password: password,
+        cookie: cookie,
+        allowHttp: allowHttp,
+        bucket: bucket,
+        region: region,
+        prefix: prefix,
+        sessionToken: sessionToken,
+        pathStyle: pathStyle,
+        sources: value,
+      );
   String get label => kind.label;
   Uri get endpoint {
     final uri = Uri.parse(address.trim());
@@ -223,8 +239,7 @@ class CloudSourceConfig {
         if (uri == null ||
             uri.host.isEmpty ||
             uri.userInfo.isNotEmpty ||
-            (uri.scheme != 'https' &&
-                !(uri.scheme == 'http' && allowHttp)) ||
+            (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp)) ||
             source.length > 4096) {
           throw const CloudSourceFailure(
             '小说书源地址需要是 HTTPS 网页或订阅地址；HTTP 需先允许明文连接',
@@ -317,6 +332,7 @@ class CloudSourceConfig {
 
   Map<String, Object> toRecord() => {
     'kind': kind.name,
+    if (connectionId.isNotEmpty) 'connectionId': connectionId,
     'address': address.trim(),
     'username': username,
     'password': password,
@@ -330,11 +346,14 @@ class CloudSourceConfig {
       'pathStyle': pathStyle,
     },
     if (kind == CloudSourceKind.rss && sources.isNotEmpty)
-      'sources': sources.map((source) => source.toRecord()).toList(growable: false),
+      'sources': sources
+          .map((source) => source.toRecord())
+          .toList(growable: false),
   };
   factory CloudSourceConfig.fromRecord(Map<String, dynamic> record) {
     final value = CloudSourceConfig(
       kind: CloudSourceKind.values.byName(record['kind']),
+      connectionId: (record['connectionId'] ?? '').toString(),
       address: record['address'] ?? '',
       username: record['username'] ?? '',
       password: record['password'] ?? '',
@@ -355,8 +374,37 @@ class CloudSourceConfig {
     value.validate();
     return value;
   }
-  CloudSourceConfig withCookie(String value) =>
-      CloudSourceConfig(kind: kind, cookie: value);
+  CloudSourceConfig withCookie(String value) => copyWith(cookie: value);
+
+  CloudSourceConfig copyWith({
+    CloudSourceKind? kind,
+    String? connectionId,
+    String? address,
+    String? username,
+    String? password,
+    String? cookie,
+    bool? allowHttp,
+    String? bucket,
+    String? region,
+    String? prefix,
+    String? sessionToken,
+    bool? pathStyle,
+    List<CloudBookSource>? sources,
+  }) => CloudSourceConfig(
+    kind: kind ?? this.kind,
+    connectionId: connectionId ?? this.connectionId,
+    address: address ?? this.address,
+    username: username ?? this.username,
+    password: password ?? this.password,
+    cookie: cookie ?? this.cookie,
+    allowHttp: allowHttp ?? this.allowHttp,
+    bucket: bucket ?? this.bucket,
+    region: region ?? this.region,
+    prefix: prefix ?? this.prefix,
+    sessionToken: sessionToken ?? this.sessionToken,
+    pathStyle: pathStyle ?? this.pathStyle,
+    sources: sources ?? this.sources,
+  );
 }
 
 abstract interface class CloudConfigStorage {
@@ -377,23 +425,46 @@ class CloudSourceSettings extends ChangeNotifier {
   CloudSourceSettings({CloudConfigStorage? storage})
     : storage = storage ?? AndroidCloudConfigStorage();
   final CloudConfigStorage storage;
+
+  /// 每个类型保留一个“主连接”供旧代码兼容；同类型的其它连接放在 extras。
   final Map<CloudSourceKind, CloudSourceConfig> _configs = {};
+  final List<CloudSourceConfig> _extras = [];
   S3SyncConnection? _s3Sync;
   S3SyncConnection? get s3Sync => _s3Sync;
   Future<void> _writes = Future.value();
   bool _disposed = false;
   String? error;
+
   CloudSourceConfig? operator [](CloudSourceKind kind) => _configs[kind];
-  Iterable<CloudSourceConfig> get configs => List.unmodifiable(_configs.values);
+  Iterable<CloudSourceConfig> get configs =>
+      List<CloudSourceConfig>.unmodifiable([..._configs.values, ..._extras]);
+  Iterable<CloudSourceConfig> configsFor(CloudSourceKind kind) =>
+      configs.where((config) => config.kind == kind);
+  CloudSourceConfig? byId(String id) {
+    if (id.isEmpty) return null;
+    for (final config in configs) {
+      if (config.connectionId == id) return config;
+    }
+    return null;
+  }
+
+  String newConnectionId(CloudSourceKind kind) {
+    final used = configs.map((config) => config.connectionId).toSet();
+    var index = 1;
+    while (used.contains('${kind.name}-$index')) {
+      index++;
+    }
+    return '${kind.name}-$index';
+  }
+
   Future<void> load() async {
     try {
       final text = await storage.read();
       final values = text == null ? <dynamic>[] : jsonDecode(text);
-      if (values is! List ||
-          values.length > CloudSourceKind.values.length + 1) {
-        throw const FormatException();
-      }
-      final loaded = <CloudSourceKind, CloudSourceConfig>{};
+      if (values is! List) throw const FormatException();
+      final primary = <CloudSourceKind, CloudSourceConfig>{};
+      final extras = <CloudSourceConfig>[];
+      final ids = <String>{};
       S3SyncConnection? sync;
       for (final value in values) {
         if (value is Map && value['purpose'] == 'book-sync') {
@@ -401,14 +472,29 @@ class CloudSourceSettings extends ChangeNotifier {
           sync = S3SyncConnection.fromRecord(Map<String, dynamic>.from(value));
           continue;
         }
-        final config = CloudSourceConfig.fromRecord(
+        var config = CloudSourceConfig.fromRecord(
           Map<String, dynamic>.from(value),
         );
-        loaded[config.kind] = config;
+        var id = config.connectionId;
+        if (id.isEmpty || !ids.add(id)) {
+          id = '${config.kind.name}-${ids.length + 1}';
+          while (!ids.add(id)) {
+            id = '${config.kind.name}-${ids.length + 1}';
+          }
+          config = config.copyWith(connectionId: id);
+        }
+        if (!primary.containsKey(config.kind)) {
+          primary[config.kind] = config;
+        } else {
+          extras.add(config);
+        }
       }
       _configs
         ..clear()
-        ..addAll(loaded);
+        ..addAll(primary);
+      _extras
+        ..clear()
+        ..addAll(extras);
       _s3Sync = sync;
       error = null;
     } catch (_) {
@@ -419,26 +505,92 @@ class CloudSourceSettings extends ChangeNotifier {
 
   Future<void> save(CloudSourceKind kind, CloudSourceConfig? value) =>
       _save(kind, value);
+
   Future<void> _save(
     CloudSourceKind kind,
     CloudSourceConfig? value, {
     String? expectedCookie,
+    String? expectedId,
   }) {
     value?.validate();
     final work = _writes.catchError((Object _) {}).then((_) async {
-      if (expectedCookie != null && _configs[kind]?.cookie != expectedCookie) {
-        return;
+      if (expectedCookie != null) {
+        final current = expectedId == null ? _configs[kind] : byId(expectedId);
+        if (current?.cookie != expectedCookie) return;
       }
-      final next = {..._configs};
+      final nextPrimary = {..._configs};
+      final nextExtras = [..._extras];
       if (value == null) {
-        next.remove(kind);
+        nextPrimary.remove(kind);
+        nextExtras.removeWhere((config) => config.kind == kind);
+      } else if (value.connectionId.isNotEmpty) {
+        var replaced = false;
+        for (var i = 0; i < nextExtras.length; i++) {
+          if (nextExtras[i].connectionId == value.connectionId) {
+            nextExtras[i] = value;
+            replaced = true;
+            break;
+          }
+        }
+        final primary = nextPrimary[kind];
+        if (!replaced && primary?.connectionId == value.connectionId) {
+          nextPrimary[kind] = value;
+          replaced = true;
+        }
+        if (!replaced) {
+          if (primary == null) {
+            nextPrimary[kind] = value;
+          } else {
+            nextExtras.add(value);
+          }
+        }
       } else {
-        next[kind] = value;
+        nextPrimary[kind] = value;
       }
-      await _writeRecords(next, _s3Sync);
+      await _writeRecords(nextPrimary, nextExtras, _s3Sync);
       _configs
         ..clear()
-        ..addAll(next);
+        ..addAll(nextPrimary);
+      _extras
+        ..clear()
+        ..addAll(nextExtras);
+      error = null;
+      if (!_disposed) notifyListeners();
+    });
+    _writes = work;
+    return work;
+  }
+
+  /// 删除某一个连接。同一类型还有其它连接时，自动把下一个提升为主连接，
+  /// 这样旧代码通过 settings[kind] 仍然能拿到一个有效配置。
+  Future<void> remove(CloudSourceConfig target) {
+    final work = _writes.catchError((Object _) {}).then((_) async {
+      final nextPrimary = {..._configs};
+      final nextExtras = [..._extras];
+      if (nextPrimary[target.kind]?.connectionId == target.connectionId) {
+        nextPrimary.remove(target.kind);
+      }
+      nextExtras.removeWhere(
+        (config) =>
+            config.kind == target.kind &&
+            config.connectionId == target.connectionId,
+      );
+      if (!nextPrimary.containsKey(target.kind)) {
+        final replacement = nextExtras
+            .where((config) => config.kind == target.kind)
+            .firstOrNull;
+        if (replacement != null) {
+          nextPrimary[target.kind] = replacement;
+          nextExtras.remove(replacement);
+        }
+      }
+      await _writeRecords(nextPrimary, nextExtras, _s3Sync);
+      _configs
+        ..clear()
+        ..addAll(nextPrimary);
+      _extras
+        ..clear()
+        ..addAll(nextExtras);
       error = null;
       if (!_disposed) notifyListeners();
     });
@@ -448,12 +600,14 @@ class CloudSourceSettings extends ChangeNotifier {
 
   Future<void> _writeRecords(
     Map<CloudSourceKind, CloudSourceConfig> configs,
+    List<CloudSourceConfig> extras,
     S3SyncConnection? sync,
   ) => storage.write(
-    configs.isEmpty && sync == null
+    configs.isEmpty && extras.isEmpty && sync == null
         ? null
         : jsonEncode([
             ...configs.values.map((c) => c.toRecord()),
+            ...extras.map((c) => c.toRecord()),
             if (sync != null) sync.toRecord(),
           ]),
   );
@@ -463,7 +617,7 @@ class CloudSourceSettings extends ChangeNotifier {
   Future<void> saveS3Sync(S3SyncConnection? value) {
     value?.validate();
     final work = _writes.catchError((Object _) {}).then((_) async {
-      await _writeRecords(_configs, value);
+      await _writeRecords(_configs, _extras, value);
       _s3Sync = value;
       error = null;
       if (!_disposed) notifyListeners();
@@ -477,6 +631,7 @@ class CloudSourceSettings extends ChangeNotifier {
     previous.kind,
     previous.withCookie(cookie),
     expectedCookie: previous.cookie,
+    expectedId: previous.connectionId,
   );
 
   @override
@@ -1239,6 +1394,7 @@ class RssBookClient extends DirectLinkBookClient {
         await action(sources[index]);
       }
     }
+
     await Future.wait([
       for (var i = 0; i < sources.length && i < 8; i++) worker(),
     ]);
@@ -1250,8 +1406,10 @@ class RssBookClient extends DirectLinkBookClient {
         .replaceAll('{query}', Uri.encodeQueryComponent('测试'))
         .replaceAll('{page}', '1');
     try {
-      final entries = await _entriesFor(target, page: 1)
-          .timeout(const Duration(seconds: 12));
+      final entries = await _entriesFor(
+        target,
+        page: 1,
+      ).timeout(const Duration(seconds: 12));
       if (entries.isNotEmpty) {
         return CloudBookSourceProbe(
           valid: true,
@@ -1260,7 +1418,10 @@ class RssBookClient extends DirectLinkBookClient {
       }
       return const CloudBookSourceProbe(valid: false, message: '没有识别到书籍或目录');
     } catch (error) {
-      return CloudBookSourceProbe(valid: false, message: cloudFailureMessage(error));
+      return CloudBookSourceProbe(
+        valid: false,
+        message: cloudFailureMessage(error),
+      );
     }
   }
 
@@ -1272,7 +1433,9 @@ class RssBookClient extends DirectLinkBookClient {
     final entries = <String, CloudBookEntry>{};
     var attempted = 0;
     Object? lastFailure;
-    final browse = _sources.where((source) => !source.contains('{query}')).toList();
+    final browse = _sources
+        .where((source) => !source.contains('{query}'))
+        .toList();
     await _parallel(browse, (source) async {
       attempted++;
       try {
@@ -1362,7 +1525,10 @@ class RssBookClient extends DirectLinkBookClient {
       redirectMessage: '书源地址发生跳转，请填写最终地址',
     );
     final bytes = await _http.bytes(res, limit: 6 * 1024 * 1024);
-    final body = WebNovelReader.decodeBytes(bytes, res.headers.contentType).trim();
+    final body = WebNovelReader.decodeBytes(
+      bytes,
+      res.headers.contentType,
+    ).trim();
     if (body.startsWith('{') || body.startsWith('[')) {
       return _jsonEntries(body, uri);
     }
@@ -1380,12 +1546,7 @@ class RssBookClient extends DirectLinkBookClient {
     final items = document.findAllElements('item');
     final entries = document.findAllElements('entry');
     final result = <CloudBookEntry>[];
-    void add(
-      String title,
-      String? link,
-      String summary, [
-      String author = '',
-    ]) {
+    void add(String title, String? link, String summary, [String author = '']) {
       if (title.trim().isEmpty || link == null || link.trim().isEmpty) return;
       final resolved = base.resolve(link.trim()).toString();
       if (result.any((entry) => entry.id == resolved)) return;
@@ -1441,7 +1602,11 @@ class RssBookClient extends DirectLinkBookClient {
     final root = value is List
         ? value
         : value is Map
-        ? (value['items'] ?? value['data'] ?? value['books'] ?? value['list'] ?? value['results'])
+        ? (value['items'] ??
+              value['data'] ??
+              value['books'] ??
+              value['list'] ??
+              value['results'])
         : null;
     if (root is! List) throw const CloudSourceFailure('这个 JSON 书源里没有书籍列表');
     final result = <CloudBookEntry>[];
@@ -1517,4 +1682,3 @@ class RssBookClient extends DirectLinkBookClient {
     return '';
   }
 }
-

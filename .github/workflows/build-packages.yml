@@ -39,14 +39,17 @@ jobs:
 
       - name: Stage artifact
         run: |
+          VERSION=$(awk '/^version:/{print $2}' pubspec.yaml | cut -d+ -f1)
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/wenku8-mod-android.apk
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/qingxiaoshuo-wenku-${VERSION}-android.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/wenku8-${VERSION}-universal.apk"
+          git archive --format=zip --output="dist/qingxiaoshuo-wenku-${VERSION}-source.zip" HEAD
           ls -lh dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: wenku8-mod-android
-          path: dist/*.apk
+          path: dist/*
           if-no-files-found: error
 
   ios:
@@ -74,7 +77,8 @@ jobs:
           cd ..
           mkdir -p dist/Payload
           cp -R build/ios-xcode/Build/Products/Release-iphoneos/Runner.app dist/Payload/
-          cd dist && zip -qry wenku8-mod-ios-unsigned.ipa Payload
+          VERSION=$(awk '/^version:/{print $2}' ../pubspec.yaml | cut -d+ -f1)
+          cd dist && zip -qry "qingxiaoshuo-wenku-${VERSION}-ios-unsigned.ipa" Payload
           rm -rf Payload
           ls -lh
 
@@ -89,21 +93,22 @@ jobs:
     if: inputs.release_tag != ''
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > "SHA256SUMS-$(awk '/^version:/{print $2}' ../pubspec.yaml | cut -d+ -f1).txt"
+          ls -lh
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag }}
           files: dist/*
-          generate_release_notes: true
-          body: |
-            改版安装包（debug 签名 APK / 未签名 IPA，可直接安装或自行签名）。
-
-            - 源码：https://github.com/${{ github.repository }}
-            - 原仓库：https://github.com/mikufoxxx/Wenku8_Flutter
-            - 改版说明：见 README 第一节
-
-            iOS 的 `.ipa` 未签名：Sideloadly / AltStore / TrollStore 自签安装。
+          generate_release_notes: false
+          body_path: RELEASE-NOTES-0.7.8.md
+          make_latest: true

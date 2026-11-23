@@ -312,12 +312,11 @@ class Wenku8Client {
       throw const FormatException('在线组件接口暂时不可用，请检查网络或稍后重试');
     }
     if (!allowNumeric && body.trim() == '4') {
-      // A web login can still be valid even when the app API rejects its own
-      // session. Keep the imported jieqi cookie so the web fallback can use it.
-      if (!hasWebSession) {
-        await clearSession();
-        onAuthenticationLost?.call();
-      }
+      // 单次接口返回 4 只表示这一次请求没有通过 API 会话校验，不能据此
+      // 清掉 Cookie。首页刷新、头像与云书架请求经常与资料页并发，先前
+      // 这里直接 clearSession 会让刚登录成功的账号瞬间“自动退出”。
+      // 真正的失效交给 WenkuAccount.refreshProfile：先尝试网页资料页，
+      // 网页会话也失败时才清会话。
       throw const OnlineAuthenticationRequired();
     }
     if (!allowNumeric &&

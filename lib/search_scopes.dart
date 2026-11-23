@@ -19,8 +19,9 @@ class ScopedSearchRepository extends NovelRepository {
   final NovelRepository source;
   final SearchSource scope;
 
-  /// null 表示全部来源；网盘为 CloudSourceKind.name，书源为 rss:<url>。
-  String? targetKey;
+  /// 空集合表示全部来源；网盘为 CloudSourceKind.name，书源为 rss:<url>。
+  /// 支持同时勾选多个来源，由 CloudCatalogSearch 合并结果。
+  Set<String> targetKeys = const {};
 
   @override
   Future<List<Novel>> list() => source.list();
@@ -71,7 +72,7 @@ class ScopedSearchRepository extends NovelRepository {
       scope: scope == SearchSource.cloud
           ? CloudSearchScope.netDisks
           : CloudSearchScope.sources,
-      sourceKey: targetKey,
+      sourceKeys: targetKeys,
       refresh: refresh,
     );
     final pattern = BookSearch(text, field: field);

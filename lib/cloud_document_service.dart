@@ -295,6 +295,27 @@ class CloudDocumentService {
     return full;
   }
 
+  /// 网盘搜索的兜底：文件名/元数据都没命中时，检查已解析正文是否包含关键词。
+  /// 只在少量小文件上调用，解析结果同时留给详情页复用。
+  Future<bool> containsText(Novel novel, String query) async {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return false;
+    try {
+      await detail(novel);
+      final document = _documents[novel.id];
+      if (document == null) return false;
+      for (final body in document.bodies.values) {
+        if (body.toLowerCase().contains(needle)) return true;
+      }
+      for (final chapter in document.novel.chapters) {
+        if (chapter.title.toLowerCase().contains(needle)) return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<List<NovelChapter>> chapters(int id) async {
     final document = _documents[id];
     if (document != null) return document.novel.chapters;

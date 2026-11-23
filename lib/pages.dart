@@ -29,6 +29,8 @@ import 'archive_carousel.dart';
 import 'backup_page.dart';
 import 'haptic_settings_page.dart';
 import 'book_collection_layout.dart';
+import 'book_identity.dart';
+import 'cloud_library_page.dart';
 import 'book_collection_mode.dart';
 import 'book_shelf_preferences.dart';
 import 'book_shelf_content_preferences.dart';
@@ -172,6 +174,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     GlassDockItem(CupertinoIcons.house, '发现'),
     GlassDockItem(CupertinoIcons.book, '书架', symbol: ArchiveSymbol.shelf),
     GlassDockItem(CupertinoIcons.folder, '本地'),
+    GlassDockItem(CupertinoIcons.cloud, '网络', symbol: ArchiveSymbol.shelf),
     GlassDockItem(CupertinoIcons.person_crop_circle, '我的'),
   ];
   late final _catalog = NovelFeedController(
@@ -186,8 +189,8 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       )..searchField = BookSearchField.title),
   };
   SearchSource _searchSource = SearchSource.library;
-  final Map<SearchSource, String?> _searchTargetKeys = {
-    for (final scope in SearchSource.values) scope: null,
+  final Map<SearchSource, Set<String>> _searchTargetKeys = {
+    for (final scope in SearchSource.values) scope: <String>{},
   };
   List<CloudSearchTarget> _searchTargets = const [];
   NovelFeedController get _activeSearch => _searchFeeds[_searchSource]!;
@@ -266,6 +269,19 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       onSearch: _openSearch,
       navigation: _navigation,
     );
+    final networkShelf = ShelfPage(
+      books: const [],
+      state: widget.state,
+      repository: widget.repository,
+      showHeader: false,
+      compactMainPageControls: true,
+      onSearch: _openSearch,
+      navigation: _navigation,
+      networkOnly: true,
+      title: '网络',
+      code: '04 / NETWORK ARCHIVE',
+      onAddNetworkSources: _openNetworkSources,
+    );
     final settings = MyPage(
       state: widget.state,
       repository: widget.repository,
@@ -314,6 +330,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       shelf.buildHeader,
       localPage?.buildHeader ??
           (_) => const ArchiveMasthead(title: '本地', code: '03 / LOCAL ARCHIVE'),
+      networkShelf.buildHeader,
       settings.buildHeader,
     ];
     _pageWidgets =
@@ -321,6 +338,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               discover,
               shelf,
               localPage ?? const Center(child: AppText('当前演示数据源未启用本地书库')),
+              networkShelf,
               settings,
             ].indexed
             .map(
@@ -332,6 +350,57 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
             )
             .toList(growable: false);
     _ensureCatalog();
+  }
+
+  Future<void> _openNetworkSources() async {
+    final settings = CloudCatalogSearch.instance.settings;
+    await settings.load();
+    if (!mounted) return;
+    final offline = widget.repository is OfflineNovelRepository
+        ? widget.repository as OfflineNovelRepository
+        : null;
+    await pushNovelPage<void>(
+      context,
+      CloudLibraryPage(
+        settings: settings,
+        booklists: widget.state.organization.groups,
+        reduceMotion: widget.state.reduceMotion,
+        onImport: (name, path) async {
+          final local = offline?.local;
+          if (local == null) throw const CloudSourceFailure('本机书库暂不可用');
+          final novel = await local.importFile(name, path);
+          await widget.state.setShelfMembership(novel.id, false, novel: novel);
+          return novel;
+        },
+        onAddShelf: (entry, config) async {
+          var novel = CloudDocumentService.instance.cloudBook(entry, config);
+          if (entry.size <= 0 || entry.size <= 64 * 1024 * 1024) {
+            novel = await CloudDocumentService.instance.enrich(novel);
+          }
+          await widget.state.setShelfMembership(novel.id, true, novel: novel);
+        },
+        onAddCloud: (entry, config, groupId) async {
+          var novel = CloudDocumentService.instance.cloudBook(entry, config);
+          if (entry.size <= 0 || entry.size <= 64 * 1024 * 1024) {
+            novel = await CloudDocumentService.instance.enrich(novel);
+          }
+          await widget.state.setShelfMembership(novel.id, true, novel: novel);
+          if (groupId != null) {
+            await widget.state.organization.assignMany([novel.id], groupId);
+          }
+        },
+        onReadCloud: (page, entry, config) async {
+          openDetail(
+            page,
+            CloudDocumentService.instance.cloudBook(entry, config),
+            widget.state,
+            widget.repository,
+            entry: ReadingEntry.shelf,
+          );
+        },
+      ),
+      reduceMotion: widget.state.reduceMotion,
+    );
   }
 
   void _ensureCatalog() {
@@ -650,6 +719,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                                   repository: widget.repository,
                                   onOpenBook: _dismissSearchKeyboard,
                                   allowBlockedTags: _searchScope == 0,
+                                  searchSource: _searchSource,
                                   showSources: true,
                                   fromCache: false,
                                   onRecall: _searchScope == 0
@@ -849,11 +919,15 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                     title: switch (_searchScope) {
                       1 => '书架',
                       2 => '本地',
+                      3 => '网络',
+                      4 => '我的',
                       _ => '轻小说文库',
                     },
                     code: switch (_searchScope) {
                       1 => '02 / PERSONAL ARCHIVE',
                       2 => '03 / LOCAL ARCHIVE',
+                      3 => '04 / NETWORK ARCHIVE',
+                      4 => '05 / PERSONAL ARCHIVE',
                       _ => 'WENKU8 / READING ARCHIVE',
                     },
                     brand: _searchScope == 0,
@@ -946,12 +1020,14 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
   }
 
   String get _searchTargetLabel {
-    final key = _searchTargetKeys[_searchSource];
-    if (key == null) return '全部来源';
-    for (final target in _searchTargets) {
-      if (target.key == key) return target.label;
+    final keys = _searchTargetKeys[_searchSource] ?? const <String>{};
+    if (keys.isEmpty) return '全部来源';
+    if (keys.length == 1) {
+      for (final target in _searchTargets) {
+        if (target.key == keys.first) return target.label;
+      }
     }
-    return '全部来源';
+    return '已选 ${keys.length} 个来源';
   }
 
   Future<void> _loadSearchTargets(SearchSource source) async {
@@ -965,58 +1041,35 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
           : CloudSearchScope.sources,
     );
     if (!mounted || _searchSource != source) return;
-    final selected = _searchTargetKeys[source];
-    final valid = selected != null && targets.any((target) => target.key == selected)
-        ? selected
-        : null;
+    final selected = (_searchTargetKeys[source] ?? const <String>{})
+        .where((key) => targets.any((target) => target.key == key))
+        .toSet();
     setState(() {
       _searchTargets = targets;
-      _searchTargetKeys[source] = valid;
+      _searchTargetKeys[source] = selected;
     });
     final repository = _searchFeeds[source]!.repository;
-    if (repository is ScopedSearchRepository) repository.targetKey = valid;
+    if (repository is ScopedSearchRepository) repository.targetKeys = selected;
   }
 
-  Future<void> _pickSearchTarget(BuildContext anchor) async {
+  Future<void> _pickSearchTarget() async {
     if (_searchSource == SearchSource.library) return;
     if (_searchTargets.isEmpty) await _loadSearchTargets(_searchSource);
     if (!mounted) return;
-    final selected = _searchTargets.length > 40
-        ? await Navigator.of(context).push<String>(
-            MaterialPageRoute(
-              builder: (context) => SearchTargetPickerPage(
-                targets: _searchTargets,
-                selectedKey: _searchTargetKeys[_searchSource],
-              ),
-            ),
-          )
-        : await showGlassMenu<String>(
-            context: anchor,
-            reduceMotion: widget.state.reduceMotion,
-            builder: (menu) => Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                GlassMenuItem(
-                  key: const ValueKey('search-target-all'),
-                  label: '全部来源',
-                  onPressed: () => Navigator.pop(menu, ''),
-                ),
-                for (var i = 0; i < _searchTargets.length; i++)
-                  GlassMenuItem(
-                    key: ValueKey('search-target-${_searchTargets[i].key}'),
-                    order: i + 1,
-                    label: _searchTargets[i].label,
-                    onPressed: () => Navigator.pop(menu, _searchTargets[i].key),
-                  ),
-              ],
-            ),
-          );
-    if (!mounted) return;
-    final key = selected == null || selected.isEmpty ? null : selected;
-    _searchTargetKeys[_searchSource] = key;
+    final selected = await Navigator.of(context).push<Set<String>>(
+      MaterialPageRoute(
+        builder: (context) => SearchTargetPickerPage(
+          targets: _searchTargets,
+          selectedKeys: _searchTargetKeys[_searchSource] ?? const {},
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    _searchTargetKeys[_searchSource] = {...selected};
     final repository = _searchFeeds[_searchSource]!.repository;
-    if (repository is ScopedSearchRepository) repository.targetKey = key;
+    if (repository is ScopedSearchRepository) {
+      repository.targetKeys = {...selected};
+    }
     final query = _searchText.text.trim();
     final feed = _activeSearch;
     setState(() {});
@@ -1052,10 +1105,25 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               alignment: Alignment.centerLeft,
               child: GlassTextButton(
                 key: const ValueKey('home-search-target'),
-                onPressed: _searchTargets.isEmpty
-                    ? null
-                    : () => _pickSearchTarget(context),
-                child: AppText('来源：$_searchTargetLabel ▾', style: const TextStyle(fontSize: 13)),
+                onPressed: _searchTargets.isEmpty ? null : _pickSearchTarget,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ArchiveIcon(
+                      (_searchTargetKeys[_searchSource] ?? const <String>{})
+                              .isEmpty
+                          ? CupertinoIcons.circle
+                          : CupertinoIcons.checkmark_circle_fill,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    AppText(
+                      '来源：$_searchTargetLabel ▾',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1679,7 +1747,9 @@ class FeedFooter extends StatelessWidget {
             onPressed: feed.refreshFailed || !feed.hasLoaded
                 ? feed.retry
                 : feed.loadMore,
-            child: AppText(feed.hasLoaded && !feed.refreshFailed ? '加载下一页' : '重试'),
+            child: AppText(
+              feed.hasLoaded && !feed.refreshFailed ? '加载下一页' : '重试',
+            ),
           ),
         ] else if (feed.hasMore)
           GlassTextButton(
@@ -1709,7 +1779,10 @@ void openDetail(
   bool forceDetails = false,
   ReadingEntry entry = ReadingEntry.discovery,
 }) {
-  if (novel.remoteUrl != null && !forceDetails) {
+  // 网盘和小说书源的书与文库书一样先进入详情页：详情页统一提供简介、
+  // 目录、书籍设置和“开始阅读”，不能让网络书点一下就直接跳阅读器。
+  final networkBook = isCloudBookId(novel.id);
+  if (novel.remoteUrl != null && !networkBook && !forceDetails) {
     unawaited(
       pushNovelPage<void>(
         context,
@@ -1725,7 +1798,7 @@ void openDetail(
     );
     return;
   }
-  if (state.directReadingOn(entry) && !forceDetails) {
+  if (state.directReadingOn(entry) && !networkBook && !forceDetails) {
     unawaited(
       pushNovelPage<void>(
         context,
@@ -2033,6 +2106,10 @@ class ShelfPage extends StatefulWidget {
     this.compactMainPageControls = false,
     this.onSearch,
     this.navigation,
+    this.networkOnly = false,
+    this.title = '书架',
+    this.code = '02 / PERSONAL ARCHIVE',
+    this.onAddNetworkSources,
   });
   final List<Novel> books;
   final LibraryState state;
@@ -2042,17 +2119,26 @@ class ShelfPage extends StatefulWidget {
   final VoidCallback? onSearch;
   final HomeNavigation? navigation;
 
+  /// 只收录网盘/小说书源产生的网络书，书架其余功能完全复用。
+  final bool networkOnly;
+  final String title, code;
+  final VoidCallback? onAddNetworkSources;
+
   Widget buildHeader(BuildContext context, {VoidCallback? search}) =>
       AnimatedBuilder(
         animation: state.navigationChanges,
         builder: (context, _) => Row(
           children: [
             Expanded(
-              child: const ArchiveMasthead(
-                title: '书架',
-                code: '02 / PERSONAL ARCHIVE',
-              ),
+              child: ArchiveMasthead(title: title, code: code),
             ),
+            if (onAddNetworkSources != null)
+              GlassIconButton(
+                key: const ValueKey('network-add-sources'),
+                icon: CupertinoIcons.add,
+                label: '添加网盘或小说书源',
+                onPressed: onAddNetworkSources,
+              ),
             GlassIconButton(
               icon: CupertinoIcons.clock,
               label: '阅读历史',
@@ -2207,7 +2293,8 @@ class _ShelfPageState extends State<ShelfPage>
     animation: _modeTransition,
     child: child,
     builder: (context, child) {
-      final delay = (index * .07).clamp(0.0, .24);
+      // 保留逐行浮入，但压缩总延迟：列表很长时不再等半秒才全部到位。
+      final delay = (index * .032).clamp(0.0, .12);
       final progress = Curves.easeOutCubic.transform(
         ((_modeTransition.value - delay) / (1 - delay)).clamp(0.0, 1.0),
       );
@@ -2252,6 +2339,7 @@ class _ShelfPageState extends State<ShelfPage>
   }
 
   bool _matches(int id, String term) {
+    if (widget.networkOnly && !isCloudBookId(id)) return false;
     if (_cacheOnly && _offline?.availableOffline(id) != true) return false;
     final book = _known(id);
     if (!bookshelfMatchesCategory(id, state, book: book)) return false;
@@ -2383,14 +2471,19 @@ class _ShelfPageState extends State<ShelfPage>
     );
   }
 
+  Set<int> _scope(Set<int> ids) =>
+      widget.networkOnly ? ids.where(isCloudBookId).toSet() : ids;
+
   ({Set<int> all, List<int> saved, List<int> featured}) _projectBooks() {
     final query = _query.text.trim().toLowerCase();
     if (_projection != null && _projectionQuery == query) return _projection!;
-    final all = bookshelfIds(
-      state,
-      _offline,
-      readableOnly: _cacheOnly,
-      filterCategory: false,
+    final all = _scope(
+      bookshelfIds(
+        state,
+        _offline,
+        readableOnly: _cacheOnly,
+        filterCategory: false,
+      ),
     );
     final saved = all.where((id) => _matches(id, query)).toList();
     final sort = _sort;
@@ -2420,12 +2513,14 @@ class _ShelfPageState extends State<ShelfPage>
         : _shelfContentCategory;
     final featured = content.followCollection
         ? saved
-        : bookshelfIds(
-                state,
-                _offline,
-                readableOnly: _cacheOnly,
-                filterSource: false,
-                filterCategory: false,
+        : _scope(
+                bookshelfIds(
+                  state,
+                  _offline,
+                  readableOnly: _cacheOnly,
+                  filterSource: false,
+                  filterCategory: false,
+                ),
               )
               .where(
                 (id) =>
@@ -2468,12 +2563,14 @@ class _ShelfPageState extends State<ShelfPage>
   Map<String, String> _buildShelfContentCategories() {
     final organization = state.organization;
     final authors =
-        bookshelfIds(
-              state,
-              _offline,
-              readableOnly: _cacheOnly,
-              filterSource: false,
-              filterCategory: false,
+        _scope(
+              bookshelfIds(
+                state,
+                _offline,
+                readableOnly: _cacheOnly,
+                filterSource: false,
+                filterCategory: false,
+              ),
             )
             .map(_known)
             .whereType<Novel>()
@@ -2532,12 +2629,19 @@ class _ShelfPageState extends State<ShelfPage>
               )
             : Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: ArchiveMasthead(
-                      title: '书架',
-                      code: '02 / PERSONAL ARCHIVE',
+                      title: widget.title,
+                      code: widget.code,
                     ),
                   ),
+                  if (widget.onAddNetworkSources != null)
+                    GlassIconButton(
+                      key: const ValueKey('network-add-sources'),
+                      icon: CupertinoIcons.add,
+                      label: '添加网盘或小说书源',
+                      onPressed: widget.onAddNetworkSources,
+                    ),
                   GlassIconButton(
                     icon: CupertinoIcons.search,
                     label: '搜索书架',
@@ -2625,9 +2729,13 @@ class _ShelfPageState extends State<ShelfPage>
                             ),
                             const SizedBox(height: 18),
                             AppText(
-                              all.isNotEmpty ||
-                                      state.combinedShelf &&
-                                          state.shelfSourceFilter != 'all'
+                              widget.networkOnly
+                                  ? all.isEmpty
+                                        ? '网络书架还空着'
+                                        : '没有符合条件的网络书'
+                                  : all.isNotEmpty ||
+                                        state.combinedShelf &&
+                                            state.shelfSourceFilter != 'all'
                                   ? '没有符合条件的书'
                                   : _cacheOnly
                                   ? '没有可离线阅读的书'
@@ -2641,7 +2749,9 @@ class _ShelfPageState extends State<ShelfPage>
                             ),
                             const SizedBox(height: 8),
                             AppText(
-                              _cacheOnly
+                              widget.networkOnly
+                                  ? '点右上角 ＋ 添加网盘连接或小说书源，网络书会收进这个书架'
+                                  : _cacheOnly
                                   ? state.combinedShelf
                                         ? '已缓存的收藏和本地导入书籍会显示在这里'
                                         : '已缓存正文的收藏会显示在这里，本地导入请到「本地」阅读'
@@ -2658,6 +2768,18 @@ class _ShelfPageState extends State<ShelfPage>
                                 ).colorScheme.onSurfaceVariant,
                               ),
                             ),
+                            if (widget.networkOnly &&
+                                widget.onAddNetworkSources != null) ...[
+                              const SizedBox(height: 18),
+                              GlassPillButton(
+                                key: const ValueKey(
+                                  'network-empty-add-sources',
+                                ),
+                                icon: CupertinoIcons.plus,
+                                label: '添加网盘或小说书源',
+                                onPressed: widget.onAddNetworkSources,
+                              ),
+                            ],
                           ],
                         ),
                       );
@@ -3984,6 +4106,7 @@ class InlineSearchResults extends StatelessWidget {
     this.showSources = false,
     this.fromCache = false,
     this.allowBlockedTags = false,
+    this.searchSource = SearchSource.library,
   });
   final LibraryState state;
   final NovelRepository repository;
@@ -3992,6 +4115,7 @@ class InlineSearchResults extends StatelessWidget {
   final ValueChanged<String>? onRecall;
   final String emptyQueryTitle;
   final bool showSources, fromCache, allowBlockedTags;
+  final SearchSource searchSource;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -4245,11 +4369,23 @@ class InlineSearchResults extends StatelessWidget {
           ),
         );
       }
+      final cloudFailure = searchSource == SearchSource.library
+          ? null
+          : CloudCatalogSearch.instance.lastFailure;
       return ContentNotice(
         icon: CupertinoIcons.search,
-        title: feed.searchNotice == null ? '没有找到相关故事' : '部分搜索暂未完成',
-        message: feed.searchNotice ?? '试试更短的书名或作者名',
-        onRetry: feed.searchNotice == null ? null : feed.refresh,
+        title: cloudFailure != null
+            ? '来源暂时没有连上'
+            : feed.searchNotice == null
+            ? '没有找到相关故事'
+            : '部分搜索暂未完成',
+        message:
+            cloudFailure ??
+            feed.searchNotice ??
+            '试试更短的书名或作者名；网盘搜索会同时查文件名、文件夹名和正文',
+        onRetry: feed.searchNotice == null && cloudFailure == null
+            ? null
+            : feed.refresh,
       );
     }
     return NotificationListener<ScrollNotification>(
@@ -4457,7 +4593,9 @@ class _SearchGroupFooter extends StatelessWidget {
             onPressed: feed.refreshFailed || !feed.hasLoaded
                 ? feed.retry
                 : feed.loadMore,
-            child: AppText(feed.hasLoaded && !feed.refreshFailed ? '加载下一页' : '重试'),
+            child: AppText(
+              feed.hasLoaded && !feed.refreshFailed ? '加载下一页' : '重试',
+            ),
           ),
         ] else if (feed.searchNotice case final notice?) ...[
           AppText(

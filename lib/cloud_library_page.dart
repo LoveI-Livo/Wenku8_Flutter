@@ -50,10 +50,27 @@ class CloudLibraryPage extends StatelessWidget {
   final ReadCloudBook? onReadCloud;
   final Map<String, String> booklists;
   final bool reduceMotion;
-  Future<void> _edit(BuildContext context, CloudSourceKind kind) async {
+  Future<void> _edit(
+    BuildContext context,
+    CloudSourceKind kind, {
+    CloudSourceConfig? existing,
+    bool newConnection = false,
+  }) async {
+    final base = existing ?? (newConnection ? null : settings[kind]);
+    final connectionId =
+        existing?.connectionId ??
+        (newConnection
+            ? settings.newConnectionId(kind)
+            : base?.connectionId ?? settings.newConnectionId(kind));
     final config = await pushNovelPage<CloudSourceConfig>(
       context,
-      CloudConnectionPage(settings: settings, kind: kind),
+      CloudConnectionPage(
+        settings: settings,
+        kind: kind,
+        initialConfig: base,
+        connectionId: connectionId,
+        newConnection: newConnection,
+      ),
       reduceMotion: reduceMotion,
     );
     if (context.mounted && config != null) {
@@ -62,10 +79,17 @@ class CloudLibraryPage extends StatelessWidget {
     }
   }
 
-  Future<void> _loginAccount(BuildContext context, CloudSourceKind kind) async {
-    final address = kind == CloudSourceKind.quark
-        ? 'https://pan.quark.cn/'
-        : 'https://pc.woozooo.com/mydisk.php?item=files&action=index';
+  Future<void> _loginAccount(
+    BuildContext context,
+    CloudSourceKind kind, {
+    String? connectionId,
+  }) async {
+    final address = switch (kind) {
+      CloudSourceKind.quark => 'https://pan.quark.cn/#/login',
+      CloudSourceKind.lanzou =>
+        'https://pc.woozooo.com/mydisk.php?item=files&action=index',
+      _ => 'https://pc.woozooo.com/mydisk.php?item=files&action=index',
+    };
     final cookie = await pushNovelPage<String>(
       context,
       SourceLoginPage(
@@ -79,7 +103,11 @@ class CloudLibraryPage extends StatelessWidget {
     );
     if (cookie == null || !context.mounted) return;
     try {
-      final config = CloudSourceConfig(kind: kind, cookie: cookie);
+      final config = CloudSourceConfig(
+        kind: kind,
+        connectionId: connectionId ?? settings.newConnectionId(kind),
+        cookie: cookie,
+      );
       config.validate();
       await settings.save(kind, config);
       await CloudCatalogSearch.instance.reload();
@@ -114,7 +142,10 @@ class CloudLibraryPage extends StatelessWidget {
       builder: (context, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const ArchiveSection(title: '网盘与小说书源', code: 'BOOKS / DOCUMENTS / SOURCES'),
+          const ArchiveSection(
+            title: '网盘与小说书源',
+            code: 'BOOKS / DOCUMENTS / SOURCES',
+          ),
           const SizedBox(height: 12),
           const AppText(
             '点账号登录后直接浏览网盘；点书即在线读取，只把正文读进内存，'
@@ -131,6 +162,81 @@ class CloudLibraryPage extends StatelessWidget {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           for (final kind in CloudSourceKind.values) ...[
+            for (final extra in settings.configsFor(kind).skip(1)) ...[
+              ContentPanel(
+                key: ValueKey(
+                  'cloud-source-${kind.name}-${extra.connectionId}',
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: AppText(
+                            '${kind.label} · ${Uri.tryParse(extra.address)?.host ?? '已连接'}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const ArchiveIcon(
+                          CupertinoIcons.checkmark_seal,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    AppText(
+                      '已连接的另一个 ${kind.label} 账号，可单独浏览、搜索、修改或移除。',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    GlassPillButton(
+                      icon: CupertinoIcons.folder_open,
+                      label: '浏览这个连接',
+                      onPressed: () => _browse(context, extra),
+                    ),
+                    Wrap(
+                      spacing: 12,
+                      children: [
+                        GlassTextButton(
+                          onPressed: kind.isWebLogin
+                              ? () => _loginAccount(
+                                  context,
+                                  kind,
+                                  connectionId: extra.connectionId,
+                                )
+                              : () => _edit(context, kind, existing: extra),
+                          child: AppText(kind.isWebLogin ? '重新登录' : '修改连接'),
+                        ),
+                        GlassTextButton(
+                          onPressed: () async {
+                            try {
+                              await settings.remove(extra);
+                              await CloudCatalogSearch.instance.reload();
+                            } catch (e) {
+                              if (context.mounted) {
+                                showNovelFeedback(
+                                  context,
+                                  cloudFailureMessage(e),
+                                );
+                              }
+                            }
+                          },
+                          child: const AppText('移除连接'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             ContentPanel(
               key: ValueKey('cloud-source-${kind.name}'),
               onTap: !kind.isWebLogin
@@ -214,8 +320,12 @@ class CloudLibraryPage extends StatelessWidget {
                       children: [
                         GlassTextButton(
                           onPressed: kind.isWebLogin
-                              ? () => _loginAccount(context, kind)
-                              : () => _edit(context, kind),
+                              ? () => _loginAccount(
+                                  context,
+                                  kind,
+                                  connectionId: config.connectionId,
+                                )
+                              : () => _edit(context, kind, existing: config),
                           child: AppText(kind.isWebLogin ? '重新登录' : '修改连接'),
                         ),
                         if (kind == CloudSourceKind.rss)
@@ -231,7 +341,11 @@ class CloudLibraryPage extends StatelessWidget {
                         GlassTextButton(
                           onPressed: () async {
                             try {
-                              await settings.save(kind, null);
+                              if (kind == CloudSourceKind.rss) {
+                                await settings.save(kind, null);
+                              } else {
+                                await settings.remove(config);
+                              }
                               await CloudCatalogSearch.instance.reload();
                             } catch (e) {
                               if (context.mounted) {
@@ -246,6 +360,20 @@ class CloudLibraryPage extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (kind != CloudSourceKind.rss) ...[
+                      const SizedBox(height: 8),
+                      GlassTextButton(
+                        key: ValueKey('cloud-add-another-${kind.name}'),
+                        onPressed: kind.isWebLogin
+                            ? () => _loginAccount(
+                                context,
+                                kind,
+                                connectionId: settings.newConnectionId(kind),
+                              )
+                            : () => _edit(context, kind, newConnection: true),
+                        child: AppText('添加另一个 ${kind.label} 连接'),
+                      ),
+                    ],
                   ] else
                     GlassPillButton(
                       key: ValueKey('cloud-add-${kind.name}'),
@@ -264,7 +392,13 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.rss => '添加小说书源',
                         CloudSourceKind.s3 => '添加 S3 连接',
                       },
-                      onPressed: kind.isWebLogin
+                      onPressed: kind == CloudSourceKind.rss
+                          ? () => pushNovelPage<void>(
+                              context,
+                              BookSourceManagerPage(settings: settings),
+                              reduceMotion: reduceMotion,
+                            )
+                          : kind.isWebLogin
                           ? () => _loginAccount(context, kind)
                           : () => _edit(context, kind),
                     ),
@@ -285,10 +419,16 @@ class CloudConnectionPage extends StatefulWidget {
     required this.settings,
     required this.kind,
     this.syncConnection = false,
+    this.initialConfig,
+    this.connectionId,
+    this.newConnection = false,
   }) : assert(!syncConnection || kind == CloudSourceKind.s3);
   final CloudSourceSettings settings;
   final CloudSourceKind kind;
   final bool syncConnection;
+  final CloudSourceConfig? initialConfig;
+  final String? connectionId;
+  final bool newConnection;
   @override
   State<CloudConnectionPage> createState() => _CloudConnectionPageState();
 }
@@ -311,7 +451,11 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
   void initState() {
     super.initState();
     final savedSync = widget.syncConnection ? widget.settings.s3Sync : null;
-    final config = savedSync?.config ?? widget.settings[widget.kind];
+    final config =
+        savedSync?.config ??
+        (widget.newConnection
+            ? null
+            : widget.initialConfig ?? widget.settings[widget.kind]);
     _address.text = config?.address ?? '';
     _user.text = config?.username ?? '';
     _password.text = config?.password ?? '';
@@ -380,6 +524,7 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
     try {
       var config = CloudSourceConfig(
         kind: widget.kind,
+        connectionId: widget.connectionId ?? '',
         address: _address.text.trim(),
         username: _user.text.trim(),
         password: _password.text,
@@ -406,6 +551,9 @@ class _CloudConnectionPageState extends State<CloudConnectionPage> {
       await client.list(client.root);
       if (client is QuarkBookClient) config = client.config;
       if (!mounted) return;
+      config = config.copyWith(
+        connectionId: widget.connectionId ?? config.connectionId,
+      );
       await widget.settings.save(widget.kind, config);
       if (mounted) Navigator.pop(context, config);
     } catch (e) {
@@ -878,12 +1026,12 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
                 pending.add(entry.id);
               } else if (entry.isBook &&
                   (entry.name.toLowerCase().contains(value.toLowerCase()) ||
-                      entry.author
-                          .toLowerCase()
-                          .contains(value.toLowerCase()) ||
-                      entry.summary
-                          .toLowerCase()
-                          .contains(value.toLowerCase()))) {
+                      entry.author.toLowerCase().contains(
+                        value.toLowerCase(),
+                      ) ||
+                      entry.summary.toLowerCase().contains(
+                        value.toLowerCase(),
+                      ))) {
                 matches[entry.id] = entry;
               }
             }
@@ -1017,23 +1165,17 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
       await add(entry, widget.config);
       if (!mounted) return;
       setState(() => _addedToShelf.add(entry.id));
-      showNovelFeedback(
-        context,
-        '已加入书架 · ${widget.config.kind.label}，点开即在线阅读',
-      );
+      showNovelFeedback(context, '已加入书架 · ${widget.config.kind.label}，点开即在线阅读');
     } catch (error) {
       if (mounted) {
-        showNovelFeedback(
-          context,
-          '加入书架未完成：${cloudFailureMessage(error)}',
-        );
+        showNovelFeedback(context, '加入书架未完成：${cloudFailureMessage(error)}');
       }
     } finally {
       if (mounted) setState(() => _importing = false);
     }
   }
 
-Future<void> _import(List<CloudBookEntry> entries) async {
+  Future<void> _import(List<CloudBookEntry> entries) async {
     if (_importing || entries.isEmpty) return;
     setState(() {
       _importing = true;

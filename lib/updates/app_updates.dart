@@ -19,8 +19,8 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: officialUpdateRepository,
 );
-const currentAppVersion = '0.7.7';
-const currentAppBuild = 3019;
+const currentAppVersion = '0.7.8';
+const currentAppBuild = 3020;
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
   const ReleaseVersion(this.major, this.minor, this.patch, [this.build = 0]);
@@ -117,8 +117,11 @@ class AppRelease {
       final url = Uri.tryParse(raw['browser_download_url']?.toString() ?? '');
       final size = raw['size'];
       if (name is! String ||
-          !const ['wenku8-', 'qingxiaoshuo-wenku-', 'qingxiaoshuo-']
-              .any((prefix) => name.startsWith('$prefix${version.name}-')) ||
+          !const [
+            'wenku8-',
+            'qingxiaoshuo-wenku-',
+            'qingxiaoshuo-',
+          ].any((prefix) => name.startsWith('$prefix${version.name}-')) ||
           !const ['.apk', '.ipa', '.hap'].any(name.endsWith) ||
           url == null ||
           url.scheme != 'https' ||
@@ -675,6 +678,12 @@ class AppUpdates extends ChangeNotifier {
     await platform.openRelease(page);
   }
 
+  Future<void> downloadNotice() async {
+    final target = noticeAsset;
+    if (target == null) throw const FormatException('此版本没有可下载的安装包');
+    await platform.openRelease(target.url);
+  }
+
   final UpdatePlatform platform;
   final Future<Directory> Function() _directory;
   final DateTime Function() _clock;
@@ -725,6 +734,17 @@ class AppUpdates extends ChangeNotifier {
   UpdateAsset? get asset => !packageUpdates || installed == null
       ? null
       : release?.assetFor(installed!.abis);
+
+  /// iOS/HarmonyOS 不能静默安装，但仍可把对应的 IPA/HAP 从 GitHub 下载到
+  /// 系统文件或分享面板；这里返回当前版本的通知包资产。
+  UpdateAsset? get noticeAsset {
+    final extension = notificationAssetExtension;
+    if (extension == null || packageUpdates) return null;
+    for (final asset in release?.assets ?? const <UpdateAsset>[]) {
+      if (asset.name.endsWith(extension)) return asset;
+    }
+    return null;
+  }
 
   /// Snooze only this release, including across process restarts. A different
   /// release can still be announced immediately; manual updating stays usable.

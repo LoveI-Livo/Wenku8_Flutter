@@ -1296,7 +1296,8 @@ class LoadedContentItem extends StatelessWidget {
     // Appending a page makes the previous batch static. Keep its element
     // ancestry intact so in-flight image decodes/arrivals are not remounted.
     final active = clock != null && order >= 0;
-    final start = active ? order.clamp(0, 8) * .055 : 0.0;
+    // 六档、每档 28ms：保留错落入场，同时让长列表更快进入可读状态。
+    final start = active ? order.clamp(0, 6) * .028 : 0.0;
     return RevealFromTop(
       animation: active ? clock : const AlwaysStoppedAnimation<double>(1),
       start: start,

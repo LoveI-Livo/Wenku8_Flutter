@@ -52,9 +52,26 @@ class _SourceLoginPageState extends State<SourceLoginPage> {
       if (!auto) _error = null;
     });
     try {
-      final cookies = await CookieManager.instance().getCookies(
-        url: WebUri(widget.address),
-      );
+      // 登录页经常在 /login、/mydisk.php 等子路径，只按当前地址读取会漏掉
+      // 域名级 Cookie。这里同时读取当前页与站点根路径，合并去重。
+      final uri = Uri.tryParse(widget.address);
+      final probes = <String>{
+        widget.address,
+        if (uri != null) Uri(scheme: uri.scheme, host: uri.host).toString(),
+      };
+      final byName = <String, String>{};
+      for (final probe in probes) {
+        final cookies = await CookieManager.instance().getCookies(
+          url: WebUri(probe),
+        );
+        for (final cookie in cookies) {
+          if (cookie.value.isNotEmpty) byName[cookie.name] = cookie.value;
+        }
+      }
+      final cookies = [
+        for (final entry in byName.entries)
+          (name: entry.key, value: entry.value),
+      ];
       final value = cookies
           .where((c) => c.value.isNotEmpty)
           .map((c) => '${c.name}=${c.value}')

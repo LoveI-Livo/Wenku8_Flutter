@@ -15,6 +15,12 @@ import 'release_notices.dart';
 
 export 'release_markdown.dart' show ReleaseNotes;
 
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
 class AppUpdatesScope extends InheritedNotifier<AppUpdates> {
   const AppUpdatesScope({
     super.key,
@@ -585,10 +591,39 @@ class AppUpdatePage extends StatelessWidget {
                         const SizedBox(height: 16),
                         if (service.asset != null)
                           _UpdateTransferAction(service: service)
+                        else if (service.noticeAsset case final asset?)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              AppText(
+                                '可从 GitHub 直接下载 ${asset.name}（${_formatBytes(asset.size)}）。'
+                                'iOS 安装包需要在电脑上用签名工具签名后安装，'
+                                'App 内不能静默覆盖安装。',
+                              ),
+                              const SizedBox(height: 10),
+                              GlassPillButton(
+                                key: const ValueKey('update-download-notice'),
+                                icon: CupertinoIcons.arrow_down_to_line,
+                                label: '下载 ${asset.name}',
+                                onPressed: () async {
+                                  try {
+                                    await service.downloadNotice();
+                                  } catch (_) {
+                                    if (context.mounted) {
+                                      showNovelFeedback(
+                                        context,
+                                        '暂时无法打开下载，请检查网络后重试',
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            ],
+                          )
                         else if (service.packageUpdates)
                           const AppText('此版本暂无适合本机的 APK。'),
                         if (!service.packageUpdates)
-                          const AppText('请前往发布页下载对应安装包，签名后安装。升级前请备份阅读记录。'),
+                          const AppText('也可以前往发布页查看签名与安装说明。升级前请备份阅读记录。'),
                         GlassTextButton(
                           onPressed: () => _open(
                             context,
@@ -613,103 +648,7 @@ class AppUpdatePage extends StatelessWidget {
               const SizedBox(height: 28),
               const ArchiveSection(title: '改版说明', code: 'MOD / EDITION'),
               const SizedBox(height: 14),
-              ContentPanel(
-                key: const ValueKey('app-mod-edition'),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    AppText(
-                      modEditionSummary,
-                      style: const TextStyle(height: 1.7),
-                    ),
-                    const SizedBox(height: 8),
-                    AppText(
-                      '$modEditionName $modEditionVersion（构建 $modEditionBuild）',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    for (final change in modEditionChanges) ...[
-                      AppText(
-                        '· ${change.title}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 4),
-                      AppText(
-                        change.detail,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.7,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                    AppText(
-                      modEditionNotice,
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.7,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    AppText(
-                      '改版作者：$modAuthorName',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    if (modContactEmail.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      AppText('邮箱：$modContactEmail'),
-                    ],
-                    if (modContactQq.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      AppText('QQ：$modContactQq'),
-                    ],
-                    if (modContactTelegram.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      AppText('Telegram：$modContactTelegram'),
-                    ],
-                    if (modContactWeChat.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      AppText('微信：$modContactWeChat'),
-                    ],
-                    if (modContactSite.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      AppText('主页：$modContactSite'),
-                    ],
-                    const SizedBox(height: 14),
-                    GlassTextButton(
-                      key: const ValueKey('app-mod-origin-repo'),
-                      onPressed: () => _open(
-                        context,
-                        () => _launch(modOriginalRepository),
-                      ),
-                      child: const AppText('原仓库（本项目来源）'),
-                    ),
-                    const SizedBox(height: 8),
-                    GlassTextButton(
-                      key: const ValueKey('app-mod-repo'),
-                      onPressed: () => _open(
-                        context,
-                        () => _launch(modRepository),
-                      ),
-                      child: const AppText('本改版仓库'),
-                    ),
-                    const SizedBox(height: 8),
-                    GlassTextButton(
-                      key: const ValueKey('app-mod-legacy-repo'),
-                      onPressed: () => _open(
-                        context,
-                        () => _launch(modLegacyRepository),
-                      ),
-                      child: const AppText('更早的 Android 原版'),
-                    ),
-                  ],
-                ),
-              ),
+              const _ModEditionPanel(),
               const SizedBox(height: 28),
               const ArchiveSection(title: '项目与许可', code: 'SOURCE / LICENSES'),
               const SizedBox(height: 14),
@@ -877,6 +816,136 @@ class _UpdateTransferAction extends StatelessWidget {
               child: const AppText('允许安装更新'),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 改版说明默认只露出概况与前几条，避免关于页被几十条更新记录撑得过长。
+/// 展开/收起保留布局动画，和页面其它折叠区块一致。
+class _ModEditionPanel extends StatefulWidget {
+  const _ModEditionPanel();
+
+  @override
+  State<_ModEditionPanel> createState() => _ModEditionPanelState();
+}
+
+class _ModEditionPanelState extends State<_ModEditionPanel> {
+  static const _collapsedCount = 3;
+  bool _expanded = false;
+
+  Future<void> _openLink(BuildContext context, String url) async {
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (context.mounted) showNovelFeedback(context, '暂时无法打开，请稍后重试');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurfaceVariant;
+    final changes = _expanded
+        ? modEditionChanges
+        : modEditionChanges.take(_collapsedCount).toList(growable: false);
+    return ContentPanel(
+      key: const ValueKey('app-mod-edition'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppText(modEditionSummary, style: const TextStyle(height: 1.7)),
+          const SizedBox(height: 8),
+          AppText(
+            '$modEditionName $modEditionVersion（构建 $modEditionBuild）',
+            style: TextStyle(fontSize: 12, color: color),
+          ),
+          const SizedBox(height: 16),
+          AnimatedSize(
+            duration: NovelMotion.enter,
+            curve: NovelMotion.ease,
+            alignment: Alignment.topCenter,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final change in changes) ...[
+                  AppText(
+                    '· ${change.title}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  AppText(
+                    change.detail,
+                    style: TextStyle(fontSize: 13, height: 1.7, color: color),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+              ],
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: GlassTextButton(
+              key: const ValueKey('app-mod-edition-toggle'),
+              onPressed: () => setState(() => _expanded = !_expanded),
+              child: AppText(
+                _expanded
+                    ? '收起改版说明'
+                    : '展开全部改版说明（${modEditionChanges.length} 项）',
+              ),
+            ),
+          ),
+          if (_expanded) ...[
+            const SizedBox(height: 6),
+            AppText(
+              modEditionNotice,
+              style: TextStyle(fontSize: 12, height: 1.7, color: color),
+            ),
+            const SizedBox(height: 18),
+          ] else
+            const SizedBox(height: 8),
+          AppText(
+            '改版作者：$modAuthorName',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          if (modContactEmail.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            AppText('邮箱：$modContactEmail'),
+          ],
+          if (modContactQq.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            AppText('QQ：$modContactQq'),
+          ],
+          if (modContactTelegram.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            AppText('Telegram：$modContactTelegram'),
+          ],
+          if (modContactWeChat.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            AppText('微信：$modContactWeChat'),
+          ],
+          if (modContactSite.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            AppText('主页：$modContactSite'),
+          ],
+          const SizedBox(height: 14),
+          GlassTextButton(
+            key: const ValueKey('app-mod-origin-repo'),
+            onPressed: () => _openLink(context, modOriginalRepository),
+            child: const AppText('原仓库（本项目来源）'),
+          ),
+          const SizedBox(height: 8),
+          GlassTextButton(
+            key: const ValueKey('app-mod-repo'),
+            onPressed: () => _openLink(context, modRepository),
+            child: const AppText('本改版仓库'),
+          ),
+          const SizedBox(height: 8),
+          GlassTextButton(
+            key: const ValueKey('app-mod-legacy-repo'),
+            onPressed: () => _openLink(context, modLegacyRepository),
+            child: const AppText('更早的 Android 原版'),
+          ),
         ],
       ),
     );
