@@ -125,6 +125,7 @@ import 'reader_text.dart';
 import 'reading_history.dart';
 import 'recent_searches.dart';
 import 'cloud_catalog_search.dart';
+import 'search_target_picker.dart';
 import 'search_scopes.dart';
 import 'ui_notifiers.dart';
 import 'route_identity.dart';
@@ -980,28 +981,37 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     if (_searchSource == SearchSource.library) return;
     if (_searchTargets.isEmpty) await _loadSearchTargets(_searchSource);
     if (!mounted) return;
-    final selected = await showGlassMenu<String>(
-      context: anchor,
-      reduceMotion: widget.state.reduceMotion,
-      builder: (menu) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          GlassMenuItem(
-            key: const ValueKey('search-target-all'),
-            label: '全部来源',
-            onPressed: () => Navigator.pop(menu, ''),
-          ),
-          for (var i = 0; i < _searchTargets.length; i++)
-            GlassMenuItem(
-              key: ValueKey('search-target-${_searchTargets[i].key}'),
-              order: i + 1,
-              label: _searchTargets[i].label,
-              onPressed: () => Navigator.pop(menu, _searchTargets[i].key),
+    final selected = _searchTargets.length > 40
+        ? await Navigator.of(context).push<String>(
+            MaterialPageRoute(
+              builder: (context) => SearchTargetPickerPage(
+                targets: _searchTargets,
+                selectedKey: _searchTargetKeys[_searchSource],
+              ),
             ),
-        ],
-      ),
-    );
+          )
+        : await showGlassMenu<String>(
+            context: anchor,
+            reduceMotion: widget.state.reduceMotion,
+            builder: (menu) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                GlassMenuItem(
+                  key: const ValueKey('search-target-all'),
+                  label: '全部来源',
+                  onPressed: () => Navigator.pop(menu, ''),
+                ),
+                for (var i = 0; i < _searchTargets.length; i++)
+                  GlassMenuItem(
+                    key: ValueKey('search-target-${_searchTargets[i].key}'),
+                    order: i + 1,
+                    label: _searchTargets[i].label,
+                    onPressed: () => Navigator.pop(menu, _searchTargets[i].key),
+                  ),
+              ],
+            ),
+          );
     if (!mounted) return;
     final key = selected == null || selected.isEmpty ? null : selected;
     _searchTargetKeys[_searchSource] = key;

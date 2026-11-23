@@ -25,7 +25,7 @@ const _sourceSearchFix =
 const _searchPage =
     '搜索结果固定每页 50 条；加载成功时继续下滑自动加载下一页，加载失败时停止自动请求并显示“加载下一页”按钮；不再在 40 条处提前截断。';
 const _sourceMulti =
-    '小说书源支持一行填多个地址，最多 200 个；支持 RSS、Atom、JSON Feed、JSON 列表和普通网页目录。';
+    '小说书源支持一行填多个地址，最多 10000 个；支持 RSS、Atom、JSON Feed、JSON 列表和普通网页目录。';
 const _sourceFiles =
     '书源管理支持批量导入 TXT、CSV、Legado 书源 JSON、OPML 和 HTML 书源文件，可一次导入多个文件；导入后逐个检测有效或失效，一键删除失效书源。';
 const _sourceFilter =
@@ -48,7 +48,13 @@ const _cloudCache =
     '网盘书封面与正文插图缓存单独列入「缓存与存储」，可查看占用并随时清理；正文在内存中解析，退出阅读后由系统回收，不占安装存储。';
 const _threeSearch =
     '主搜索框拆成“文库搜索 / 网盘搜索 / 书源搜索”三个来源，支持书名、作者、标签、ID；网盘搜索覆盖所有已连接网盘，书源搜索覆盖 RSS、Atom、JSON 和网页书源。';
+const _versionFold = '关于页版本记录改为三层折叠：大版本 → 次版本 → 单个补丁版本，每层单独展开收起；同一层同时只展开一组，当前版本带“当前”标记。';
+const _sourceLimit = '小说书源上限提高到 10000 个，导入自动去重，列表懒加载；书源管理支持从剪贴板导入、复制全部书源、单条检测和启用/停用。';
+const _sourcePicker = '书源或网盘超过 40 个时，搜索来源改为可搜索的独立列表页，按名称或地址快速筛选。';
 const _changes = [
+  _versionFold,
+  _sourceLimit,
+  _sourcePicker,
   _searchPage,
   _sourceMulti,
   _sourceFiles,

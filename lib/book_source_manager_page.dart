@@ -90,6 +90,7 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
       if (mounted) setState(() => _busy = false);
       return;
     }
+    final seen = _sources.map((source) => source.url).toSet();
     final added = <CloudBookSource>[];
     final failures = <String>[];
     try {
@@ -101,10 +102,7 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         try {
           final bytes = await File(selection.path!).readAsBytes();
           for (final source in await BookSourceFileReader.read(selection.name, bytes)) {
-            if (_sources.any((item) => item.url == source.url) ||
-                added.any((item) => item.url == source.url)) {
-              continue;
-            }
+            if (!seen.add(source.url)) continue;
             added.add(CloudBookSource(url: source.url, name: source.name));
           }
         } catch (error) {
@@ -112,9 +110,13 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
         }
       }
       if (added.isNotEmpty) {
-        _sources = [..._sources, ...added].take(200).toList(growable: true);
+        final before = _sources.length;
+        _sources = [..._sources, ...added].take(maxBookSources).toList(growable: true);
         await _save();
-        _status = '已导入 ${added.length} 个书源${_sources.length > 200 ? '，超过 200 个已截断' : ''}';
+        final kept = _sources.length - before;
+        _status = kept < added.length
+            ? '已导入 $kept 个书源，超过 $maxBookSources 个的部分已截断'
+            : '已导入 $kept 个书源';
       } else {
         _status = '没有新增书源';
       }
@@ -133,17 +135,15 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
   }
 
   int _mergeImported(Iterable<ImportedBookSource> values) {
+    final seen = _sources.map((source) => source.url).toSet();
     final added = <CloudBookSource>[];
     for (final source in values) {
-      if (_sources.any((item) => item.url == source.url) ||
-          added.any((item) => item.url == source.url)) {
-        continue;
-      }
+      if (!seen.add(source.url)) continue;
       added.add(CloudBookSource(url: source.url, name: source.name));
     }
     if (added.isEmpty) return 0;
     final before = _sources.length;
-    _sources = [..._sources, ...added].take(200).toList(growable: true);
+    _sources = [..._sources, ...added].take(maxBookSources).toList(growable: true);
     return _sources.length - before;
   }
 
@@ -334,91 +334,117 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
             ),
           ],
         ),
-        body: ListView(
+        body: ListView.builder(
           padding: EdgeInsets.fromLTRB(
             24,
             MediaQuery.paddingOf(context).top + FrostedHeader.toolbarHeight + 20,
             24,
             MediaQuery.paddingOf(context).bottom + 32,
           ),
-          children: [
-            const ArchiveSection(title: '书源管理', code: 'BOOK SOURCES'),
-            const SizedBox(height: 10),
-            const AppText(
-              '支持 TXT 地址列表、CSV、Legado 书源 JSON、OPML 订阅表和含订阅链接的 HTML。'
-              '导入后先检测，再一键清理失效书源；搜索时可以指定某一个书源。',
-              style: TextStyle(fontSize: 13, height: 1.65),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              children: [
-                GlassPillButton(
-                  key: const ValueKey('book-source-import-files'),
-                  icon: CupertinoIcons.tray_arrow_down,
-                  label: '导入书源文件',
-                  onPressed: _busy || _checking ? null : _importFiles,
-                ),
-                GlassPillButton(
-                  key: const ValueKey('book-source-clipboard-import'),
-                  icon: CupertinoIcons.doc_on_clipboard,
-                  label: '从剪贴板导入',
-                  onPressed: _busy || _checking ? null : _importClipboard,
-                ),
-                GlassPillButton(
-                  key: const ValueKey('book-source-copy'),
-                  icon: CupertinoIcons.square_on_square,
-                  label: '复制全部书源',
-                  onPressed: _sources.isEmpty ? null : _copySources,
-                ),
-                GlassPillButton(
-                  key: const ValueKey('book-source-check-all'),
-                  icon: CupertinoIcons.checkmark_seal,
-                  label: _checking ? '检测中 $_checked / ${_sources.length}' : '检测全部',
-                  onPressed: _checking || _sources.isEmpty ? null : _checkAll,
-                ),
-                GlassPillButton(
-                  key: const ValueKey('book-source-delete-invalid'),
-                  icon: CupertinoIcons.trash,
-                  label: '删除失效',
-                  onPressed: _checking || _sources.isEmpty ? null : _deleteInvalid,
-                ),
-              ],
-            ),
-            if (_status != null) ...[
-              const SizedBox(height: 12),
-              AppText(
-                _status!,
-                key: const ValueKey('book-source-status'),
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          itemCount: _sources.isEmpty ? 2 : _sources.length + 2,
+          itemBuilder: (context, index) {
+            if (index == 0) return _header();
+            final sourceIndex = index - 1;
+            if (sourceIndex < _sources.length) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _sourceRow(_sources[sourceIndex]),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: GlassTextButton(
+                onPressed: _busy || _checking ? null : () async {
+                  await _save();
+                  if (context.mounted) showNovelFeedback(context, '书源已保存');
+                },
+                child: const AppText('保存书源'),
               ),
-            ],
-            const SizedBox(height: 16),
-            if (_sources.isEmpty)
-              const ContentNotice(
-                icon: CupertinoIcons.layers,
-                title: '还没有小说书源',
-                message: '点“导入书源文件”选择分享的书源文件，或在网盘页添加书源地址。',
-              )
-            else
-              for (final source in _sources) ...[
-                _sourceRow(source),
-                const SizedBox(height: 8),
-              ],
-            const SizedBox(height: 12),
-            GlassTextButton(
-              onPressed: _busy || _checking ? null : () async {
-                await _save();
-                if (context.mounted) showNovelFeedback(context, '书源已保存');
-              },
-              child: const AppText('保存书源'),
-            ),
-          ],
+            );
+          },
         ),
       ),
     ),
   );
+
+  Widget _header() {
+    final enabled = _sources.where((source) => source.enabled).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const ArchiveSection(title: '书源管理', code: 'BOOK SOURCES'),
+        const SizedBox(height: 10),
+        const AppText(
+          '支持 TXT 地址列表、CSV、Legado 书源 JSON、OPML 订阅表和含订阅链接的 HTML；'
+          '最多 10000 个书源。导入后先检测，再一键清理失效书源；搜索时可以指定某一个书源。',
+          style: TextStyle(fontSize: 13, height: 1.65),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            GlassPillButton(
+              key: const ValueKey('book-source-import-files'),
+              icon: CupertinoIcons.tray_arrow_down,
+              label: '导入书源文件',
+              onPressed: _busy || _checking ? null : _importFiles,
+            ),
+            GlassPillButton(
+              key: const ValueKey('book-source-clipboard-import'),
+              icon: CupertinoIcons.doc_on_clipboard,
+              label: '从剪贴板导入',
+              onPressed: _busy || _checking ? null : _importClipboard,
+            ),
+            GlassPillButton(
+              key: const ValueKey('book-source-copy'),
+              icon: CupertinoIcons.square_on_square,
+              label: '复制全部书源',
+              onPressed: _sources.isEmpty ? null : _copySources,
+            ),
+            GlassPillButton(
+              key: const ValueKey('book-source-check-all'),
+              icon: CupertinoIcons.checkmark_seal,
+              label: _checking ? '检测中 $_checked / ${_sources.length}' : '检测全部',
+              onPressed: _checking || _sources.isEmpty ? null : _checkAll,
+            ),
+            GlassPillButton(
+              key: const ValueKey('book-source-delete-invalid'),
+              icon: CupertinoIcons.trash,
+              label: '删除失效',
+              onPressed: _checking || _sources.isEmpty ? null : _deleteInvalid,
+            ),
+          ],
+        ),
+        if (_status != null) ...[
+          const SizedBox(height: 12),
+          AppText(
+            _status!,
+            key: const ValueKey('book-source-status'),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ],
+        if (_sources.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          AppText(
+            '共 ${_sources.length} 个书源，启用 $enabled 个，停用 ${_sources.length - enabled} 个',
+            key: const ValueKey('book-source-count'),
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        if (_sources.isEmpty)
+          const ContentNotice(
+            icon: CupertinoIcons.layers,
+            title: '还没有小说书源',
+            message: '点“导入书源文件”选择分享的书源文件，或“从剪贴板导入”粘贴书源文本。',
+          ),
+      ],
+    );
+  }
 
   Widget _sourceRow(CloudBookSource source) {
     final statusColor = !source.enabled

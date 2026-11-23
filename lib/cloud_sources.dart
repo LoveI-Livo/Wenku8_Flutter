@@ -61,6 +61,9 @@ enum CloudSourceKind {
 
 /// 一个独立的小说书源。地址可以是 RSS / Atom / JSON / 网页，也可以是
 /// 带 `{query}`、`{page}` 的搜索地址；多个书源保存在同一条 rss 配置中。
+/// 书源列表上限：不少 Legado 合集动辄几千条，按 10000 条留出余量。
+const int maxBookSources = 10000;
+
 class CloudBookSourceProbe {
   const CloudBookSourceProbe({required this.valid, this.message = '', this.books = 0});
   final bool valid;
@@ -204,10 +207,12 @@ class CloudSourceConfig {
       final entries = effectiveSources;
       // 允许保存全部停用的书源；地址与状态保留，重新启用后立即恢复。
       if ((entries.isEmpty && sources.isEmpty) ||
-          entries.length > 200 ||
-          sources.length > 200 ||
-          address.length > 262144) {
-        throw const CloudSourceFailure('请填写 1 到 200 个小说书源地址，一行一个或从书源文件导入');
+          entries.length > maxBookSources ||
+          sources.length > maxBookSources ||
+          address.length > 8 * 1024 * 1024) {
+        throw const CloudSourceFailure(
+          '小说书源最多 $maxBookSources 个；请检查地址是否为空或格式是否异常',
+        );
       }
       for (final entry in entries) {
         final source = entry.url;
@@ -1204,13 +1209,13 @@ class DirectLinkBookClient implements CloudBookClient {
 
 /// 小说书源：RSS、Atom、JSON Feed、JSON 列表和普通网页目录都走这里。
 ///
-/// 地址可以一行一个，最多 200 个；带 `{query}` / `{page}` 的地址会按关键词
+/// 地址可以一行一个，最多 10000 个；带 `{query}` / `{page}` 的地址会按关键词
 /// 和页码替换。条目链接既可以是 txt/epub 文件，也可以是网页章节，阅读时
 /// 由网页读取器识别目录和正文。
 class RssBookClient extends DirectLinkBookClient {
   RssBookClient(super.config, {List<String>? sources}) : _override = sources;
 
-  static const _maxSources = 200;
+  static const _maxSources = maxBookSources;
   static const _maxEntries = 500;
   final List<String>? _override;
 
