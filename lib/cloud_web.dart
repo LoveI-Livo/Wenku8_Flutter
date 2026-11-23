@@ -184,7 +184,7 @@ class WebNovelReader {
       allowMalformed: true,
     );
     final meta = RegExp(
-      r'charset\s*=\s*["\']?([a-zA-Z0-9_\-]+)',
+      "charset\\s*=\\s*[\"']?([a-zA-Z0-9_\\-]+)",
       caseSensitive: false,
     ).firstMatch(head)?.group(1)?.toLowerCase();
     final name = header ?? meta;
@@ -515,7 +515,7 @@ class WebNovelReader {
     return _normalizeText(out.toString());
   }
 
-  static String _text(Node node) => _normalizeText(node.text);
+  static String _text(Node node) => _normalizeText(node.text ?? '');
 
   static String _normalizeText(String value) {
     final lines = value

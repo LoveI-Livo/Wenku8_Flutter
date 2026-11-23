@@ -321,6 +321,9 @@ class S3BookClient implements CloudBookClient {
   @override
   String get root => _s3Root(config);
   @override
+  Future<CloudBookListing> search(String query, {int page = 1}) =>
+      list(root, page: page);
+  @override
   Future<String?> directLink(CloudBookEntry entry) async =>
       s3PresignedUrl(config, entry.id);
   Uri _uri(String key, [Map<String, String>? query]) {

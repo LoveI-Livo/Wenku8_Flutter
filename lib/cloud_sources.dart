@@ -653,6 +653,9 @@ class WebDavBookClient implements CloudBookClient {
   @override
   String get root => config.endpoint.toString();
   @override
+  Future<CloudBookListing> search(String query, {int page = 1}) =>
+      list(root, page: page);
+  @override
   Future<String?> directLink(CloudBookEntry entry) async => entry.id;
   Uri _resource(String id) {
     final uri = Uri.parse(id).normalizePath(),
@@ -937,6 +940,10 @@ class QuarkBookClient implements CloudBookClient {
   }
 
   @override
+  Future<CloudBookListing> search(String query, {int page = 1}) =>
+      list(root, page: page);
+
+  @override
   Future<String?> directLink(CloudBookEntry entry) async {
     final value = await _call(
       '/file/download',
@@ -1021,6 +1028,10 @@ class DirectLinkBookClient implements CloudBookClient {
       allowHttp: config.allowHttp,
     );
   }
+
+  @override
+  Future<CloudBookListing> search(String query, {int page = 1}) =>
+      list(root, page: page);
 
   @override
   Future<String?> directLink(CloudBookEntry entry) async => entry.id;

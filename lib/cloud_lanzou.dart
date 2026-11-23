@@ -164,6 +164,10 @@ class LanzouBookClient implements CloudBookClient {
   }
 
   @override
+  Future<CloudBookListing> search(String query, {int page = 1}) =>
+      list(root, page: page);
+
+  @override
   Future<String?> directLink(CloudBookEntry entry) async {
     await _ready();
     final shareInfo = await _post('/doupload.php', {
