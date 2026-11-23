@@ -370,7 +370,7 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
           throw BookDocumentFailure(code: "dictionary_selection", message: "一次最多选择 64 个词典文件")
         }
         if kind == "exportText" {
-          let value: [String: Any] = (try? urls.first.map { ["name": $0.lastPathComponent, "path": $0.path] }) ?? [:]
+          let value: [String: Any] = urls.first.map { ["name": $0.lastPathComponent, "path": $0.path] } ?? [:]
           DispatchQueue.main.async { self.pickerResult = nil; self.pickerExport = nil; result(value) }
           return
         }
@@ -417,7 +417,18 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
     if kind == "pickDictionaryFiles" && source.lastPathComponent.range(of: #"\.(mdx|mdd|mobi|ifo|idx(?:\.gz)?|dict(?:\.dz)?|syn|zip)$"#, options: [.regularExpression, .caseInsensitive]) == nil {
       throw BookDocumentFailure(code: "dictionary_format", message: "请选择 MDX、MDD、MOBI 词典、StarDict 文件或 ZIP 词典包")
     }
-    let maximum = unlimited ? Int64.max : kind == "pickDictionaryFiles" ? 512 * 1024 * 1024 : kind == "pickImage" ? 20 * 1024 * 1024 : kind == "pickFont" ? 32 * 1024 * 1024 : BookImportFormatPolicy.byteLimit(source.pathExtension)
+    let maximum: Int64
+    if unlimited {
+      maximum = Int64.max
+    } else if kind == "pickDictionaryFiles" {
+      maximum = 512 * 1024 * 1024
+    } else if kind == "pickImage" {
+      maximum = 20 * 1024 * 1024
+    } else if kind == "pickFont" {
+      maximum = 32 * 1024 * 1024
+    } else {
+      maximum = BookImportFormatPolicy.byteLimit(source.pathExtension)
+    }
     let workspace = try store()
     var staged: URL?, failure: Error?, coordinationError: NSError?
     NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordinationError) { readable in
