@@ -1202,7 +1202,7 @@ class RssBookClient extends DirectLinkBookClient {
     final bytes = await _http.bytes(res, limit: 6 * 1024 * 1024);
     final body = WebNovelReader.decodeBytes(bytes, res.headers.contentType).trim();
     if (body.startsWith('{') || body.startsWith('[')) {
-      return _jsonEntries(body);
+      return _jsonEntries(body, uri);
     }
     if (body.startsWith('<')) {
       final document = XmlDocument.parse(body);
@@ -1267,7 +1267,7 @@ class RssBookClient extends DirectLinkBookClient {
     return result;
   }
 
-  List<CloudBookEntry> _jsonEntries(String body) {
+  List<CloudBookEntry> _jsonEntries(String body, Uri base) {
     Object? value;
     try {
       value = jsonDecode(body);
@@ -1294,10 +1294,7 @@ class RssBookClient extends DirectLinkBookClient {
         'external_url',
       ]);
       if (title.isEmpty || link.isEmpty) continue;
-      final base = Uri.tryParse(config.address.split(RegExp(r'\r?\n')).first);
-      final resolved = base == null
-          ? link
-          : base.resolve(link).toString();
+      final resolved = base.resolve(link).toString();
       final author = _string(map, ['author', 'author_name', 'authors']);
       final summary = _string(map, [
         'summary',

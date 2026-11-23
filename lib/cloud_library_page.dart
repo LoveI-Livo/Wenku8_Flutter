@@ -113,11 +113,12 @@ class CloudLibraryPage extends StatelessWidget {
       builder: (context, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const ArchiveSection(title: '网盘来源', code: 'BOOKS / DOCUMENTS'),
+          const ArchiveSection(title: '网盘与小说书源', code: 'BOOKS / DOCUMENTS / SOURCES'),
           const SizedBox(height: 12),
           const AppText(
             '点账号登录后直接浏览网盘；点书即在线读取，只把正文读进内存，'
-            '不下载到本机。主搜索框切到“网盘搜索”可检索全部已连接网盘。',
+            '不下载到本机。小说书源支持 RSS、Atom、JSON 和网页目录，'
+            '可一行填多个地址；主搜索框切到“书源搜索”可检索全部已配置书源。',
             style: TextStyle(fontSize: 13, height: 1.65),
           ),
           const SizedBox(height: 18),
