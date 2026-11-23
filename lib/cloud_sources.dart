@@ -202,7 +202,11 @@ class CloudSourceConfig {
   void validate() {
     if (kind == CloudSourceKind.rss) {
       final entries = effectiveSources;
-      if (entries.isEmpty || entries.length > 200 || address.length > 262144) {
+      // 允许保存全部停用的书源；地址与状态保留，重新启用后立即恢复。
+      if ((entries.isEmpty && sources.isEmpty) ||
+          entries.length > 200 ||
+          sources.length > 200 ||
+          address.length > 262144) {
         throw const CloudSourceFailure('请填写 1 到 200 个小说书源地址，一行一个或从书源文件导入');
       }
       for (final entry in entries) {

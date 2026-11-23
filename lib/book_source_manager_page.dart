@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
+
+import 'package:flutter/services.dart';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -128,6 +132,110 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
     }
   }
 
+  int _mergeImported(Iterable<ImportedBookSource> values) {
+    final added = <CloudBookSource>[];
+    for (final source in values) {
+      if (_sources.any((item) => item.url == source.url) ||
+          added.any((item) => item.url == source.url)) {
+        continue;
+      }
+      added.add(CloudBookSource(url: source.url, name: source.name));
+    }
+    if (added.isEmpty) return 0;
+    final before = _sources.length;
+    _sources = [..._sources, ...added].take(200).toList(growable: true);
+    return _sources.length - before;
+  }
+
+  Future<void> _importClipboard() async {
+    if (_busy || _checking) return;
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      if (mounted) showNovelFeedback(context, '剪贴板没有书源文本');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _status = '正在解析剪贴板书源';
+    });
+    try {
+      final values = await BookSourceFileReader.read(
+        'clipboard.txt',
+        Uint8List.fromList(utf8.encode(text)),
+      );
+      final count = _mergeImported(values);
+      if (count > 0) await _save();
+      if (mounted) {
+        setState(() {
+          _status = count > 0 ? '已从剪贴板导入 $count 个书源' : '剪贴板书源都已存在';
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _status = error is FormatException ? error.message : '剪贴板书源格式无法识别';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _copySources() async {
+    if (_sources.isEmpty) return;
+    final text = [
+      '# 轻小说文库 · 小说书源',
+      for (final source in _sources)
+        '${source.label} | ${source.url}',
+    ].join('\n');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) showNovelFeedback(context, '已复制 ${_sources.length} 个书源到剪贴板');
+  }
+
+  Future<void> _toggle(CloudBookSource source, bool enabled) async {
+    final index = _sources.indexWhere((item) => item.url == source.url);
+    if (index < 0) return;
+    setState(() {
+      _sources[index] = source.copyWith(enabled: enabled);
+      _status = enabled ? '已启用 ${source.label}' : '已停用 ${source.label}';
+    });
+    await _save();
+  }
+
+  Future<void> _checkOne(CloudBookSource source) async {
+    if (_checking || _busy) return;
+    final base = _baseConfig;
+    if (base == null) return;
+    setState(() {
+      _checking = true;
+      _status = '正在检测 ${source.label}';
+    });
+    final client = RssBookClient(base, sources: [source.url]);
+    try {
+      final probe = await client.probe(source.url);
+      final index = _sources.indexWhere((item) => item.url == source.url);
+      if (index >= 0) {
+        setState(() {
+          _sources[index] = source.copyWith(
+            status: probe.valid ? 'valid' : 'invalid',
+            message: probe.message,
+            checkedAt: DateTime.now(),
+          );
+        });
+      }
+      await _save();
+      if (mounted) {
+        setState(() {
+          _status = probe.valid ? '${source.label} 有效' : '${source.label} 失效：${probe.message}';
+        });
+      }
+    } finally {
+      client.close();
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
   Future<void> _checkAll() async {
     if (_checking || _sources.isEmpty) return;
     final base = _baseConfig;
@@ -253,6 +361,18 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
                   onPressed: _busy || _checking ? null : _importFiles,
                 ),
                 GlassPillButton(
+                  key: const ValueKey('book-source-clipboard-import'),
+                  icon: CupertinoIcons.doc_on_clipboard,
+                  label: '从剪贴板导入',
+                  onPressed: _busy || _checking ? null : _importClipboard,
+                ),
+                GlassPillButton(
+                  key: const ValueKey('book-source-copy'),
+                  icon: CupertinoIcons.square_on_square,
+                  label: '复制全部书源',
+                  onPressed: _sources.isEmpty ? null : _copySources,
+                ),
+                GlassPillButton(
                   key: const ValueKey('book-source-check-all'),
                   icon: CupertinoIcons.checkmark_seal,
                   label: _checking ? '检测中 $_checked / ${_sources.length}' : '检测全部',
@@ -301,7 +421,9 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
   );
 
   Widget _sourceRow(CloudBookSource source) {
-    final statusColor = source.valid
+    final statusColor = !source.enabled
+        ? Theme.of(context).colorScheme.onSurfaceVariant
+        : source.valid
         ? const Color(0xFF2E7D32)
         : source.invalid
         ? Theme.of(context).colorScheme.error
@@ -339,17 +461,32 @@ class _BookSourceManagerPageState extends State<BookSourceManagerPage> {
                 if (source.message.isNotEmpty) ...[
                   const SizedBox(height: 3),
                   AppText(
-                    '${source.valid ? '有效' : source.invalid ? '失效' : '未检测'} · ${source.message}',
+                    '${!source.enabled ? '已停用' : source.valid ? '有效' : source.invalid ? '失效' : '未检测'} · ${source.message}',
                     style: TextStyle(fontSize: 12, color: statusColor),
                   ),
                 ],
               ],
             ),
           ),
-          GlassIconButton(
-            icon: CupertinoIcons.trash,
-            label: '删除书源',
-            onPressed: _checking ? null : () => _deleteOne(source),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppControls.toggle(
+                context,
+                value: source.enabled,
+                onChanged: _checking ? null : (value) => _toggle(source, value),
+              ),
+              GlassIconButton(
+                icon: CupertinoIcons.refresh,
+                label: '检测这个书源',
+                onPressed: _checking ? null : () => _checkOne(source),
+              ),
+              GlassIconButton(
+                icon: CupertinoIcons.trash,
+                label: '删除书源',
+                onPressed: _checking ? null : () => _deleteOne(source),
+              ),
+            ],
           ),
         ],
       ),
