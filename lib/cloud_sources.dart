@@ -1277,7 +1277,7 @@ class RssBookClient extends DirectLinkBookClient {
       }
     });
     if (entries.isEmpty && attempted > 0 && lastFailure != null) {
-      throw lastFailure;
+      throw lastFailure!;
     }
     return CloudBookListing(entries.values.toList(growable: false));
   }
