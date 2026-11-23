@@ -138,6 +138,35 @@ class _CloudParsePageState extends State<CloudParsePage> {
     }
   }
 
+  Future<void> _test() async {
+    if (_busy) return;
+    FocusScope.of(context).unfocus();
+    final endpoint = _endpoint.text.trim();
+    final token = _token.text.trim();
+    if (endpoint.isEmpty || token.isEmpty) {
+      setState(() => _error = '先填写解析接口地址和解析密钥');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final message = await CloudParseService.instance.probe(endpoint, token);
+      if (mounted) showNovelFeedback(context, message);
+    } catch (failure) {
+      if (mounted) {
+        setState(() {
+          _error = failure is FormatException
+              ? failure.message
+              : '接口测试失败，请重试';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _clear() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -226,10 +255,21 @@ class _CloudParsePageState extends State<CloudParsePage> {
             ),
           ),
         const SizedBox(height: 24),
-        GlassTextButton(
-          key: const ValueKey('cloud-parse-save'),
-          onPressed: _loaded && !_busy ? _save : null,
-          child: AppText(_busy ? '正在保存' : '保存并启用'),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            GlassTextButton(
+              key: const ValueKey('cloud-parse-test'),
+              onPressed: _loaded && !_busy ? _test : null,
+              child: const AppText('测试接口'),
+            ),
+            GlassTextButton(
+              key: const ValueKey('cloud-parse-save'),
+              onPressed: _loaded && !_busy ? _save : null,
+              child: AppText(_busy ? '正在处理' : '保存并启用'),
+            ),
+          ],
         ),
         if (_loaded && CloudParseSettings.instance.enabled) ...[
           const SizedBox(height: 12),

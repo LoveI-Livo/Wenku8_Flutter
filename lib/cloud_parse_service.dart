@@ -98,6 +98,61 @@ class CloudParseService {
   static const _maxImageBytes = 4 * 1024 * 1024;
   static const _maxMediaBytes = 16 * 1024 * 1024;
 
+  /// 发一个不拉取文件的最小请求，验证地址、token、PHP 和 JSON 返回都正常。
+  /// 主机端 `index.php` 收到 `test: true` 会直接返回 `{ok: true, test: true}`。
+  Future<String> probe(String endpoint, String token) async {
+    final uri = Uri.tryParse(endpoint.trim());
+    if (uri == null ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        !(uri.scheme == 'https' || uri.scheme == 'http')) {
+      throw const FormatException('请填写完整的解析接口地址');
+    }
+    final value = token.trim();
+    if (value.isEmpty || value.length > 4096) {
+      throw const FormatException('请填写解析密钥');
+    }
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 12)
+      ..idleTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.postUrl(uri);
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(HttpHeaders.userAgentHeader, 'Wenku8Mod/0.7.7');
+      request.write(jsonEncode({'token': value, 'test': true}));
+      final response = await request.close().timeout(const Duration(seconds: 20));
+      final data = <int>[];
+      await for (final chunk in response.timeout(const Duration(seconds: 10))) {
+        data.addAll(chunk);
+        if (data.length > 256 * 1024) break;
+      }
+      Map<String, dynamic>? map;
+      try {
+        final decoded = jsonDecode(utf8.decode(data));
+        if (decoded is Map) map = Map<String, dynamic>.from(decoded);
+      } catch (_) {
+        map = null;
+      }
+      if (response.statusCode == 200 && map?['ok'] == true && map?['test'] == true) {
+        return '接口连接正常';
+      }
+      final error = map?['error'];
+      if (error is String && error.trim().isNotEmpty) {
+        throw FormatException(error.trim());
+      }
+      throw FormatException('接口返回 HTTP ${response.statusCode}，请检查地址和部署文件');
+    } on FormatException {
+      rethrow;
+    } on SocketException catch (failure) {
+      throw FormatException('无法连接接口：${failure.message}');
+    } on TimeoutException {
+      throw const FormatException('接口连接超时，请检查主机状态');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<CloudRemoteDocument?> parse(
     Novel novel, {
     required String resolvedUrl,

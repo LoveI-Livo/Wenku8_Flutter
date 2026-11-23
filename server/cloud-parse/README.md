@@ -61,6 +61,19 @@ curl -i https://你的域名/cloud-parse/index.php
 
 应返回 `405` 和类似 `{"ok":false,"error":"只接受 POST 请求"}` 的 JSON。
 
+先在 App 里打开「云端主机解析」，填好地址和密钥后点“测试接口”。测试请求不会
+拉取任何文件，只验证地址、token、PHP 和 JSON 返回；成功会提示“接口连接正常”。
+
+如果需要用命令行验证同一个测试请求：
+
+```bash
+curl -sS -X POST https://你的域名/cloud-parse/index.php \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"你的 config.php 里的 token","test":true}'
+```
+
+应返回 `{"ok":true,"test":true,...}`。
+
 再用一个公开的 TXT/EPUB 直链测试：
 
 ```bash

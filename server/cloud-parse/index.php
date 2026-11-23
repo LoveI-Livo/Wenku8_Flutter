@@ -44,6 +44,15 @@ if ($token === '' || !hash_equals($token, (string)($input['token'] ?? ''))) {
     fail('解析密钥不正确', 401);
 }
 
+// App 的“测试接口”只验证地址、token、PHP 和 JSON 返回，不拉取任何文件。
+if (($input['test'] ?? false) === true) {
+    echo json_encode(
+        ['ok' => true, 'test' => true, 'version' => '0.7.7', 'time' => time()],
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+    );
+    exit;
+}
+
 $url = trim((string)($input['url'] ?? ''));
 $name = trim((string)($input['name'] ?? ''));
 $cookie = trim((string)($input['cookie'] ?? ''));
