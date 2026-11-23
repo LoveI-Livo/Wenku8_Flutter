@@ -233,6 +233,18 @@ class _LocalImportPageState extends State<LocalImportPage> {
                       onPressed: widget.onManual,
                     ),
                     _entry(
+                      id: 'link',
+                      title: '关联到 App',
+                      detail: '从文件管理器直接关联原书，不复制整本；文件管理器不支持长期授权时自动改为保存副本。',
+                      icon: CupertinoIcons.link,
+                      enabled: !busy,
+                      onPressed: (page) async {
+                        await _storage(true);
+                        if (!page.mounted) return;
+                        await widget.onManual(page);
+                      },
+                    ),
+                    _entry(
                       id: 'cloud',
                       title: '从网盘、NAS、S3 同步',
                       detail: '连接已有云端来源；原书下载到本机，不改动云端文件。',
