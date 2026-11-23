@@ -7,7 +7,7 @@
 library;
 
 /// 改版名称，显示在「关于」页的标题里。
-const modEditionName = '轻小说文库 · 改版版';
+const modEditionName = '轻小说文库';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
 const modEditionVersion = '0.7.9';

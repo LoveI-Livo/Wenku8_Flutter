@@ -157,9 +157,7 @@ class _CloudParsePageState extends State<CloudParsePage> {
     } catch (failure) {
       if (mounted) {
         setState(() {
-          _error = failure is FormatException
-              ? failure.message
-              : '接口测试失败，请重试';
+          _error = failure is FormatException ? failure.message : '接口测试失败，请重试';
         });
       }
     } finally {
@@ -285,7 +283,7 @@ class _CloudParsePageState extends State<CloudParsePage> {
         ),
         const SizedBox(height: 24),
         AppText(
-          '改版 $modEditionVersion · $modAuthorName',
+          '版本 $modEditionVersion · $modAuthorName',
           style: TextStyle(
             fontSize: 11,
             color: Theme.of(context).colorScheme.onSurfaceVariant,

@@ -460,7 +460,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
           ),
           const SizedBox(height: 20),
           AppText(
-            '改版 $modEditionVersion · $modAuthorName',
+            '版本 $modEditionVersion · $modAuthorName',
             style: TextStyle(fontSize: 11, color: muted),
           ),
         ],

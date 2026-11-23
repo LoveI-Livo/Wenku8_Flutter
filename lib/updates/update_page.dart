@@ -646,7 +646,7 @@ class AppUpdatePage extends StatelessWidget {
                 child: ReleaseNotes(projectImportantNotices),
               ),
               const SizedBox(height: 28),
-              const ArchiveSection(title: '改版说明', code: 'MOD / EDITION'),
+              const ArchiveSection(title: '版本与改动', code: 'MOD / EDITION'),
               const SizedBox(height: 14),
               const _ModEditionPanel(),
               const SizedBox(height: 28),
@@ -857,7 +857,7 @@ class _ModEditionPanelState extends State<_ModEditionPanel> {
           AppText(modEditionSummary, style: const TextStyle(height: 1.7)),
           const SizedBox(height: 8),
           AppText(
-            '$modEditionName $modEditionVersion（构建 $modEditionBuild）',
+            '维护：$modAuthorName',
             style: TextStyle(fontSize: 12, color: color),
           ),
           const SizedBox(height: 16),
@@ -890,8 +890,8 @@ class _ModEditionPanelState extends State<_ModEditionPanel> {
               onPressed: () => setState(() => _expanded = !_expanded),
               child: AppText(
                 _expanded
-                    ? '收起改版说明'
-                    : '展开全部改版说明（${modEditionChanges.length} 项）',
+                    ? '收起版本与改动'
+                    : '展开全部版本与改动（${modEditionChanges.length} 项）',
               ),
             ),
           ),
@@ -905,7 +905,7 @@ class _ModEditionPanelState extends State<_ModEditionPanel> {
           ] else
             const SizedBox(height: 8),
           AppText(
-            '改版作者：$modAuthorName',
+            '维护者：$modAuthorName',
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           if (modContactEmail.isNotEmpty) ...[
@@ -938,7 +938,7 @@ class _ModEditionPanelState extends State<_ModEditionPanel> {
           GlassTextButton(
             key: const ValueKey('app-mod-repo'),
             onPressed: () => _openLink(context, modRepository),
-            child: const AppText('本改版仓库'),
+            child: const AppText('项目仓库'),
           ),
           const SizedBox(height: 8),
           GlassTextButton(
