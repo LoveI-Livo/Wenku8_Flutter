@@ -25,6 +25,25 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Configure stable release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/wenku-release.jks
+            cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=wenku-release.jks
+          EOF
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not configured; APK will use the runner debug key."
+          fi
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
