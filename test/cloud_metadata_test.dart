@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wenku8_flutter/cloud_book_media.dart';
 import 'package:wenku8_flutter/cloud_document_service.dart';
+import 'package:wenku8_flutter/cloud_sources.dart';
 
 Uint8List _epub() {
   final zip = Archive();
@@ -75,4 +76,18 @@ void main() {
       expect(body, contains(CloudBookMedia.mediaScheme));
     },
   );
+
+  test('书源搜索结果封面会写入 Novel', () {
+    const entry = CloudBookEntry(
+      id: 'https://example.com/book/1',
+      name: '封面测试书',
+      folder: false,
+      book: true,
+      author: '作者',
+      coverUrl: 'https://example.com/cover.jpg',
+    );
+    const config = CloudSourceConfig(kind: CloudSourceKind.rss);
+    final novel = CloudDocumentService.instance.cloudBook(entry, config);
+    expect(novel.coverUrl, 'https://example.com/cover.jpg');
+  });
 }

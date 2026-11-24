@@ -117,7 +117,9 @@ class WebNovelReader {
         author: info.author,
         summary: info.summary,
         coverUrl: info.coverUrl,
-        chapters: [WebNovelChapter(title.isEmpty ? '正文' : title, page.uri.toString())],
+        chapters: [
+          WebNovelChapter(title.isEmpty ? '正文' : title, page.uri.toString()),
+        ],
         singlePage: true,
       );
     }
@@ -207,8 +209,7 @@ class WebNovelReader {
     String? meta(String key) {
       for (final node in doc.querySelectorAll('meta')) {
         final property = node.attributes['property'] ?? node.attributes['name'];
-        if (property != null &&
-            property.toLowerCase() == key.toLowerCase()) {
+        if (property != null && property.toLowerCase() == key.toLowerCase()) {
           final value = node.attributes['content']?.trim();
           if (value != null && value.isNotEmpty) return value;
         }
@@ -261,9 +262,7 @@ class WebNovelReader {
 
   static String _cleanAuthor(String? value) {
     if (value == null) return '';
-    return value
-        .replaceFirst(RegExp(r'^作\s*者\s*[：:]\s*'), '')
-        .trim();
+    return value.replaceFirst(RegExp(r'^作\s*者\s*[：:]\s*'), '').trim();
   }
 
   static String? _cleanSummary(String? value) {
@@ -277,9 +276,11 @@ class WebNovelReader {
     final value =
         _cleanTitleText(doc.querySelector('h1')?.text) ??
         _cleanTitleText(doc.querySelector('title')?.text) ??
-        _cleanTitleText(base.pathSegments.isEmpty
-            ? null
-            : Uri.decodeComponent(base.pathSegments.last));
+        _cleanTitleText(
+          base.pathSegments.isEmpty
+              ? null
+              : Uri.decodeComponent(base.pathSegments.last),
+        );
     return value ?? '网页书籍';
   }
 
@@ -352,6 +353,7 @@ class WebNovelReader {
           name: title,
           folder: false,
           size: 0,
+          coverUrl: _coverForAnchor(anchor, base),
           book: true,
         ),
       );
@@ -374,6 +376,7 @@ class WebNovelReader {
             name: title,
             folder: false,
             size: 0,
+            coverUrl: _coverForAnchor(anchor, base),
             book: true,
           ),
         );
@@ -381,6 +384,48 @@ class WebNovelReader {
       }
     }
     return result.values.toList(growable: false);
+  }
+
+  /// 搜索结果列表页的封面通常就在书名链接旁边（img 父节点/兄弟节点）。
+  /// 规则源没有写 coverUrl 时，用它兜底，避免整排结果只有渐变色块。
+  static String? _coverForAnchor(Element anchor, Uri base) {
+    String? source(Element element) {
+      final src =
+          (element.attributes['src'] ??
+                  element.attributes['data-src'] ??
+                  element.attributes['data-original'] ??
+                  '')
+              .trim();
+      if (src.isEmpty) return null;
+      final uri = base.resolve(src);
+      if (uri.scheme != 'http' && uri.scheme != 'https') return null;
+      return uri.toString();
+    }
+
+    final inside = anchor.querySelector('img');
+    if (inside != null) {
+      final value = source(inside);
+      if (value != null) return value;
+    }
+    var parent = anchor.parent is Element ? anchor.parent as Element : null;
+    for (var depth = 0; parent != null && depth < 2; depth++) {
+      final image = parent.querySelector('img');
+      if (image != null) {
+        final value = source(image);
+        if (value != null) return value;
+      }
+      parent = parent.parent is Element ? parent.parent as Element : null;
+    }
+    final previous = anchor.previousElementSibling;
+    final next = anchor.nextElementSibling;
+    for (final sibling in [previous, next]) {
+      final image = sibling?.querySelector('img');
+      if (image != null) {
+        final value = source(image);
+        if (value != null) return value;
+      }
+    }
+    return null;
   }
 
   static bool _looksLikeBookHref(String href) => RegExp(
@@ -391,9 +436,13 @@ class WebNovelReader {
   static bool _insideChrome(Element element) {
     var current = element.parent;
     while (current != null) {
-      final cls = '${current.attributes['class'] ?? ''} '
-          '${current.attributes['id'] ?? ''}'.toLowerCase();
-      if (RegExp(r'(?:nav|menu|header|footer|comment|recommend|related|share|advert|\bad\b)').hasMatch(cls)) {
+      final cls =
+          '${current.attributes['class'] ?? ''} '
+                  '${current.attributes['id'] ?? ''}'
+              .toLowerCase();
+      if (RegExp(
+        r'(?:nav|menu|header|footer|comment|recommend|related|share|advert|\bad\b)',
+      ).hasMatch(cls)) {
         return true;
       }
       current = current.parent;
@@ -533,12 +582,7 @@ class WebNovelReader {
 }
 
 class _BookInfo {
-  const _BookInfo({
-    this.title,
-    this.author,
-    this.summary,
-    this.coverUrl,
-  });
+  const _BookInfo({this.title, this.author, this.summary, this.coverUrl});
   final String? title;
   final String? author;
   final String? summary;

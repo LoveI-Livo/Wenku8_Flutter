@@ -46,6 +46,7 @@ import 'reader_illustrations.dart';
 import 'app_palette.dart';
 import 'book_open_monitor.dart';
 import 'cloud_book_media.dart';
+import 'cloud_parse_service.dart';
 import 'reading_widget_controller.dart';
 import 'reading_widget_cards.dart';
 import 'reading_widget_settings_page.dart';
@@ -61,6 +62,7 @@ Future<void> main() async {
   unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
   final state = await LibraryState.load();
   unawaited(CloudBookMedia.pruneLegacyDisk());
+  unawaited(CloudParseSettings.instance.load());
   if (state.appPalette.source == AppPaletteSource.system ||
       !state.appPalette.themedIcon) {
     await state.refreshSystemPalette();

@@ -14,7 +14,12 @@ void main() {
       request.response.write(
         jsonEncode({
           'data': [
-            {'name': '仙逆', 'author': '耳根', 'url': '/book/1'},
+            {
+              'name': '仙逆',
+              'author': '耳根',
+              'url': '/book/1',
+              'cover': '/covers/xianni.jpg',
+            },
           ],
         }),
       );
@@ -39,6 +44,10 @@ void main() {
       expect(listing.entries, hasLength(1));
       expect(listing.entries.first.name, '仙逆');
       expect(listing.entries.first.author, '耳根');
+      expect(
+        listing.entries.first.coverUrl,
+        'http://127.0.0.1:${server.port}/covers/xianni.jpg',
+      );
       expect(requested.single, contains('/qd/api/search'));
       expect(requested.single, contains('q=%E4%BB%99%E9%80%86'));
     } finally {

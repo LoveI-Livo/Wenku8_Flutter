@@ -15,6 +15,9 @@ import 'app_haptics.dart';
 import 'app_window_insets.dart';
 import 'catalog.dart';
 import 'cloud_book_media.dart';
+import 'cloud_cover_media.dart';
+import 'cloud_document_service.dart';
+import 'cloud_parse_service.dart';
 import 'local_book_media.dart';
 import 'local_book_import_warning.dart';
 import 'cover_arrival.dart';
@@ -1531,16 +1534,46 @@ class CoverHeroTag {
 int novelCoverDecodeWidth(double width, double pixelRatio) =>
     (width * pixelRatio).ceil().clamp(1, 1536);
 
-Uint8List? _coverPeek(Novel novel) =>
-    CloudBookMedia.peek(novel.coverUrl) ??
-    LocalBookMedia.peek(novel.coverUrl) ??
-    LegacyCover.peek(novel.id);
+Uint8List? _coverPeek(Novel novel) {
+  final url = novel.coverUrl;
+  return CloudBookMedia.peek(url) ??
+      LocalBookMedia.peek(url) ??
+      (novel.remoteKind == null
+          ? null
+          : CloudCoverMedia.peek(novel.id, url: url)) ??
+      LegacyCover.peek(novel.id);
+}
+
+bool _canLazyCloudCover(Novel novel) =>
+    novel.coverUrl == null &&
+    novel.remoteKind != null &&
+    novel.remoteKind != 'rss' &&
+    novel.remoteEntryId != null &&
+    CloudParseSettings.instance.enabled;
 
 Future<Uint8List> _coverLoad(Novel novel) {
   final url = novel.coverUrl;
+  if (url == null && _canLazyCloudCover(novel)) {
+    return CloudDocumentService.instance
+        .coverBytes(novel)
+        .then((bytes) => bytes ?? (throw const FormatException('封面读取失败')));
+  }
   if (CloudBookMedia.handles(url)) return CloudBookMedia.loadCover(url!);
   if (url != null && url.startsWith('wenku-local:')) {
     return LocalBookMedia.loadCover(url);
+  }
+  // 书源/网盘书的封面经常需要 Cookie、Authorization、Referer；用普通
+  // 图片请求会 403，最后只剩渐变占位。带书源请求头再取一次。
+  if (url != null &&
+      url.isNotEmpty &&
+      (novel.remoteKind != null || novel.remoteCookie != null)) {
+    return CloudCoverMedia.load(
+      novel.id,
+      url,
+      cookie: novel.remoteCookie ?? '',
+      authorization: novel.remoteAuthorization ?? '',
+      sourceUrl: novel.remoteUrl,
+    ).then((bytes) => bytes ?? (throw const FormatException('封面读取失败')));
   }
   return LegacyCover.bytes(novel.id, url: url);
 }
@@ -1712,7 +1745,7 @@ class NovelCover extends StatelessWidget {
         ],
       ),
     );
-    final face = novel.coverUrl == null
+    final face = novel.coverUrl == null && !_canLazyCloudCover(novel)
         ? fallback
         : Builder(
             builder: (context) {
@@ -1724,7 +1757,7 @@ class NovelCover extends StatelessWidget {
                 ),
               );
               return FutureBuilder<Uint8List>(
-                key: ValueKey('cover-bytes-${novel.id}'),
+                key: ValueKey(('cover-bytes', novel.id, novel.coverUrl)),
                 future: _coverLoad(novel),
                 initialData: _coverPeek(novel),
                 builder: (context, snapshot) {

@@ -289,7 +289,7 @@ class CloudParseService {
         return null;
       }
       final builder = BytesBuilder(copy: false);
-      await for (final chunk in response) {
+      await for (final chunk in response.timeout(const Duration(seconds: 30))) {
         builder.add(chunk);
         if (builder.length > _maxResponseBytes) {
           await response.drain<void>();
@@ -321,13 +321,14 @@ class CloudParseService {
           if (item is! Map) continue;
           final title = item['title'];
           final content = item['content'];
-          if (content is! String || content.trim().isEmpty) continue;
+          // 保留章节标题。解析主机偶尔只能取到部分正文，不能因为某一章
+          // 为空就把整章从目录里删掉，否则用户看到的就是“内容不全”。
           chapters.add(
             CloudRemoteChapter(
               title is String && title.trim().isNotEmpty
                   ? _limit(title.trim(), 100)
                   : '第 ${chapters.length + 1} 章',
-              content,
+              content is String ? content : '',
             ),
           );
         }
@@ -341,7 +342,10 @@ class CloudParseService {
         media: media,
       );
       if (metaOnly) return document.hasMetadata ? document : null;
-      return chapters.isEmpty ? null : document;
+      final hasContent = chapters.any(
+        (chapter) => chapter.content.trim().isNotEmpty,
+      );
+      return hasContent ? document : null;
     } catch (_) {
       return null;
     } finally {

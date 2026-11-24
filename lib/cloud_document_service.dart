@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -12,6 +13,7 @@ import 'book_documents.dart';
 import 'book_identity.dart';
 import 'catalog.dart';
 import 'cloud_book_media.dart';
+import 'cloud_cover_media.dart';
 import 'cloud_parse_service.dart';
 import 'cloud_sources.dart';
 import 'portable_book_text.dart';
@@ -30,6 +32,22 @@ class CloudDocumentService {
   final Set<int> _enriched = {};
   final Map<int, Map<int, String>> _webChapterUrls = {};
   final Map<int, String> _legadoPayloads = {};
+  final Map<int, Future<Uint8List?>> _coverPending = {};
+  final Set<int> _coverMissed = {};
+
+  /// 坏源或失效 CDN 不能让详情页无限转圈。业务异常保持原提示，超时统一
+  /// 换成可操作的中文提示，用户至少能换源/重试。
+  Future<T> _bounded<T>(
+    Future<T> future,
+    String timeoutMessage, {
+    Duration after = const Duration(seconds: 18),
+  }) async {
+    try {
+      return await future.timeout(after);
+    } on TimeoutException {
+      throw CloudSourceFailure(timeoutMessage);
+    }
+  }
 
   static int idForUrl(String url) {
     final digest = sha256.convert(utf8.encode(url)).bytes;
@@ -119,9 +137,53 @@ class CloudDocumentService {
     _metadata.remove(id);
     _documents.remove(id);
     _webChapterUrls.remove(id);
+    _legadoPayloads.remove(id);
+    _coverPending.remove(id);
+    _coverMissed.remove(id);
+    CloudCoverMedia.forget(id);
   }
 
   Novel? known(int id) => _metadata[id];
+
+  /// 网盘搜索结果常常只有文件名，封面嵌在 EPUB/TXT 里。详情页打开时才
+  /// 解析整本文件太慢，这里在列表可见时用解析主机做一次 metaOnly 探测；
+  /// 没配置解析主机就直接返回 null，不偷偷下载整本书。
+  Future<Uint8List?> coverBytes(Novel novel) {
+    final cached = CloudCoverMedia.peek(novel.id, url: novel.coverUrl);
+    if (cached != null) return Future.value(cached);
+    if (_coverMissed.contains(novel.id)) return Future.value(null);
+    final pending = _coverPending[novel.id];
+    if (pending != null) return pending;
+    final future = _loadCover(novel);
+    _coverPending[novel.id] = future;
+    return future.whenComplete(() => _coverPending.remove(novel.id));
+  }
+
+  Future<Uint8List?> _loadCover(Novel novel) async {
+    try {
+      final enriched = await enrich(
+        novel,
+        cloudOnly: true,
+      ).timeout(const Duration(seconds: 9));
+      final url = enriched.coverUrl;
+      if (url == null || url.isEmpty) {
+        _coverMissed.add(novel.id);
+        return null;
+      }
+      if (CloudBookMedia.handles(url)) {
+        return await CloudBookMedia.loadCover(url);
+      }
+      return await CloudCoverMedia.load(
+        enriched.id,
+        url,
+        cookie: enriched.remoteCookie ?? '',
+        authorization: enriched.remoteAuthorization ?? '',
+        sourceUrl: enriched.remoteUrl,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 已识别过的网盘/书源书。搜索先查在线目录，目录暂时没返回时用它兜底，
   /// 已经加入书架的书仍然能被书名、作者和来源搜到。
@@ -145,11 +207,15 @@ class CloudDocumentService {
     }
     try {
       final resolved = await _resolveCloudUrl(url, novel);
-      final remote = await CloudParseService.instance.parse(
-        novel,
-        resolvedUrl: resolved,
-        metaOnly: true,
-      );
+      CloudRemoteDocument? remote;
+      try {
+        remote = await CloudParseService.instance
+            .parse(novel, resolvedUrl: resolved, metaOnly: true)
+            .timeout(const Duration(seconds: 12));
+      } on TimeoutException {
+        // 解析主机只是加速器；超时不能拖住搜索/详情，直接退回文件名元数据。
+        remote = null;
+      }
       if (remote != null) {
         final coverBytes = remote.coverBytes;
         String? coverUrl;
@@ -162,6 +228,12 @@ class CloudDocumentService {
               // 主机不可用时封面只在运行期内存中，不写本机磁盘。
             }
           }
+        } else if (coverBytes != null && coverBytes.isNotEmpty) {
+          try {
+            await CloudBookMedia.saveCover(novel.id, coverBytes);
+          } catch (_) {
+            // 只做内存缓存，搜索阶段不写本机磁盘。
+          }
         }
         final enriched = novel.withMetadata(
           title: remote.title,
@@ -169,7 +241,7 @@ class CloudDocumentService {
           summary: remote.summary,
           coverUrl:
               coverUrl ??
-              (coverBytes == null || coverBytes.isEmpty || cloudOnly
+              (coverBytes == null || coverBytes.isEmpty
                   ? null
                   : CloudBookMedia.marker(novel.id)),
         );
@@ -275,6 +347,7 @@ class CloudDocumentService {
       url,
       summary: entry.summary.isEmpty ? null : entry.summary,
       author: entry.author.isEmpty ? '在线阅读' : entry.author,
+      coverUrl: entry.coverUrl,
       cookie: config.cookie,
       authorization: authorization,
       sourceLabel: config.kind == CloudSourceKind.rss
@@ -303,10 +376,15 @@ class CloudDocumentService {
       return _detailFromWeb(novel, url);
     }
     final resolved = await _resolveCloudUrl(url, novel);
-    final remote = await CloudParseService.instance.parse(
-      novel,
-      resolvedUrl: resolved,
-    );
+    CloudRemoteDocument? remote;
+    try {
+      remote = await CloudParseService.instance
+          .parse(novel, resolvedUrl: resolved)
+          .timeout(const Duration(seconds: 25));
+    } on TimeoutException {
+      // 解析主机超时后仍然尝试直接读文件，不把用户卡在无限加载里。
+      remote = null;
+    }
     if (remote != null) {
       final document = await _fromRemote(novel.id, novel, resolved, remote);
       _documents[novel.id] = document;
@@ -314,12 +392,20 @@ class CloudDocumentService {
       _enriched.add(novel.id);
       return document.novel;
     }
-    final bytes = await _fetch(
-      resolved,
-      cookie: novel.remoteCookie,
-      authorization: novel.remoteAuthorization,
+    final bytes = await _bounded(
+      _fetch(
+        resolved,
+        cookie: novel.remoteCookie,
+        authorization: novel.remoteAuthorization,
+      ),
+      '网盘文件下载超时，请检查网络或换一个更小的文件',
+      after: const Duration(seconds: 40),
     );
-    final parsed = await _parseAsync(novel.id, novel.title, resolved, bytes);
+    final parsed = await _bounded(
+      _parseAsync(novel.id, novel.title, resolved, bytes),
+      '文件解析超时，请换一个文件重试',
+      after: const Duration(seconds: 20),
+    );
     final full = _withSource(parsed.novel, novel);
     final document = _CloudDocument(
       full,
@@ -341,11 +427,14 @@ class CloudDocumentService {
   }
 
   Future<Novel> _detailFromWeb(Novel novel, String url) async {
-    final document = await WebNovelReader.inspect(
-      url,
-      cookie: novel.remoteCookie ?? '',
-      authorization: novel.remoteAuthorization ?? '',
-      allowHttp: url.startsWith('http://'),
+    final document = await _bounded(
+      WebNovelReader.inspect(
+        url,
+        cookie: novel.remoteCookie ?? '',
+        authorization: novel.remoteAuthorization ?? '',
+        allowHttp: url.startsWith('http://'),
+      ),
+      '书源网页加载超时，请换一个书源或稍后重试',
     );
     if (!document.hasContent) {
       throw const FormatException('这个书源网页没有可读取的目录或正文');
@@ -359,6 +448,7 @@ class CloudDocumentService {
           title: document.title,
           author: document.author,
           summary: document.summary,
+          coverUrl: document.coverUrl,
         )
         .withChapters(chapters);
     _documents[novel.id] = _CloudDocument(full, <int, String>{});
@@ -372,11 +462,14 @@ class CloudDocumentService {
   }
 
   Future<Novel> _detailFromLegado(Novel novel, String payload) async {
-    final parsed = await LegadoReader.detail(
-      payload,
-      allowHttp: false,
-      cookie: novel.remoteCookie ?? '',
-      authorization: novel.remoteAuthorization ?? '',
+    final parsed = await _bounded(
+      LegadoReader.detail(
+        payload,
+        allowHttp: false,
+        cookie: novel.remoteCookie ?? '',
+        authorization: novel.remoteAuthorization ?? '',
+      ),
+      '书源详情加载超时，请换一个书源或稍后重试',
     );
     final document = parsed.document;
     final chapters = <NovelChapter>[
@@ -436,23 +529,31 @@ class CloudDocumentService {
     final cached = document.bodies[chapter.id];
     if (cached != null && cached.isNotEmpty) return cached;
     final url = _webChapterUrls[id]?[chapter.id];
-    if (url == null) return cached ?? '';
+    if (url == null) {
+      return '本章正文暂时没有取到，请返回目录重新打开，或换一个来源重试。';
+    }
     if (_legadoPayloads[id] case final payload?) {
-      final text = await LegadoReader.content(
-        url,
-        payload: payload,
-        cookie: document.novel.remoteCookie ?? '',
-        authorization: document.novel.remoteAuthorization ?? '',
+      final text = await _bounded(
+        LegadoReader.content(
+          url,
+          payload: payload,
+          cookie: document.novel.remoteCookie ?? '',
+          authorization: document.novel.remoteAuthorization ?? '',
+        ),
+        '书源正文加载超时，请重试',
       );
       document.bodies[chapter.id] = text;
       return text;
     }
     final novel = document.novel;
-    final text = await WebNovelReader.content(
-      url,
-      cookie: novel.remoteCookie ?? '',
-      authorization: novel.remoteAuthorization ?? '',
-      allowHttp: url.startsWith('http://'),
+    final text = await _bounded(
+      WebNovelReader.content(
+        url,
+        cookie: novel.remoteCookie ?? '',
+        authorization: novel.remoteAuthorization ?? '',
+        allowHttp: url.startsWith('http://'),
+      ),
+      '书源正文加载超时，请重试',
     );
     document.bodies[chapter.id] = text;
     return text;
@@ -528,8 +629,12 @@ class CloudDocumentService {
       CloudBookClient? client;
       try {
         client = CloudBookClient(config, settings: settings);
-        final link = await client.directLink(
-          CloudBookEntry(id: id, name: novel.title, folder: false),
+        final link = await _bounded(
+          client.directLink(
+            CloudBookEntry(id: id, name: novel.title, folder: false),
+          ),
+          '网盘获取下载地址超时，请重新登录后再试',
+          after: const Duration(seconds: 12),
         );
         if (link != null && link.trim().isNotEmpty) return link.trim();
         failures.add('${config.label}没有返回下载地址');
@@ -565,7 +670,9 @@ class CloudDocumentService {
             authorization.trim(),
           );
         }
-        final response = await request.close();
+        final response = await request.close().timeout(
+          const Duration(seconds: 30),
+        );
         if ({301, 302, 303, 307, 308}.contains(response.statusCode)) {
           final location = response.headers.value(HttpHeaders.locationHeader);
           await response.drain<void>();
@@ -578,7 +685,9 @@ class CloudDocumentService {
           throw FormatException('网盘读取失败（HTTP ${response.statusCode}）');
         }
         final builder = BytesBuilder(copy: false);
-        await for (final part in response) {
+        await for (final part in response.timeout(
+          const Duration(seconds: 30),
+        )) {
           builder.add(part);
           if (builder.length > 128 * 1024 * 1024) {
             throw const FormatException('文件超过 128 MiB，暂不支持在线解析');
@@ -628,10 +737,11 @@ class CloudDocumentService {
     final bodies = <int, String>{};
     for (final item in remote.chapters) {
       final content = body(item.content);
-      if (content.isEmpty) continue;
       final cid = chapters.length + 1;
       chapters.add(NovelChapter(_limit(item.title, 80), '', id: cid));
-      bodies[cid] = content;
+      // 目录必须完整；部分章节正文为空时仍保留标题，阅读器可以重试，
+      // 而不是整章从目录里消失。
+      if (content.isNotEmpty) bodies[cid] = content;
     }
     if (chapters.isEmpty) throw const FormatException('云端解析没有返回可读章节');
     final parsed = _novel(
@@ -1012,9 +1122,21 @@ class CloudDocumentService {
         final text = element.text.trim();
         if (text.isNotEmpty) blocks.add(text);
       }
+      final bodyText = document.body?.text.trim() ?? '';
+      final textLength = blocks
+          .where((block) => !block.contains('<!--image-->'))
+          .fold<int>(0, (sum, block) => sum + block.length);
+      // 有些 EPUB 的正文放在 div 里，只有少量 p。若只收集 p 会像丢章；
+      // 当整页纯文本明显多于块级文本时，直接采用整页文本。
+      final flatText = blocks
+          .where((block) => !block.contains('<!--image-->'))
+          .join('\n\n');
       final body = blocks.isEmpty
-          ? document.body?.text.trim() ?? ''
-          : blocks.join('\n\n');
+          ? bodyText
+          : (bodyText.length > textLength + 20 &&
+                    bodyText.length > flatText.length
+                ? bodyText
+                : blocks.join('\n\n'));
       if (body.trim().isEmpty) continue;
       if (firstChapterText.isEmpty) firstChapterText = body;
       final cid = chapters.length + 1;

@@ -17,6 +17,20 @@ class ModRelease {
 /// of changelog text.
 const modReleaseHistory = <ModRelease>[
   ModRelease(
+    version: '0.8.6',
+    date: '2026-11-24',
+    summary: '书源与网盘封面、正文完整性和打开速度修复',
+    changes: [
+      '书源搜索结果补回封面：Legado 的 ruleSearch.coverUrl、RSS/Atom、JSON 和网页列表图片都会带进搜索结果；封面请求补上书源 Cookie、Authorization 和 Referer，不再因为 403 只剩渐变占位。',
+      '网盘搜索结果在已配置云端解析主机时懒加载文件内嵌封面；未配置解析主机不会为了封面下载整本书。',
+      '修复书源正文只取第一段：正文规则命中多个段落节点时，按顺序合并全部段落，不再显示半章。',
+      '详情、目录和正文请求增加超时；解析主机超时自动回退直接读取，坏源不会无限转圈。',
+      '云端解析只返回部分正文时仍保留全部章节标题，不再因为某一章为空就从目录里删掉整章。',
+      'EPUB 正文增加整页文本兜底，正文写在 div 而不在 p 里时也能读全。',
+      '封面缓存增加 URL 指纹和失败退避，换封面、换来源后立即刷新，不会反复请求失效地址。',
+    ],
+  ),
+  ModRelease(
     version: '0.8.5',
     date: '2026-11-24',
     summary: '书源地址解析、搜索加速、登录凭据保留与网络书架分类',

@@ -86,6 +86,7 @@ void main() {
     final detail = await LegadoReader.detail(payload, allowHttp: true);
     expect(detail.document.title, '测试书');
     expect(detail.document.author, '作者甲');
+    expect(detail.document.coverUrl, '$base/cover.jpg');
     expect(detail.document.chapters.length, 3);
     expect(detail.document.chapters.last.title, '第三章');
     final chapterUrl = detail.document.chapters.first.url;
@@ -96,5 +97,41 @@ void main() {
     );
     expect(content, contains('正文1第一段'));
     expect(content, contains('正文2第一段'));
+  });
+
+  test('Legado 多段落正文不会只返回第一段', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((request) async {
+      request.response.headers.contentType = ContentType.html;
+      if (request.uri.path == '/chapter/1') {
+        request.response.write('''
+<html><body><div class="article">
+<p class="line">第一段正文</p>
+<p class="line">第二段正文</p>
+<p class="line">第三段正文</p>
+</div></body></html>''');
+      } else {
+        request.response.statusCode = 404;
+      }
+      await request.response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final rules = <String, dynamic>{
+      'ruleContent': {'content': 'class.line'},
+    };
+    final payload = LegadoReader.encodePayload(
+      base: base,
+      bookUrl: '$base/book/1',
+      rules: rules,
+    );
+    final text = await LegadoReader.content(
+      '$base/chapter/1',
+      payload: payload,
+      allowHttp: true,
+    );
+    expect(text, contains('第一段正文'));
+    expect(text, contains('第二段正文'));
+    expect(text, contains('第三段正文'));
   });
 }

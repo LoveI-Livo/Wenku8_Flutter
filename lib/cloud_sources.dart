@@ -922,6 +922,7 @@ class CloudBookEntry {
     this.size = 0,
     this.author = '',
     this.summary = '',
+    this.coverUrl,
     this.book = false,
     this.extra = const {},
   });
@@ -929,6 +930,10 @@ class CloudBookEntry {
   final bool folder;
   final int size;
   final String author;
+
+  /// 书源搜索/目录接口直接给出的封面地址。网盘文件没有这个字段时，
+  /// 打开详情后再从文件元数据里补封面，不在搜索阶段下载整本书。
+  final String? coverUrl;
 
   /// RSS/Atom 或目录接口能直接提供的简介；WebDAV 通常为空，需要读取文件
   /// 元数据后再补。只用于搜索和展示，不落盘。
@@ -1970,10 +1975,19 @@ class RssBookClient extends DirectLinkBookClient {
     final items = document.findAllElements('item');
     final entries = document.findAllElements('entry');
     final result = <CloudBookEntry>[];
-    void add(String title, String? link, String summary, [String author = '']) {
+    void add(
+      String title,
+      String? link,
+      String summary, [
+      String author = '',
+      String cover = '',
+    ]) {
       if (title.trim().isEmpty || link == null || link.trim().isEmpty) return;
       final resolved = base.resolve(link.trim()).toString();
       if (result.any((entry) => entry.id == resolved)) return;
+      final coverUrl = cover.trim().isEmpty
+          ? null
+          : base.resolve(cover.trim()).toString();
       result.add(
         CloudBookEntry(
           id: resolved,
@@ -1982,6 +1996,7 @@ class RssBookClient extends DirectLinkBookClient {
           size: 0,
           author: author.trim(),
           summary: summary.trim(),
+          coverUrl: coverUrl,
           book: true,
         ),
       );
@@ -1994,7 +2009,7 @@ class RssBookClient extends DirectLinkBookClient {
       final author = _child(item, 'author').isNotEmpty
           ? _child(item, 'author')
           : _child(item, 'dc:creator');
-      add(title, link, _child(item, 'description'), author);
+      add(title, link, _child(item, 'description'), author, _feedCover(item));
     }
     for (final item in entries) {
       final title = _child(item, 'title');
@@ -2011,9 +2026,42 @@ class RssBookClient extends DirectLinkBookClient {
       final author = _child(item, 'author').isNotEmpty
           ? _child(item, 'author')
           : _child(item, 'dc:creator');
-      add(title, link, _child(item, 'summary'), author);
+      add(title, link, _child(item, 'summary'), author, _feedCover(item));
     }
     return result;
+  }
+
+  /// RSS 的封面通常藏在 enclosure、media:thumbnail、media:content 或
+  /// image 节点里，不在 description 里。搜索阶段直接带上，避免用户看到
+  /// 一排没有封面的结果。
+  String _feedCover(XmlElement item) {
+    for (final node in item.descendants.whereType<XmlElement>()) {
+      final name = node.name.local.toLowerCase();
+      final type = node.getAttribute('type')?.toLowerCase() ?? '';
+      final medium = node.getAttribute('medium')?.toLowerCase() ?? '';
+      final url =
+          node.getAttribute('url') ??
+          node.getAttribute('href') ??
+          node.getAttribute('src') ??
+          '';
+      if (url.trim().isEmpty) continue;
+      final looksImage =
+          type.startsWith('image') ||
+          medium == 'image' ||
+          name == 'thumbnail' ||
+          name == 'cover' ||
+          name == 'image' ||
+          RegExp(
+            r'\.(?:jpg|jpeg|png|webp|gif|avif)(?:$|\?)',
+            caseSensitive: false,
+          ).hasMatch(url);
+      if (looksImage) return url.trim();
+    }
+    for (final key in ['cover', 'coverUrl', 'image', 'thumbnail']) {
+      final value = _child(item, key);
+      if (value.trim().isNotEmpty) return value.trim();
+    }
+    return '';
   }
 
   List<CloudBookEntry> _jsonEntries(String body, Uri base) {
@@ -2056,6 +2104,14 @@ class RssBookClient extends DirectLinkBookClient {
         'content_text',
         'content_html',
       ]);
+      final cover = _string(map, [
+        'cover',
+        'coverUrl',
+        'cover_url',
+        'image',
+        'thumbnail',
+        'pic',
+      ]);
       if (result.any((entry) => entry.id == resolved)) continue;
       result.add(
         CloudBookEntry(
@@ -2065,6 +2121,7 @@ class RssBookClient extends DirectLinkBookClient {
           size: 0,
           author: author,
           summary: summary,
+          coverUrl: cover.isEmpty ? null : base.resolve(cover).toString(),
           book: true,
         ),
       );

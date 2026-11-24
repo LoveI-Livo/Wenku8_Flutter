@@ -93,6 +93,7 @@ final class LegadoReader {
             book: true,
             author: entry.author,
             summary: entry.summary,
+            coverUrl: entry.coverUrl,
           ),
       ]);
     }
@@ -115,6 +116,8 @@ final class LegadoReader {
         item,
         rule['intro'] ?? rule['summary'] ?? rule['desc'],
       );
+      final cover = _itemCover(item, rule, request.uri);
+      final coverUrl = cover.isEmpty ? null : _resolve(request.uri, cover);
       final id = encodePayload(
         base: source.url,
         bookUrl: resolved,
@@ -129,6 +132,7 @@ final class LegadoReader {
           book: true,
           author: author,
           summary: summary,
+          coverUrl: coverUrl,
         ),
       );
     }
@@ -325,6 +329,21 @@ final class LegadoReader {
 
   static String _contentText(String body, Object? selector) {
     if (selector == null) return _plain(body);
+    final parsed = _parse(body);
+    // 正文规则经常是 `class.paragraph` 这类多节点选择器。以前只取第一个
+    // 节点，章节看起来就像丢了一半；这里把全部段落按顺序拼回来。
+    final nodes = _extract(parsed, selector, Uri(), list: true);
+    if (nodes is List && nodes.length > 1) {
+      final parts = <String>[];
+      for (final node in nodes) {
+        final text = node is Element ? node.text.trim() : '$node'.trim();
+        if (text.isNotEmpty) parts.add(text);
+      }
+      if (parts.length > 1) {
+        final joined = parts.join('\n\n');
+        return joined.contains('<') ? _plain(joined) : joined;
+      }
+    }
     final value = _textValue(body, selector);
     if (value.trim().isEmpty) return _plain(body);
     return value.contains('<') ? _plain(value) : value;
@@ -532,6 +551,48 @@ final class LegadoReader {
     if (value == null) return const <Object>[];
     if (value is String && value.isEmpty) return const <Object>[];
     return <Object>[value];
+  }
+
+  /// 搜索结果封面优先按书源规则取；规则没写时，再从 JSON 字段或列表项
+  /// 里的第一张图兜底。这样不会因为源作者漏写 coverUrl 就整排没封面。
+  static String _itemCover(Object item, Map<String, dynamic> rule, Uri base) {
+    final value = _textValue(
+      item,
+      rule['coverUrl'] ??
+          rule['cover'] ??
+          rule['image'] ??
+          rule['img'] ??
+          rule['pic'],
+    );
+    if (value.isNotEmpty) return _resolve(base, value);
+    if (item is Map) {
+      for (final key in [
+        'cover',
+        'coverUrl',
+        'cover_url',
+        'image',
+        'imageUrl',
+        'thumbnail',
+        'pic',
+      ]) {
+        final raw = item[key];
+        if (raw is String && raw.trim().isNotEmpty) {
+          return _resolve(base, raw);
+        }
+      }
+      return '';
+    }
+    if (item is Element) {
+      final image = item.querySelector('img');
+      final raw =
+          (image?.attributes['src'] ??
+                  image?.attributes['data-src'] ??
+                  image?.attributes['data-original'] ??
+                  '')
+              .trim();
+      if (raw.isNotEmpty) return _resolve(base, raw);
+    }
+    return '';
   }
 
   static String _textValue(Object body, Object? rule) {

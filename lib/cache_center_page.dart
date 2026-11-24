@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app_interactions.dart';
 import 'app_ui.dart';
 import 'cloud_book_media.dart';
+import 'cloud_cover_media.dart';
 import 'feature_pages.dart';
 import 'legacy_cover.dart';
 import 'library_state.dart';
@@ -153,6 +154,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
     LegacyCover.clear();
     ReaderIllustrationCache.shared.clearMemory();
     CloudBookMedia.clearMemory();
+    CloudCoverMedia.clearMemory();
   }
 
   Future<void> _clearCloudMedia() => CloudBookMedia.clear();
