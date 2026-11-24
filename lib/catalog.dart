@@ -172,6 +172,7 @@ class Novel {
     String? genre,
     String? summary,
     String? coverUrl,
+    String? sourceLabel,
     bool resetCover = false,
   }) => Novel(
     id: id,
@@ -189,7 +190,7 @@ class Novel {
     remoteUrl: remoteUrl,
     remoteCookie: remoteCookie,
     remoteAuthorization: remoteAuthorization,
-    sourceLabel: sourceLabel,
+    sourceLabel: sourceLabel ?? this.sourceLabel,
     remoteEntryId: remoteEntryId,
     remoteKind: remoteKind,
   );
@@ -454,6 +455,22 @@ enum NovelSort {
   const NovelSort(this.label, this.apiKey);
   final String label;
   final String apiKey;
+}
+
+/// 网盘书列表/详情统一显示的短作者行，避免旧的“OpenList / WebDAV · 在线阅读”残留。
+String displayNovelAuthor(Novel novel) {
+  final kind = novel.remoteKind?.trim() ?? '';
+  if (kind.isEmpty || kind == 'rss') return novel.author;
+  final author = novel.author.trim();
+  if (author.isEmpty ||
+      author.contains('在线阅读') ||
+      author.contains('网盘') ||
+      author.contains('WebDAV') ||
+      author.contains('OpenList') ||
+      author == '网盘书源') {
+    return '在线阅读';
+  }
+  return novel.author;
 }
 
 class NovelPage {

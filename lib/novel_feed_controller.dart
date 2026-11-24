@@ -8,6 +8,7 @@ import 'book_tag_catalog.dart';
 import 'book_search.dart';
 import 'tag_catalogue.dart';
 import 'blocked_tags.dart';
+import 'online_component.dart';
 import 'publication_catalog.dart';
 import 'web_publication_catalog.dart' show PublicationConnectionRequired;
 
@@ -101,6 +102,9 @@ class NovelFeedController extends ChangeNotifier {
     final failure = error;
     if (failure is PublicationConnectionRequired) {
       return '此出版文库需要官网账号连接，请到账号页确认后重试。';
+    }
+    if (failure is OnlineAuthenticationRequired) {
+      return '文库登录已失效，请到「我的 → 文库账号」重新登录后重试。';
     }
     if (failure is FormatException && failure.message.toString().isNotEmpty) {
       return failure.message.toString();

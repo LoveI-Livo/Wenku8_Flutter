@@ -25,7 +25,7 @@ part 'cloud_web.dart';
 part 'legado_reader.dart';
 
 enum CloudSourceKind {
-  webdav('OpenList / WebDAV'),
+  webdav('WebDAV'),
   quark('夸克网盘'),
   lanzou('蓝奏云 · 普通版'),
   lanzouPro('蓝奏云 · 优享版'),
@@ -40,6 +40,12 @@ enum CloudSourceKind {
 
   const CloudSourceKind(this.label);
   final String label;
+
+  /// 0.8.3 起只维护 WebDAV、蓝奏云、蓝奏云优享版、迅雷云盘和小说书源。
+  /// 其余枚举保留用于读取旧记录，但不再出现在添加页、连接页和搜索里。
+  static const active = [webdav, lanzou, lanzouPro, xunlei, rss];
+
+  bool get isActive => active.contains(this);
 
   /// 这些来源都通过「文件下载直链」流式读取，不保存账号 Cookie。
   bool get isDirectLink => switch (this) {
@@ -625,6 +631,8 @@ class CloudSourceSettings extends ChangeNotifier {
   CloudSourceConfig? operator [](CloudSourceKind kind) => _configs[kind];
   Iterable<CloudSourceConfig> get configs =>
       List<CloudSourceConfig>.unmodifiable([..._configs.values, ..._extras]);
+  Iterable<CloudSourceConfig> get activeConfigs =>
+      configs.where((config) => config.kind.isActive);
   Iterable<CloudSourceConfig> configsFor(CloudSourceKind kind) =>
       configs.where((config) => config.kind == kind);
   CloudSourceConfig? byId(String id) {
@@ -1067,7 +1075,7 @@ class CloudHttp {
           await res.listen((_) {}).cancel();
           if (!redirects || location == null) {
             throw CloudSourceFailure(
-              redirectMessage ?? '网盘地址发生跳转，请填写最终 WebDAV 地址或启用 OpenList 代理',
+              redirectMessage ?? '网盘地址发生跳转，请填写最终 WebDAV 地址或启用 AList 代理',
             );
           }
           final next = uri.resolve(location);
@@ -1142,7 +1150,7 @@ class CloudHttp {
         (res.headers.contentType?.mimeType == 'text/html' ||
             res.headers.contentType?.mimeType == 'application/xhtml+xml')) {
       await res.listen((_) {}).cancel();
-      throw const CloudSourceFailure('网盘返回了登录网页，请更新连接或开启 OpenList 下载代理');
+      throw const CloudSourceFailure('网盘返回了登录网页，请更新连接或开启 AList 下载代理');
     }
     final total = res.contentLength < 0 ? null : res.contentLength;
     final limit =
@@ -1347,7 +1355,7 @@ class WebDavBookClient implements CloudBookClient {
 }
 
 /// An independently implemented read-only client of the web wire protocol
-/// documented by OpenList. No upstream Go driver is bundled or translated.
+/// documented by AList. No upstream Go driver is bundled or translated.
 class QuarkBookClient implements CloudBookClient {
   QuarkBookClient(
     this.config, {
@@ -1798,7 +1806,10 @@ class RssBookClient extends DirectLinkBookClient {
     if (value.isEmpty) return const CloudBookListing([]);
     final entries = <String, CloudBookEntry>{};
     final pattern = BookSearch(value);
+    var attempted = 0;
+    Object? firstFailure;
     await _parallel(_sourceObjects, (source) async {
+      attempted++;
       if (LegadoReader.supports(source)) {
         try {
           final listing = await LegadoReader.search(
@@ -1813,7 +1824,8 @@ class RssBookClient extends DirectLinkBookClient {
             entries.putIfAbsent(entry.id, () => entry);
             if (entries.length >= _maxEntries) return;
           }
-        } catch (_) {
+        } catch (error) {
+          firstFailure ??= error;
           // 一个 Legado 书源规则失效不影响其它书源。
         }
         return;
@@ -1839,10 +1851,15 @@ class RssBookClient extends DirectLinkBookClient {
           entries.putIfAbsent(entry.id, () => entry);
           if (entries.length >= _maxEntries) return;
         }
-      } catch (_) {
+      } catch (error) {
+        firstFailure ??= error;
         // 一个书源失效不影响其他书源。
       }
     });
+    if (entries.isEmpty && attempted > 0 && firstFailure != null) {
+      // 选中的书源全部失败时把原因交给页面显示，而不是假装“没有找到”。
+      throw firstFailure!;
+    }
     return CloudBookListing(entries.values.toList(growable: false));
   }
 

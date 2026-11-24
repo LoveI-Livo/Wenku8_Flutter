@@ -82,6 +82,37 @@ class CloudDocumentService {
 
   bool handles(int id) => _urls.containsKey(id);
 
+  /// 书架在重启后先拿到持久化的 Novel，再调用目录/正文。这里把远程字段
+  /// 重新挂回内存，避免 `chapters()` 在详情还没加载时误报“请从书架重新打开”。
+  Novel adopt(Novel novel) {
+    final url = novel.remoteUrl?.trim() ?? '';
+    final source = _polishDisplay(novel);
+    if (url.isNotEmpty) {
+      _urls[novel.id] = url;
+      _metadata.putIfAbsent(novel.id, () => source);
+    }
+    return source;
+  }
+
+  /// 网盘书不再在书架、详情页堆一长串“OpenList / WebDAV · 在线阅读”，
+  /// 统一显示“在线阅读”。真实作者、书源书名仍保留。
+  Novel _polishDisplay(Novel novel) {
+    final kind = novel.remoteKind?.trim() ?? '';
+    if (kind.isEmpty || kind == CloudSourceKind.rss.name) return novel;
+    final author = novel.author.trim();
+    final authorIsProvider =
+        author.isEmpty ||
+        author.contains('在线阅读') ||
+        author.contains('网盘') ||
+        author.contains('WebDAV') ||
+        author.contains('OpenList') ||
+        author == '网盘书源';
+    return novel.withMetadata(
+      author: authorIsProvider ? '在线阅读' : novel.author,
+      sourceLabel: '在线阅读',
+    );
+  }
+
   /// Drops in-memory text after the user removes an online shelf record.
   void forget(int id) {
     _urls.remove(id);
@@ -197,14 +228,38 @@ class CloudDocumentService {
 
   /// Builds online-only shelf metadata for a file picked inside a cloud
   /// browser. Nothing is downloaded or written locally at this point.
+  /// 账号网盘的文件 ID 不是直链，先保存成可恢复的 cloud:// 标记；
+  /// 打开书时再用当前登录凭证换取临时下载地址。旧版把阿里/迅雷/123 的
+  /// 裸 file id 直接当 URL，导致“加入书架后目录加载失败”。
+  String _cloudMarker(
+    CloudSourceKind kind,
+    String entryId, {
+    String connectionId = '',
+  }) => Uri(
+    scheme: 'cloud',
+    host: kind.name,
+    pathSegments: [entryId],
+    queryParameters: connectionId.trim().isEmpty
+        ? null
+        : {'connection': connectionId.trim()},
+  ).toString();
+
   Novel cloudBook(CloudBookEntry entry, CloudSourceConfig config) {
     final url = switch (config.kind) {
-      CloudSourceKind.quark || CloudSourceKind.lanzou => Uri(
-        scheme: 'cloud',
-        host: config.kind.name,
-        pathSegments: [entry.id],
-      ).toString(),
+      CloudSourceKind.webdav => entry.id,
       CloudSourceKind.s3 => s3PresignedUrl(config, entry.id),
+      CloudSourceKind.quark ||
+      CloudSourceKind.lanzou ||
+      CloudSourceKind.lanzouPro ||
+      CloudSourceKind.xunlei ||
+      CloudSourceKind.aliyun ||
+      CloudSourceKind.baidu ||
+      CloudSourceKind.pan123 ||
+      CloudSourceKind.uc => _cloudMarker(
+        config.kind,
+        entry.id,
+        connectionId: config.connectionId,
+      ),
       _ => entry.id,
     };
     final authorization = config.username.trim().isEmpty
@@ -217,12 +272,12 @@ class CloudDocumentService {
       entry.name,
       url,
       summary: entry.summary.isEmpty ? null : entry.summary,
-      author: entry.author.isEmpty
-          ? '${config.kind.label} · 在线阅读'
-          : entry.author,
+      author: entry.author.isEmpty ? '在线阅读' : entry.author,
       cookie: config.cookie,
       authorization: authorization,
-      sourceLabel: config.kind.label,
+      sourceLabel: config.kind == CloudSourceKind.rss
+          ? config.kind.label
+          : '在线阅读',
       remoteEntryId: entry.id,
       remoteKind: config.kind.name,
     );
@@ -412,33 +467,78 @@ class CloudDocumentService {
     return document;
   }
 
-  /// Resolution marker written by full-disk cloud search. The real short-lived
-  /// download URL is obtained only when the reader opens the book.
+  /// 账号网盘的书只保存文件 ID，打开时用当前登录凭证换取临时直链。
+  /// 兼容两类记录：新版 `cloud://kind/id`，以及旧版直接保存的裸文件 ID。
   Future<String> _resolveCloudUrl(String url, Novel novel) async {
     final uri = Uri.tryParse(url);
-    if (uri == null || uri.scheme != 'cloud') return url;
-    final kind = CloudSourceKind.values.byName(uri.host);
-    if (kind != CloudSourceKind.quark && kind != CloudSourceKind.lanzou) {
-      throw const FormatException('不支持的网盘书源');
-    }
-    final id = uri.pathSegments.isEmpty ? '' : uri.pathSegments.first;
-    final cookie = novel.remoteCookie?.trim() ?? '';
-    if (id.isEmpty || cookie.isEmpty) {
-      throw const FormatException('网盘登录已失效，请重新登录账号');
-    }
-    CloudBookClient? client;
-    try {
-      client = CloudBookClient(CloudSourceConfig(kind: kind, cookie: cookie));
-      final link = await client.directLink(
-        CloudBookEntry(id: id, name: novel.title, folder: false),
-      );
-      if (link == null || link.isEmpty) {
-        throw const FormatException('网盘没有返回下载地址');
+    CloudSourceKind? kind;
+    var id = '';
+    var connectionId = '';
+    if (uri != null && uri.scheme == 'cloud') {
+      try {
+        kind = CloudSourceKind.values.byName(uri.host);
+      } on ArgumentError {
+        throw const FormatException('网盘书源类型无法识别');
       }
-      return link;
-    } finally {
-      client?.close();
+      id = uri.pathSegments.isEmpty ? '' : uri.pathSegments.first;
+      connectionId = uri.queryParameters['connection'] ?? '';
+    } else {
+      final recorded = novel.remoteKind?.trim() ?? '';
+      if (recorded.isNotEmpty) {
+        for (final value in CloudSourceKind.values) {
+          if (value.name == recorded) {
+            kind = value;
+            break;
+          }
+        }
+      }
+      // WebDAV / S3 / 直链 / RSS 保存的本来就是可用地址。
+      if (kind == null ||
+          kind == CloudSourceKind.webdav ||
+          kind == CloudSourceKind.s3 ||
+          kind == CloudSourceKind.direct ||
+          kind == CloudSourceKind.rss) {
+        return url;
+      }
+      id = url.trim();
     }
+    if (kind == null || id.isEmpty) {
+      throw const FormatException('网盘文件标识已丢失，请重新从网络书架添加');
+    }
+    final settings = CloudSourceSettings();
+    await settings.ensureLoaded();
+    var configs = settings.configsFor(kind).toList(growable: false);
+    if (connectionId.isNotEmpty) {
+      configs = configs
+          .where((config) => config.connectionId == connectionId)
+          .toList(growable: false);
+    }
+    if (configs.isEmpty) {
+      // 配置可能被删除或换了连接；同类型还有账号时继续尝试，让用户
+      // 重新登录后的连接可以直接接管旧书架记录。
+      configs = settings.configsFor(kind).toList(growable: false);
+    }
+    if (configs.isEmpty) {
+      throw FormatException('${kind.label}连接已失效，请到「网络 → 添加网盘」重新登录官网账号');
+    }
+    final failures = <String>[];
+    for (final config in configs) {
+      CloudBookClient? client;
+      try {
+        client = CloudBookClient(config, settings: settings);
+        final link = await client.directLink(
+          CloudBookEntry(id: id, name: novel.title, folder: false),
+        );
+        if (link != null && link.trim().isNotEmpty) return link.trim();
+        failures.add('${config.label}没有返回下载地址');
+      } catch (error) {
+        failures.add(cloudFailureMessage(error));
+      } finally {
+        client?.close();
+      }
+    }
+    final detail = failures.isEmpty ? '' : '（${failures.first}）';
+    throw FormatException('${kind.label}目录读取失败，请重新登录官网账号后重试$detail');
   }
 
   Future<Uint8List> _fetch(
@@ -639,17 +739,12 @@ class CloudDocumentService {
     String? summary,
     Uint8List? coverBytes,
   }) {
-    var text = utf8.decode(bytes, allowMalformed: true);
+    var text = PortableBookText.decodeText(bytes);
     final head = text.substring(0, text.length.clamp(0, 4000));
     author ??= RegExp(
       r'(?:作者|作\s*者|Author)\s*[:：]\s*([^\n\r]{1,40})',
       caseSensitive: false,
     ).firstMatch(head)?.group(1)?.trim();
-    if (text.contains('\uFFFD')) {
-      try {
-        text = latin1.decode(bytes);
-      } catch (_) {}
-    }
     text = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final lines = text.split('\n');
     if (title == null || title.trim().isEmpty) {

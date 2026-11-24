@@ -735,7 +735,7 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
                           ),
                         ),
                         if (widget.sourceLabel?.call(book) case final label?)
-                          BookSourceBadge(label),
+                          BookSourceBadge(label, maxWidth: 48),
                       ],
                     ),
                     const SizedBox(height: 7),
@@ -890,7 +890,10 @@ class _FlatArchiveCarouselState extends State<_FlatArchiveCarousel> {
                                     Positioned(
                                       top: 5,
                                       right: 5,
-                                      child: BookSourceBadge(label),
+                                      child: BookSourceBadge(
+                                        label,
+                                        maxWidth: 48,
+                                      ),
                                     ),
                                 ],
                               ),

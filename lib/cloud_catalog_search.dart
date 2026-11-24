@@ -52,7 +52,7 @@ class CloudCatalogSearch {
   Future<List<CloudSearchTarget>> targets(CloudSearchScope scope) async {
     await settings.ensureLoaded();
     final result = <CloudSearchTarget>[];
-    for (final config in settings.configs) {
+    for (final config in settings.activeConfigs) {
       final allowed = switch (scope) {
         CloudSearchScope.all =>
           config.kind.isDirectLink || config.kind.isAccount,
@@ -114,7 +114,7 @@ class CloudCatalogSearch {
     await settings.ensureLoaded();
     lastFailure = null;
     final failures = <String>[];
-    final configs = settings.configs
+    final configs = settings.activeConfigs
         .where(
           (config) => switch (scope) {
             CloudSearchScope.all =>

@@ -112,10 +112,36 @@ class LibrarySearchRepository extends NovelRepository {
         )
         .toList();
     if (pattern.terms.isEmpty) return localMatches;
-    final cloud = await CloudCatalogSearch.instance.search(query);
-    final ids = {for (final book in localMatches) book.id};
+    final libraryFuture = () async {
+      try {
+        final page = await source.searchFilteredPage(query, field: field);
+        return page.items;
+      } catch (error) {
+        // 网络或登录暂时失败时仍返回书架和已识别网盘书，避免整页空白；
+        // 三类都没有结果时再把真实错误抛给搜索页展示。
+        return <Novel>[];
+      }
+    }();
+    final cloudFuture = CloudCatalogSearch.instance.search(query);
+    final results = await Future.wait([libraryFuture, cloudFuture]);
+    final libraryMatches = results[0];
+    final cloud = results[1];
+    final ids = {
+      for (final book in localMatches) book.id,
+      for (final book in libraryMatches) book.id,
+    };
     return [
       ...localMatches,
+      for (final book in libraryMatches)
+        if (ids.add(book.id))
+          if (pattern.matches(
+            title: book.title,
+            author: book.author,
+            tags: book.genre,
+            id: '${book.id}',
+            classification: '',
+          ))
+            book,
       for (final book in cloud)
         if (ids.add(book.id))
           if (pattern.matches(

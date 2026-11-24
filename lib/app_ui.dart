@@ -1636,35 +1636,75 @@ class NovelCover extends StatelessWidget {
   }
 
   Widget _visual({bool clip = true, bool recordArrival = true}) {
-    final fallback = Padding(
-      padding: EdgeInsets.all(width * .11),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.end,
+    final base = novel.colors.isEmpty ? accent : novel.colors.first;
+    final deep = Color.lerp(base, Colors.black, .42)!;
+    final fallback = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [base, deep],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          AppText(
-            novel.title,
-            // This is printed cover artwork; the adjacent book title still
-            // follows the reader's accessibility text scale.
-            textScaler: TextScaler.noScaling,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: width * .16,
-              height: 1.25,
+          // 用书名首字做半透明底纹，没有封面时也不至于只剩一块纯色。
+          Positioned(
+            top: -width * .18,
+            right: -width * .12,
+            child: ExcludeSemantics(
+              child: AppText(
+                novel.title.isEmpty
+                    ? '文'
+                    : String.fromCharCode(novel.title.runes.first),
+                textScaler: TextScaler.noScaling,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: .14),
+                  fontSize: width * .82,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          AppText(
-            novel.author,
-            textScaler: TextScaler.noScaling,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: .75),
-              fontSize: width * .085,
+          Padding(
+            padding: EdgeInsets.all(width * .12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Container(
+                  width: width * .22,
+                  height: 2,
+                  margin: EdgeInsets.only(bottom: width * .08),
+                  color: Colors.white.withValues(alpha: .65),
+                ),
+                AppText(
+                  novel.title,
+                  textScaler: TextScaler.noScaling,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: width * .16,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                AppText(
+                  displayNovelAuthor(novel),
+                  textScaler: TextScaler.noScaling,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .78),
+                    fontSize: width * .082,
+                    letterSpacing: .3,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1723,10 +1763,22 @@ class NovelCover extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: accent,
+        color: base,
         borderRadius: BorderRadius.circular(
           clip ? ArchiveDesign.coverRadius : 0,
         ),
+        border: clip
+            ? Border.all(color: Colors.white.withValues(alpha: .12))
+            : null,
+        boxShadow: clip
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .18),
+                  blurRadius: 12,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : null,
       ),
       child: !clip
           ? face

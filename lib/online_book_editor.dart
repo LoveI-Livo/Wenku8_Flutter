@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_interactions.dart';
 import 'app_ui.dart';
@@ -16,6 +17,7 @@ import 'library_state.dart';
 import 'local_book_edit_widgets.dart';
 import 'local_book_tags_editor.dart';
 import 'local_library_preferences.dart';
+import 'reader_tools.dart';
 
 /// Edits metadata for a book that is read directly from a cloud drive or a
 /// book source. No file is copied to the device; only the shelf record changes.
@@ -248,7 +250,9 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
             ),
             const SizedBox(height: 7),
             AppText(
-              '${widget.book.sourceLabel ?? '在线书籍'} · 在线阅读',
+              '在线阅读',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -290,6 +294,116 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
       ),
     ],
   );
+
+  Future<void> _showContentSource() async {
+    final url = widget.book.remoteUrl?.trim() ?? '';
+    final label = '在线阅读';
+    final entryId = widget.book.remoteEntryId?.trim() ?? '';
+    await showJellySheet<void>(
+      context: context,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const AppText(
+              '内容来源',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            AppText(
+              label == null || label.isEmpty ? '在线书籍' : label,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 18),
+            _sourceRow('读取方式', '从原网盘在线读取，不下载原文件到本机'),
+            _sourceRow('文件地址', url.isEmpty ? '未保存地址' : url),
+            if (entryId.isNotEmpty) _sourceRow('文件 ID', entryId),
+            const SizedBox(height: 20),
+            if (url.isNotEmpty)
+              GlassPillButton(
+                icon: CupertinoIcons.doc_on_clipboard,
+                label: '复制文件地址',
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: url));
+                  if (sheetContext.mounted) {
+                    Navigator.pop(sheetContext);
+                    if (mounted) showNovelFeedback(context, '文件地址已复制');
+                  }
+                },
+              ),
+            const SizedBox(height: 10),
+            GlassTextButton(
+              onPressed: () => Navigator.pop(sheetContext),
+              child: const AppText('关闭'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sourceRow(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AppText(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 3),
+        SelectableText(
+          value,
+          maxLines: 4,
+          style: const TextStyle(fontSize: 14, height: 1.5),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _openReaderSettings() async {
+    final book = widget.book;
+    await showJellySheet<void>(
+      context: context,
+      heightFactor: .9,
+      maxHeight: MediaQuery.sizeOf(context).height * .9,
+      builder: (sheetContext) => ReaderTools(
+        novel: book,
+        state: widget.library,
+        position: null,
+        onAddBookmark: () async => null,
+        onFontSize: (value) {
+          widget.library.setTypography(fontSize: value, bookId: book.id);
+        },
+        onLineHeight: (value) {
+          widget.library.setTypography(lineHeight: value, bookId: book.id);
+        },
+        onReset: () {
+          widget.library.setTypography(
+            fontSize: 19,
+            lineHeight: 1.72,
+            bookId: book.id,
+          );
+        },
+        onPreferencesChanged: (preferences, persist) {
+          widget.library.setReaderPreferences(
+            preferences,
+            persist: persist,
+            bookId: book.id,
+          );
+        },
+      ),
+    );
+  }
 
   Widget _content() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -359,17 +473,17 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
       FeatureEntry(
         key: const ValueKey('online-edit-source'),
         title: '内容来源',
-        subtitle: '${widget.book.sourceLabel ?? '在线书籍'} · 点开书即从原网盘在线读取，不下载到本机',
+        subtitle: '在线阅读，点开书即从原网盘读取，不下载到本机',
         icon: CupertinoIcons.cloud,
-        onTap: null,
+        onTap: _busy ? null : _showContentSource,
       ),
       const SizedBox(height: 12),
       FeatureEntry(
         key: const ValueKey('online-edit-reader'),
         title: '阅读设置',
-        subtitle: '字号、行距、字体、主题和阅读方向在阅读器右上角的设置面板中调整',
+        subtitle: '字号、行距、字体、主题和阅读方向，点开即可调整',
         icon: CupertinoIcons.slider_horizontal_3,
-        onTap: null,
+        onTap: _busy ? null : _openReaderSettings,
       ),
       if (widget.library.contains(widget.book.id)) ...[
         const SizedBox(height: 28),

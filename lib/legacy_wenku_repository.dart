@@ -15,7 +15,8 @@ import 'wenku8_client.dart';
 /// the account page; no book files are downloaded to disk.
 class LegacyWenkuRepository extends NovelRepository
     implements PublicationCatalog, ProgressiveTagCatalogue {
-  LegacyWenkuRepository({Wenku8Client? client}) : client = client ?? Wenku8Client();
+  LegacyWenkuRepository({Wenku8Client? client})
+    : client = client ?? Wenku8Client();
 
   final Wenku8Client client;
   final Map<int, Novel> _meta = {};
@@ -69,10 +70,11 @@ class LegacyWenkuRepository extends NovelRepository
     final cached = _meta[id];
     if (cached != null && (!intro || cached.summary.isNotEmpty)) return cached;
     final doc = _xml(await client.apiRaw('action=book&do=meta&aid=$id&t=0'));
-    final item = doc.findAllElements('item').where((e) {
-      return e.getAttribute('aid') == '$id' ||
-          e.getAttribute('aid') == null;
-    }).firstOrNull ??
+    final item =
+        doc.findAllElements('item').where((e) {
+          return e.getAttribute('aid') == '$id' ||
+              e.getAttribute('aid') == null;
+        }).firstOrNull ??
         doc.rootElement;
     var novel = _novel(id, item);
     if (intro) {
@@ -108,7 +110,10 @@ class LegacyWenkuRepository extends NovelRepository
         .replaceAll(RegExp(r'<!--image-->', caseSensitive: false), '\n[插图] ')
         .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n\n')
-        .replaceAll(RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), '');
+        .replaceAll(
+          RegExp(r'<script[\s\S]*?</script>', caseSensitive: false),
+          '',
+        );
     final document = html_parser.parse(source);
     final content = document.getElementById('content');
     source = content?.innerHtml ?? source;
@@ -167,8 +172,12 @@ class LegacyWenkuRepository extends NovelRepository
         } catch (_) {}
       }
     }
+
     await Future.wait([for (var i = 0; i < 5; i++) worker()]);
-    return [for (final book in books) if (book != null) book];
+    return [
+      for (final book in books)
+        if (book != null) book,
+    ];
   }
 
   List<Novel> _dedupe(Iterable<Novel> books) {
@@ -207,10 +216,8 @@ class LegacyWenkuRepository extends NovelRepository
     String author, {
     int page = 1,
     bool refresh = false,
-  }) async => NovelPage.fromItems(
-    await _searchApi(author.trim(), 'author'),
-    page,
-  );
+  }) async =>
+      NovelPage.fromItems(await _searchApi(author.trim(), 'author'), page);
 
   @override
   Future<Novel> detail(Novel novel) async {
@@ -227,21 +234,20 @@ class LegacyWenkuRepository extends NovelRepository
     final chapters = <NovelChapter>[];
     for (final volume in doc.findAllElements('volume')) {
       final volumeId = int.tryParse(volume.getAttribute('vid') ?? '') ?? 0;
-      final volumeTitle = volume.innerText
-          .split('\n')
-          .first
-          .trim();
+      final volumeTitle = volume.innerText.split('\n').first.trim();
       for (final chapter in volume.findAllElements('chapter')) {
         final cid = int.tryParse(chapter.getAttribute('cid') ?? '');
         final title = chapter.innerText.trim();
         if (cid == null || title.isEmpty) continue;
-        chapters.add(NovelChapter(
-          title,
-          '',
-          id: cid,
-          volumeId: volumeId,
-          volumeTitle: volumeTitle,
-        ));
+        chapters.add(
+          NovelChapter(
+            title,
+            '',
+            id: cid,
+            volumeId: volumeId,
+            volumeTitle: volumeTitle,
+          ),
+        );
       }
     }
     if (chapters.isEmpty) {
@@ -272,10 +278,27 @@ class LegacyWenkuRepository extends NovelRepository
     int page = 1,
     bool refresh = false,
   }) async {
-    final doc = _xml(await client.apiRaw(
-      'action=novellist&sort=${sort.apiKey}&page=$page&t=0',
-    ));
-    return _pageFrom(doc, page);
+    try {
+      final doc = _xml(
+        await client.apiRaw(
+          'action=novellist&sort=${sort.apiKey}&page=$page&t=0',
+        ),
+      );
+      return _pageFrom(doc, page);
+    } catch (failure) {
+      // 官方榜单接口在部分账号/网络下会直接返回 4，但搜索接口仍公开可用。
+      // 搜索词用 SQL LIKE 通配符取全站书目，服务端按最近更新倒序返回，
+      // 正好可以还原“最近更新”第一页，不再让整个发现页空白。
+      if (sort != NovelSort.lastUpdate || page != 1) rethrow;
+      final body = await client
+          .apiRaw('action=search&searchtype=articlename&searchkey=%&t=0')
+          .catchError((Object fallbackFailure) {
+            throw failure;
+          });
+      final fallback = await _pageFrom(_xml(body), 1);
+      if (fallback.items.isEmpty) throw failure;
+      return NovelPage(items: fallback.items, page: 1, totalPages: 1);
+    }
   }
 
   Future<NovelPage> _pageFrom(XmlDocument doc, int page) async {
@@ -290,24 +313,32 @@ class LegacyWenkuRepository extends NovelRepository
       while (cursor < ids.length) {
         final index = cursor++;
         try {
-          final item = doc.findAllElements('item').firstWhere((e) => _aid(e) == ids[index]);
+          final item = doc
+              .findAllElements('item')
+              .firstWhere((e) => _aid(e) == ids[index]);
           books[index] = _novel(ids[index], item);
         } catch (_) {}
       }
     }
+
     await Future.wait([for (var i = 0; i < 4; i++) worker()]);
     final total = int.tryParse(
       doc.findAllElements('page').firstOrNull?.getAttribute('num') ?? '',
     );
     return NovelPage(
-      items: [for (final book in books) if (book != null) book],
+      items: [
+        for (final book in books)
+          if (book != null) book,
+      ],
       page: page,
       totalPages: total,
     );
   }
 
   @override
-  Future<List<PublicationLibrary>> publicationLibraries({bool refresh = false}) async {
+  Future<List<PublicationLibrary>> publicationLibraries({
+    bool refresh = false,
+  }) async {
     final cached = _libraries;
     if (cached != null && !refresh) return cached;
     final doc = _xml(await client.apiRaw('action=xml&item=sort&t=0'));
@@ -315,7 +346,8 @@ class LegacyWenkuRepository extends NovelRepository
     for (final item in doc.findAllElements('item')) {
       final id = int.tryParse(item.getAttribute('sort') ?? '');
       final name = item.innerText.trim();
-      if (id != null && name.isNotEmpty) libraries.add(PublicationLibrary(id, name));
+      if (id != null && name.isNotEmpty)
+        libraries.add(PublicationLibrary(id, name));
     }
     _libraries = List.unmodifiable(libraries);
     return _libraries!;
@@ -327,9 +359,9 @@ class LegacyWenkuRepository extends NovelRepository
     int page = 1,
     bool refresh = false,
   }) async {
-    final doc = _xml(await client.apiRaw(
-      'action=novellist&sort=$libraryId&page=$page&t=0',
-    ));
+    final doc = _xml(
+      await client.apiRaw('action=novellist&sort=$libraryId&page=$page&t=0'),
+    );
     return _pageFrom(doc, page);
   }
 
@@ -343,7 +375,9 @@ class LegacyWenkuRepository extends NovelRepository
   }) async {
     final items = await search(tag);
     final result = NovelPage.fromItems(items, page);
-    onProgress?.call(TagSearchProgress(items: result.items, scannedPages: 1, totalPages: 1));
+    onProgress?.call(
+      TagSearchProgress(items: result.items, scannedPages: 1, totalPages: 1),
+    );
     return result;
   }
 }

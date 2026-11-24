@@ -23,6 +23,7 @@ import 'illustration_placement.dart';
 import 'automatic_illustrations.dart';
 import 'local_book_series.dart';
 import 'local_book_batch_page.dart';
+import 'shelf_batch_page.dart';
 import 'app_interactions.dart';
 import 'author_works_page.dart';
 import 'archive_carousel.dart';
@@ -364,6 +365,13 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       CloudLibraryPage(
         settings: settings,
         booklists: widget.state.organization.groups,
+        onCreateBooklist: (name) async {
+          await widget.state.organization.addGroup(name);
+          for (final entry in widget.state.organization.groups.entries) {
+            if (entry.value == name.trim()) return entry.key;
+          }
+          return null;
+        },
         reduceMotion: widget.state.reduceMotion,
         onImport: (name, path) async {
           final local = offline?.local;
@@ -2056,7 +2064,7 @@ class NovelRow extends StatelessWidget {
                 Positioned(
                   top: 3,
                   right: 3,
-                  child: BookSourceBadge(sourceLabel!),
+                  child: BookSourceBadge(sourceLabel!, maxWidth: 50),
                 ),
             ],
           ),
@@ -2078,7 +2086,7 @@ class NovelRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
                 AppText(
-                  novel.author,
+                  displayNovelAuthor(novel),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -2124,6 +2132,14 @@ class ShelfPage extends StatefulWidget {
   final String title, code;
   final VoidCallback? onAddNetworkSources;
 
+  Set<int> get _batchIds => state.shelf
+      .where(
+        (id) => networkOnly
+            ? isCloudBookId(id)
+            : !isCloudBookId(id) && !isLocalBook(id),
+      )
+      .toSet();
+
   Widget buildHeader(BuildContext context, {VoidCallback? search}) =>
       AnimatedBuilder(
         animation: state.navigationChanges,
@@ -2138,6 +2154,19 @@ class ShelfPage extends StatefulWidget {
                 icon: CupertinoIcons.add,
                 label: '添加网盘或小说书源',
                 onPressed: onAddNetworkSources,
+              ),
+            if (_batchIds.isNotEmpty)
+              GlassIconButton(
+                key: const ValueKey('shelf-batch-entry'),
+                icon: CupertinoIcons.checkmark_circle,
+                label: '批量管理书架',
+                onPressed: () => openShelfBatch(
+                  context,
+                  library: state,
+                  repository: repository,
+                  ids: _batchIds,
+                  title: networkOnly ? '批量管理网络书' : '批量管理在线书',
+                ),
               ),
             GlassIconButton(
               icon: CupertinoIcons.clock,
@@ -5354,23 +5383,23 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
         placeholder: _authorUpdated && !isLoading
             ? const LoadingSkeleton(layout: SkeletonLayout.inline)
             : null,
-        child: isLoading && novel.author.trim().isEmpty
+        child: isLoading && displayNovelAuthor(novel).trim().isEmpty
             ? const InlineSkeleton(
                 key: ValueKey('detail-author-skeleton'),
                 height: 20,
                 label: '正在加载作者信息',
               )
-            : novel.author.trim().isEmpty
+            : displayNovelAuthor(novel).trim().isEmpty
             ? const SizedBox.shrink()
             : Semantics(
                 button: true,
-                label: '查看${novel.author}的作品',
+                label: '查看${displayNovelAuthor(novel)}的作品',
                 child: JellyTapSurface(
                   key: const ValueKey('detail-author-works'),
                   onTap: () => pushNovelPage<void>(
                     context,
                     AuthorWorksPage(
-                      author: novel.author,
+                      author: displayNovelAuthor(novel),
                       repository: repository,
                       state: state,
                       localOnly: isLocalBook(novel.id),
@@ -5378,7 +5407,7 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                     reduceMotion: _reduceMotion,
                     explorationKey: (
                       'author',
-                      novel.author.trim(),
+                      displayNovelAuthor(novel).trim(),
                       isLocalBook(novel.id),
                     ),
                   ),
@@ -5389,7 +5418,9 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                       children: [
                         Flexible(
                           child: AppText(
-                            novel.author,
+                            displayNovelAuthor(novel),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 15,
                               height: 1.4,

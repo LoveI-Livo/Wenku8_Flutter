@@ -96,7 +96,9 @@ class Pan123BookClient implements CloudBookClient {
         }
       } on CloudSourceFailure catch (error) {
         lastFailure = error;
-        if (error.authentication) rethrow;
+        // 旧域名可能返回 401/404，而新域名仍可用；先换 origin 再试。
+        // 两个 origin 都拒绝时才把登录失效抛给 UI。
+        if (error.authentication) continue;
         continue;
       } catch (error) {
         lastFailure = error;
@@ -104,6 +106,10 @@ class Pan123BookClient implements CloudBookClient {
       }
     }
     if (decoded != null) return decoded;
+    if (lastFailure case final CloudSourceFailure failure
+        when failure.authentication) {
+      throw failure;
+    }
     throw CloudSourceFailure(
       lastFailure is CloudSourceFailure
           ? lastFailure.message

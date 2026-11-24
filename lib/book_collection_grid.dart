@@ -73,7 +73,9 @@ class BookGridTile extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   AppText(
-                    LocalLibraryPreferences.authorName(book.author),
+                    LocalLibraryPreferences.authorName(
+                      displayNovelAuthor(book),
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

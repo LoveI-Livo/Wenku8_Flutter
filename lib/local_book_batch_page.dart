@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'book_categories.dart';
+import 'local_library_preferences.dart';
 import 'catalog.dart';
 import 'library_state.dart';
 import 'local_books.dart';
@@ -85,6 +87,37 @@ class _LocalBookBatchPageState extends State<LocalBookBatchPage> {
         if (!_selected.remove(book.id)) _selected.add(book.id);
       }
     });
+  }
+
+  Future<void> _assign(Set<int> ids) async {
+    if (_busy || ids.isEmpty) return;
+    final organization = widget.library.organization;
+    final group = await chooseBookCategory(
+      context,
+      organization,
+      bookIds: ids,
+      reduceMotion: widget.library.reduceMotion,
+    );
+    if (!mounted || group == null) return;
+    setState(() => _busy = true);
+    try {
+      await organization.assignMany(ids, group);
+      if (!mounted) return;
+      final name = group == LocalLibraryPreferences.unfiled
+          ? '未分类'
+          : organization.groups[group] ?? group;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('已把 ${ids.length} 本书加入「$name」')));
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is FormatException ? error.message : '分类保存失败，请重试';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _deleteSelected() async {
@@ -187,6 +220,14 @@ class _LocalBookBatchPageState extends State<LocalBookBatchPage> {
           title: const Text('批量整理本地书'),
           actions: [
             IconButton(
+              key: const ValueKey<String>('local-batch-assign-all'),
+              tooltip: '全部加入分类',
+              onPressed: _busy || books.isEmpty
+                  ? null
+                  : () => _assign({for (final book in books) book.id}),
+              icon: const Icon(Icons.drive_file_move_outline),
+            ),
+            IconButton(
               key: const ValueKey<String>('local-batch-select-all'),
               tooltip: _allSelected ? '取消全选' : '全选',
               onPressed: _busy || books.isEmpty ? null : _selectAll,
@@ -246,6 +287,18 @@ class _LocalBookBatchPageState extends State<LocalBookBatchPage> {
                   style: theme.textTheme.bodyMedium,
                 ),
               ),
+              OutlinedButton.icon(
+                key: const ValueKey<String>('local-batch-assign'),
+                onPressed: _busy || selected == 0
+                    ? null
+                    : () => _assign({
+                        for (final book in books)
+                          if (_selected.contains(book.id)) book.id,
+                      }),
+                icon: const Icon(Icons.drive_file_move_outline),
+                label: const Text('加入分类'),
+              ),
+              const SizedBox(width: 8),
               FilledButton.icon(
                 key: const ValueKey<String>('local-batch-delete'),
                 onPressed: _busy || selected == 0 ? null : _deleteSelected,

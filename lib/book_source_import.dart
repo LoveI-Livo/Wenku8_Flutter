@@ -129,7 +129,7 @@ class BookSourceFileReader {
       final name = (map['bookSourceName'] ?? map['name'] ?? map['title'] ?? '')
           .toString();
       final sourceGroup = (map['bookSourceGroup'] ?? group).toString();
-      final base = (map['bookSourceUrl'] ?? map['url'] ?? map['link'] ?? '')
+      var base = (map['bookSourceUrl'] ?? map['url'] ?? map['link'] ?? '')
           .toString()
           .trim();
       final search = (map['searchUrl'] ?? '').toString().trim();
@@ -151,13 +151,19 @@ class BookSourceFileReader {
         if (rule == null || (rule is String && rule.trim().isEmpty)) continue;
         rules[key] = rule;
       }
+      // 少数 Legado 书源把 bookSourceUrl 写成 App 名、emoji 或裸域名；
+      // 只要搜索地址是完整 HTTP 地址仍应导入，用搜索域名作为基准地址。
+      if (_url(base) == null && (rules.isNotEmpty || search.isNotEmpty)) {
+        base = _derivedBase(base, search);
+      }
       if (base.isNotEmpty && map['enabled'] != false) {
         if (rules.isNotEmpty) {
           var searchUrl = search.isEmpty ? base : search;
           // Legado 允许相对地址；保存前解析成绝对地址，导入后即可直接搜索。
-          if (searchUrl.isNotEmpty && !searchUrl.startsWith('http')) {
-            searchUrl =
-                Uri.tryParse(base)?.resolve(searchUrl).toString() ?? searchUrl;
+          // data: / @js: / <js> / {{...}} 是脚本构造的地址，不能交给
+          // Uri.resolve，否则 data URI 里的模板会被当成 base64 解码并整包失败。
+          if (searchUrl.isNotEmpty) {
+            searchUrl = _absoluteSearch(base, searchUrl);
           }
           rules['searchUrl'] = _legadoSearch(base, searchUrl);
           add(name, base, rules: rules, group: sourceGroup);
@@ -185,9 +191,60 @@ class BookSourceFileReader {
     return result;
   }
 
+  /// 把不规范的 bookSourceUrl 变成可保存的 HTTPS 基地址。
+  /// - 搜索地址以 http 开头：直接用它的 origin；
+  /// - bookSourceUrl 是裸域名：补 https://；
+  /// - 其余（App 名称、emoji、#）：用稳定的本地占位地址，规则仍完整保留。
+  static String _derivedBase(String base, String search) {
+    final query = search.trim();
+    if (query.startsWith('http://') || query.startsWith('https://')) {
+      final uri = Uri.tryParse(query);
+      if (uri != null && uri.host.isNotEmpty) {
+        return '${uri.scheme}://${uri.host}';
+      }
+    }
+    if (RegExp(
+      r'^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$',
+      caseSensitive: false,
+    ).hasMatch(base)) {
+      return 'https://$base';
+    }
+    final token = base64Url
+        .encode(utf8.encode(base.isEmpty ? 'source' : base))
+        .replaceAll('=', '');
+    return 'https://legado.local/source/$token';
+  }
+
+  static bool _scriptedAddress(String value) {
+    final text = value.trim().toLowerCase();
+    return text.startsWith('data:') ||
+        text.startsWith('@js:') ||
+        text.startsWith('<js>') ||
+        text.startsWith('js:') ||
+        text.startsWith('{{');
+  }
+
+  /// 把 Legado 的相对搜索地址拼到书源地址上；脚本类地址原样保留。
+  static String _absoluteSearch(String base, String search) {
+    final raw = search.trim();
+    if (raw.isEmpty || _scriptedAddress(raw)) return raw;
+    final parsed = Uri.tryParse(raw);
+    if (parsed != null && parsed.hasScheme) return raw;
+    try {
+      final root = Uri.parse(base);
+      return root.resolve(raw).toString();
+    } catch (_) {
+      return raw;
+    }
+  }
+
   static String _legadoSearch(String base, String search) {
     final raw = search.trim();
     if (raw.isEmpty) return base;
+    // data: / @js: / <js> / {{...}} 由脚本运行时处理，导入阶段只保留原文。
+    // 之前这里把 data: URI 交给 Uri.resolve，Dart 会解码其中未展开的
+    // {{java.base64Encode(...)}}，一个坏书源就能让整包 276 条全部导入失败。
+    if (_scriptedAddress(raw)) return raw;
     // 阅读书源的 searchUrl 支持在逗号后跟 JSON 请求配置，例如：
     // /search.php,{"method":"post","body":"key={{key}}"}
     // 只解析逗号前的地址，JSON 配置原样保留给请求层。
@@ -207,6 +264,18 @@ class BookSourceFileReader {
       target = address;
     }
     target = target
+        .replaceAll(
+          RegExp(r'\{\{\s*source\.key\s*\}\}', caseSensitive: false),
+          base,
+        )
+        .replaceAll(
+          RegExp(r'\{\{\s*source\.url\s*\}\}', caseSensitive: false),
+          base,
+        )
+        .replaceAll(
+          RegExp(r'\{\{\s*baseUrl\s*\}\}', caseSensitive: false),
+          base,
+        )
         .replaceAll(RegExp('%7b', caseSensitive: false), '{')
         .replaceAll(RegExp('%7d', caseSensitive: false), '}')
         .replaceAll(

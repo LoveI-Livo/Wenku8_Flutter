@@ -80,6 +80,22 @@ const _legadoEngine =
 const _normalCover =
     '普通文库书封面保持原链路：清空本地数据或图片缓存后，仍按文库图片源正常请求，不依赖网盘封面，也不写入可道云；只有网盘书封面走云端。';
 
+const _currentChanges = [
+  '修复 276 个 Legado 书源导入：data: / @js: / <js> / {{...}} 搜索地址不再被 Uri.resolve 当 base64 解码，整包导入不再因一个脚本书源失败；不规范 bookSourceUrl 用搜索域名兜底，276 条全部保留。',
+  '书源检测不再把使用 JS 构造搜索地址的书源直接标记为“失效”；能识别 HTTP/相对地址、{{source.key}}、{{key}}、{{page}} 的书源继续按原规则搜索。',
+  '修复文库搜索只搜书架和网盘、搜不到全站书：文库搜索现在会查询文库全站书目，再与书架、已识别网盘书合并去重。',
+  '书籍设置里的“内容来源”“阅读设置”两行可以点击：内容来源可查看来源、复制原文件地址；阅读设置直接打开字号、行距、字体、主题和翻页面板。',
+  '网盘书来源统一显示“在线阅读”，不再出现“OpenList / WebDAV · 在线阅读”长串；封面来源徽标不再重复贴，无封面书改用书名首字底纹与深色渐变。',
+  '网络书架封面上的来源徽标限制宽度并省略，书名和编号不再越出封面边界。',
+  '阿里云盘和迅雷云盘收到 401/403 时先读取响应体并用 refresh_token 自动续期；123 云盘在两个官网域名之间自动重试，仍失效才提示重新登录。',
+  '更换封面、头像改为调用系统相册；书籍、书源、字体等其他导入仍调用本地文件选择器。',
+  '更新完成弹窗只显示当前版本的修复与更新，不再把 0.8.2 及更早版本的说明混进本次弹窗；历史版本仍保留在“关于 → 版本记录”。',
+  '网盘只保留 WebDAV、蓝奏云、蓝奏云优享版和迅雷，其他网盘从添加页、连接页和搜索下线；网盘书加入书架后统一保存 `cloud://` 标记，重启后自动换临时直链，旧版裸文件 ID 也兼容。',
+  '新增书架批量管理：自由勾选在线书，一键加入分类或移出书架；只删书架记录，不删网盘原文件。网盘和本地书导入也支持勾选后一键加入分类。',
+  '修复发现-最近更新在接口返回 4 时整页加载失败：自动改用全站搜索按最近更新倒序取第一页，未登录也能看到最近更新。',
+  '书源搜索选中的来源全部失败时会直接显示原因，不再只显示“没有找到相关故事”。',
+];
+
 const _changes = [
   _cloudCoverKodbox,
   _legadoEngine,
@@ -144,11 +160,14 @@ $releaseReadingNotice
 
 ### 本次更新
 
-- $_cloudCoverKodbox
-- $_legadoEngine
-- $_normalCover
-- $_cloudCoverEdit
-- $_cloudParse
+- 修复 276 个 Legado 书源导入失败：脚本/模板搜索地址不再触发 base64 解码异常，整包 276 条全部保留。
+- 修复文库搜索只搜书架和网盘、搜不到全站书：文库搜索现在查询文库全站书目。
+- 修复“发现 · 最近更新”加载失败时没有可读错误提示。
+- 书籍设置“内容来源”“阅读设置”两行可点击，阅读设置可直接调整字号、行距、主题和翻页。
+- 网盘书详情来源行改为两行省略，网络书架封面来源徽标不再越界。
+- 阿里云盘/迅雷云盘 401/403 自动续期，123 云盘自动切换官网域名重试。
+- 更换封面、头像调用系统相册；其他导入仍调用本地文件。
+- 更新弹窗只显示当前版本内容。
 
 ### 后续维护
 
@@ -168,7 +187,7 @@ const currentReleaseSummary = [
   releaseFreeNotice,
   releaseReadingNotice,
   currentReleaseSourcePolicy,
-  ..._changes,
+  ..._currentChanges,
   releaseMaintenanceNotice,
 ];
 const currentReleaseSections = [
@@ -180,7 +199,7 @@ const currentReleaseSections = [
     currentReleaseSourcePolicy,
   ]),
   ReleaseSection('本次更新与后续维护', [
-    ..._changes,
+    ..._currentChanges,
     releaseMaintenanceNotice,
     _androidInstall,
     _iosInstall,

@@ -71,6 +71,9 @@ class AliyunBookClient implements CloudBookClient {
       uri,
       headers: (_) => {..._headers(), 'accept': 'application/json'},
       body: utf8.encode(jsonEncode(body)),
+      // 阿里云盘 401 会带 AccessTokenInvalid 响应体；必须读 body 才能用
+      // refresh_token 自动续期，不能让 CloudHttp 直接抛“连接凭据已失效”。
+      allowedStatuses: const {400, 401, 403},
     );
     final bytes = await http.bytes(res);
     Map<String, dynamic> data;

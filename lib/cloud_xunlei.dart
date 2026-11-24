@@ -100,7 +100,9 @@ class XunleiBookClient implements CloudBookClient {
         if (body != null) 'content-type': 'application/json',
       },
       body: body == null ? null : utf8.encode(jsonEncode(body)),
-      allowedStatuses: const {400},
+      // 迅雷 401/403 会返回 error_code 和错误文本；先读响应体，再走
+      // refresh_token 自动续期，避免直接显示 CloudHttp 的通用凭据错误。
+      allowedStatuses: const {400, 401, 403},
     );
     final bytes = await http.bytes(res);
     Map<String, dynamic> data;
@@ -113,6 +115,12 @@ class XunleiBookClient implements CloudBookClient {
     final code = _xunleiInt(data['error_code'] ?? data['errorCode']);
     final message = '${data['error'] ?? data['error_description'] ?? ''}'
         .trim();
+    if (message == 'captcha_invalid') {
+      throw const CloudSourceFailure(
+        '迅雷登录验证已失效（captcha_invalid），请点“重新登录官网账号”',
+        authentication: true,
+      );
+    }
     if (res.statusCode == 401 ||
         res.statusCode == 403 ||
         {4122, 4121, 10, 16}.contains(code)) {
@@ -131,9 +139,15 @@ class XunleiBookClient implements CloudBookClient {
       );
     }
     if (res.statusCode >= 400 || code != 0) {
+      final friendly = message == 'captcha_invalid'
+          ? '迅雷登录验证已失效（captcha_invalid），请点“重新登录官网账号”'
+          : message;
       throw CloudSourceFailure(
-        message.isEmpty ? '迅雷云盘暂时无法完成请求（$code）' : message,
-        authentication: message.contains('token') || message.contains('登录'),
+        friendly.isEmpty ? '迅雷云盘暂时无法完成请求（$code）' : friendly,
+        authentication:
+            message.contains('token') ||
+            message.contains('登录') ||
+            message == 'captcha_invalid',
       );
     }
     return data;

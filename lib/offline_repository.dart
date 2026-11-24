@@ -3,6 +3,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import 'book_identity.dart';
 import 'catalog.dart';
 import 'cloud_document_service.dart';
 import 'book_search.dart';
@@ -326,6 +327,10 @@ class OfflineNovelRepository extends FrameChangeNotifier
     if (CloudDocumentService.instance.handles(id)) {
       return CloudDocumentService.instance.known(id);
     }
+    if (isCloudBookId(id)) {
+      final saved = await cachedBook(id);
+      if (saved != null) return CloudDocumentService.instance.adopt(saved);
+    }
     if (offline) return cachedBook(id);
     try {
       final book = await remote.find(id);
@@ -343,10 +348,20 @@ class OfflineNovelRepository extends FrameChangeNotifier
 
   @override
   Future<Novel> detail(Novel novel) async {
-    if (novel.remoteUrl != null ||
-        CloudDocumentService.instance.handles(novel.id)) {
-      final book = await CloudDocumentService.instance.detail(novel);
-      _known[novel.id] = book;
+    var source = novel;
+    if (isCloudBookId(novel.id) &&
+        novel.remoteUrl == null &&
+        !CloudDocumentService.instance.handles(novel.id)) {
+      // 重启后书架的 Novel 可能来自旧缓存；把持久化的远程地址补回来，
+      // 否则详情页能显示旧目录，点阅读却提示“请从书架重新打开”。
+      final saved = _known[novel.id] ?? await cachedBook(novel.id);
+      if (saved != null && saved.remoteUrl != null) source = saved;
+    }
+    if (source.remoteUrl != null ||
+        CloudDocumentService.instance.handles(source.id)) {
+      source = CloudDocumentService.instance.adopt(source);
+      final book = await CloudDocumentService.instance.detail(source);
+      _known[source.id] = book;
       return book;
     }
     if (isLocalBook(novel.id)) {
@@ -377,6 +392,13 @@ class OfflineNovelRepository extends FrameChangeNotifier
   Future<List<NovelChapter>> chapters(int id) async {
     if (CloudDocumentService.instance.handles(id)) {
       return CloudDocumentService.instance.chapters(id);
+    }
+    if (isCloudBookId(id)) {
+      final saved = _known[id] ?? await cachedBook(id);
+      if (saved?.remoteUrl?.trim().isNotEmpty == true) {
+        CloudDocumentService.instance.adopt(saved!);
+        return CloudDocumentService.instance.chapters(id);
+      }
     }
     if (isLocalBook(id)) {
       return local?.book(id)?.chapters ??
@@ -484,6 +506,13 @@ class OfflineNovelRepository extends FrameChangeNotifier
   Future<String> chapterContent(int novelId, NovelChapter chapter) async {
     if (CloudDocumentService.instance.handles(novelId)) {
       return CloudDocumentService.instance.chapterContent(novelId, chapter);
+    }
+    if (isCloudBookId(novelId)) {
+      final saved = _known[novelId] ?? await cachedBook(novelId);
+      if (saved?.remoteUrl?.trim().isNotEmpty == true) {
+        CloudDocumentService.instance.adopt(saved!);
+        return CloudDocumentService.instance.chapterContent(novelId, chapter);
+      }
     }
     if (isLocalBook(novelId)) return _localContent(novelId, chapter);
     // Inline/demo chapters have no remote stable ID and stay source-owned.

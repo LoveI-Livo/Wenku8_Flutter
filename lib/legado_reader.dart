@@ -383,7 +383,7 @@ final class LegadoReader {
         map = <String, dynamic>{};
       }
     }
-    final target = _applyUrl(address, query, page);
+    final target = _applyUrl(address, query, page, source);
     final uri = Uri.tryParse(target);
     if (uri == null) throw const CloudSourceFailure('书源搜索地址无效');
     final method = (map['method'] ?? map['Method'] ?? 'GET').toString();
@@ -394,7 +394,7 @@ final class LegadoReader {
               '${Uri.encodeQueryComponent('${entry.key}')}='
                   '${Uri.encodeQueryComponent(_fillText('${entry.value}', query, page))}',
           ].join('&')
-        : _fillText('$rawBody', Uri.encodeQueryComponent(query), page);
+        : _fillText('$rawBody', Uri.encodeQueryComponent(query), page, source);
     final headers = <String, String>{
       ..._headers(source.rules['header']),
       ..._headers(map['headers'] ?? map['header'] ?? const {}),
@@ -407,11 +407,30 @@ final class LegadoReader {
     );
   }
 
-  static String _fillText(String value, String query, int page) => value
+  static String _fillText(
+    String value,
+    String query,
+    int page, [
+    CloudBookSource? source,
+  ]) => _applySourceVars(value, source)
       .replaceAll(RegExp(r'\{\{\s*key\s*\}\}'), query)
       .replaceAll(RegExp(r'\{\{\s*page\s*\}\}'), '$page')
       .replaceAll('{query}', query)
       .replaceAll('{page}', '$page');
+
+  static String _applySourceVars(String value, CloudBookSource? source) {
+    if (source == null || !value.contains('{{source.')) return value;
+    return value
+        .replaceAll(
+          RegExp(r'\{\{\s*source\.key\s*\}\}'),
+          Uri.encodeQueryComponent(source.rules['searchKey']?.toString() ?? ''),
+        )
+        .replaceAll(RegExp(r'\{\{\s*source\.bookSourceUrl\s*\}\}'), source.url)
+        .replaceAll(
+          RegExp(r'\{\{\s*source\.bookSourceName\s*\}\}'),
+          source.name,
+        );
+  }
 
   static Map<String, String> _headers(Object? raw) {
     if (raw is Map) {
@@ -450,8 +469,13 @@ final class LegadoReader {
     return const {};
   }
 
-  static String _applyUrl(String value, String query, int page) {
-    var target = value.trim();
+  static String _applyUrl(
+    String value,
+    String query,
+    int page, [
+    CloudBookSource? source,
+  ]) {
+    var target = _applySourceVars(value.trim(), source);
     target = target
         .replaceAll(RegExp(r'\{\{\s*key\s*\}\}'), '{query}')
         .replaceAll(RegExp(r'\{\{\s*page\s*\}\}'), '{page}')

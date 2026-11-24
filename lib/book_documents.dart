@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'book_import_limits.dart';
 import 'local_platform.dart';
@@ -221,14 +222,44 @@ class BookDocuments {
   Future<void> deleteOpenSource(String id, String copyPath) => channel
       .invokeMethod<void>('deleteBookOpenSource', {'id': id, 'path': copyPath});
 
+  /// 封面、头像走系统相册/照片选择器，不再打开文件管理器。
+  /// 图片复制到 Android pickerRoot 下的 artwork-*.image，复用原有清理逻辑；
+  /// 书籍、书源、字体等其他导入仍用 [pickBooks]/[pickFont] 的本地文件选择器。
   Future<BookDocumentSelection?> pickImage() async {
-    final value = await channel.invokeMapMethod<String, dynamic>('pickImage');
-    return value == null
-        ? null
-        : BookDocumentSelection(
-            name: value['name'] as String,
-            path: value['path'] as String,
-          );
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2400,
+        maxHeight: 2400,
+        imageQuality: 92,
+        requestFullMetadata: false,
+      );
+      if (picked == null) return null;
+      final cache = await getTemporaryDirectory();
+      final root = Directory(
+        '${cache.path}${Platform.pathSeparator}book-documents',
+      );
+      await root.create(recursive: true);
+      final target = File(
+        '${root.path}${Platform.pathSeparator}artwork-'
+        '${DateTime.now().microsecondsSinceEpoch}.image',
+      );
+      await File(picked.path).copy(target.path);
+      if (!await target.exists() || await target.length() == 0) {
+        await target.delete();
+        return null;
+      }
+      return BookDocumentSelection(name: picked.name, path: target.path);
+    } on MissingPluginException {
+      // 旧安装包没有 image_picker 原生插件时退回原来的文件选择器。
+      final value = await channel.invokeMapMethod<String, dynamic>('pickImage');
+      return value == null
+          ? null
+          : BookDocumentSelection(
+              name: value['name'] as String,
+              path: value['path'] as String,
+            );
+    }
   }
 
   /// 把 App 内下载好的文件导出到用户在系统文件选择器里指定的文件夹。
