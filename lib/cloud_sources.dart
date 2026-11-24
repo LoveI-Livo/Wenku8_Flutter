@@ -1705,6 +1705,16 @@ class RssBookClient extends DirectLinkBookClient {
   /// 搜索提前返回首批结果时，进度条仍要等所有书源完成/超时后再收起。
   Future<void> get sourcesDone => _sourcesDone.future;
 
+  /// 书源越多，单次搜索需要的时间越长；不能用固定 8 秒把 1000 个书源
+  /// 只跑到前 200 个就收掉进度条。
+  Duration get searchBudget {
+    final count = _sourceObjects.length;
+    if (count >= 500) return const Duration(seconds: 30);
+    if (count >= 200) return const Duration(seconds: 20);
+    if (count >= 50) return const Duration(seconds: 12);
+    return const Duration(seconds: 8);
+  }
+
   List<CloudBookSource> get _sourceObjects {
     if (_entriesOverride case final entries?) {
       return entries.take(_maxSources).toList(growable: false);
@@ -1924,7 +1934,7 @@ class RssBookClient extends DirectLinkBookClient {
           finish();
         });
     unawaited(sourceTasks);
-    final timer = Timer(const Duration(seconds: 8), () {
+    final timer = Timer(searchBudget, () {
       if (!_sourcesDone.isCompleted) _sourcesDone.complete();
       finish();
     });

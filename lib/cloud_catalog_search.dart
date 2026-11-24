@@ -223,16 +223,23 @@ class CloudCatalogSearch {
                     onSourceDone: progress.advance,
                   )
                 : CloudBookClient(config, settings: settings);
-            final walk = await _searchClient(
-              client,
-              value,
-              config: config,
-              refresh: refresh,
-            ).timeout(_walkBudget);
+            final walk =
+                await _searchClient(
+                  client,
+                  value,
+                  config: config,
+                  refresh: refresh,
+                ).timeout(
+                  client is RssBookClient
+                      ? client.searchBudget + const Duration(seconds: 1)
+                      : _walkBudget,
+                );
             // 让进度条等到单源任务完成/超时，不因首批结果提前出现而收起。
             if (client is RssBookClient) {
               try {
-                await client.sourcesDone.timeout(const Duration(seconds: 9));
+                await client.sourcesDone.timeout(
+                  client.searchBudget + const Duration(seconds: 1),
+                );
               } catch (_) {
                 // 超时由 client 内部的 8 秒计时器结束，不阻塞结果展示。
               }
