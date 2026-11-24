@@ -343,16 +343,28 @@ class GuangyaAuth {
     return Map<String, dynamic>.from(decoded);
   }
 
+  static String normalizePhone(String value) {
+    var digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.length == 13 && digits.startsWith('86')) {
+      digits = digits.substring(2);
+    }
+    return digits;
+  }
+
   Future<({String captcha, String verificationId, String device})> requestCode(
-    String phone,
+    String value,
   ) async {
+    final phone = normalizePhone(value);
+    if (!RegExp(r'^1[3-9]\d{9}$').hasMatch(phone)) {
+      throw const CloudSourceFailure('请输入 11 位手机号');
+    }
     final device = deviceId();
     _device = device;
     final init = await _post('/v1/shield/captcha/init', {
       'client_id': GuangyaBookClient.clientId,
       'action': 'POST:/v1/auth/verification',
       'device_id': device,
-      'meta': {'phone_number': phone},
+      'meta': {'username': phone},
     });
     final payload = init['data'] is Map
         ? Map<String, dynamic>.from(init['data'] as Map)
@@ -393,6 +405,7 @@ class GuangyaAuth {
     required String captcha,
     required String device,
   }) async {
+    final normalized = normalizePhone(phone);
     final verified = await _post('/v1/auth/verification/verify', {
       'verification_id': verificationId,
       'verification_code': code,
@@ -414,7 +427,7 @@ class GuangyaAuth {
       {
         'verification_code': code,
         'verification_token': verificationToken,
-        'username': phone,
+        'username': normalized,
         'client_id': GuangyaBookClient.clientId,
       },
       extra: {'x-captcha-token': captcha},

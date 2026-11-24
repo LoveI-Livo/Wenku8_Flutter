@@ -107,6 +107,12 @@ final class DownloadStore extends ChangeNotifier {
     await _persist();
     notifyListeners();
   }
+
+  Future<void> clear() async {
+    _records.clear();
+    await _persist();
+    notifyListeners();
+  }
 }
 
 class DownloadsPage extends StatefulWidget {
@@ -245,7 +251,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     try {
       final file = File(record.path);
       if (!await file.exists()) {
-        showNovelFeedback(context, '下载文件已不存在，请重新下载');
+        if (mounted) showNovelFeedback(context, '下载文件已不存在，请重新下载');
         return;
       }
       final saved = await BookDocuments().exportText(
@@ -261,14 +267,52 @@ class _DownloadsPageState extends State<DownloadsPage> {
   }
 
   Future<void> _delete(DownloadRecord record) async {
+    final confirmed = await confirmNovelAction(
+      context,
+      title: '删除下载文件？',
+      message: '会删除《${record.title}》保存在本机的下载文件，并移除这条下载记录。',
+      confirmLabel: '删除文件',
+      reduceMotion: widget.state.reduceMotion,
+    );
+    if (!confirmed || !mounted) return;
     try {
       final file = File(record.path);
       if (await file.exists()) await file.delete();
       await DownloadStore.instance.remove(record.id);
-      if (mounted) showNovelFeedback(context, '已删除本机下载');
+      if (mounted) showNovelFeedback(context, '已删除《${record.title}》的下载文件');
     } catch (_) {
       if (mounted) showNovelFeedback(context, '删除失败，请稍后重试');
     }
+  }
+
+  Future<void> _clearAll() async {
+    final records = DownloadStore.instance.records;
+    if (records.isEmpty) return;
+    final confirmed = await confirmNovelAction(
+      context,
+      title: '清空全部下载？',
+      message:
+          '会删除已下载的 ${records.length} 个本机文件，并清空全部下载记录。'
+          '网盘原文件和网络书架不受影响。',
+      confirmLabel: '清空全部',
+      reduceMotion: widget.state.reduceMotion,
+    );
+    if (!confirmed || !mounted) return;
+    var failed = 0;
+    for (final record in records) {
+      try {
+        final file = File(record.path);
+        if (await file.exists()) await file.delete();
+      } catch (_) {
+        failed++;
+      }
+    }
+    await DownloadStore.instance.clear();
+    if (!mounted) return;
+    showNovelFeedback(
+      context,
+      failed == 0 ? '已清空全部下载，本机文件已删除' : '已清空下载记录，$failed 个文件未能删除',
+    );
   }
 
   String _size(int bytes) {
@@ -330,7 +374,19 @@ class _DownloadsPageState extends State<DownloadsPage> {
             ),
           ),
           const SizedBox(height: 22),
-          const _SectionTitle('已下载小说'),
+          Row(
+            children: [
+              const Expanded(child: _SectionTitle('已下载小说')),
+              if (DownloadStore.instance.records.isNotEmpty)
+                GlassTextButton(
+                  key: const ValueKey('download-clear-all'),
+                  compact: true,
+                  onPressed: _clearAll,
+                  haptic: HapticCue.warning,
+                  child: const AppText('清空全部'),
+                ),
+            ],
+          ),
           const SizedBox(height: 10),
           if (DownloadStore.instance.records.isEmpty)
             ContentPanel(
@@ -387,7 +443,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                 key: ValueKey('download-delete-${record.id}'),
                                 compact: true,
                                 onPressed: () => _delete(record),
-                                child: const AppText('删除'),
+                                child: const AppText('删除文件'),
                               ),
                             ],
                           ),

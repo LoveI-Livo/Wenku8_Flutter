@@ -1789,7 +1789,10 @@ void openDetail(
 }) {
   // 网盘和小说书源的书与文库书一样先进入详情页：详情页统一提供简介、
   // 目录、书籍设置和“开始阅读”，不能让网络书点一下就直接跳阅读器。
-  final networkBook = isCloudBookId(novel.id);
+  final networkBook =
+      isCloudBookId(novel.id) ||
+      novel.remoteUrl?.trim().isNotEmpty == true ||
+      novel.remoteKind?.trim().isNotEmpty == true;
   if (novel.remoteUrl != null && !networkBook && !forceDetails) {
     unawaited(
       pushNovelPage<void>(
@@ -2132,11 +2135,25 @@ class ShelfPage extends StatefulWidget {
   final String title, code;
   final VoidCallback? onAddNetworkSources;
 
+  Novel? _bookById(int id) {
+    for (final book in books) {
+      if (book.id == id) return book;
+    }
+    return state.cachedNovel(id);
+  }
+
+  bool _isNetworkBook(int id) {
+    if (isCloudBookId(id)) return true;
+    final book = _bookById(id);
+    return book?.remoteUrl?.trim().isNotEmpty == true ||
+        book?.remoteKind?.trim().isNotEmpty == true;
+  }
+
   Set<int> get _batchIds => state.shelf
       .where(
         (id) => networkOnly
-            ? isCloudBookId(id)
-            : !isCloudBookId(id) && !isLocalBook(id),
+            ? _isNetworkBook(id)
+            : !_isNetworkBook(id) && !isLocalBook(id),
       )
       .toSet();
 
@@ -2367,9 +2384,16 @@ class _ShelfPageState extends State<ShelfPage>
     super.dispose();
   }
 
+  bool _isNetworkBook(int id) {
+    if (isCloudBookId(id)) return true;
+    final book = _known(id);
+    return book?.remoteUrl?.trim().isNotEmpty == true ||
+        book?.remoteKind?.trim().isNotEmpty == true;
+  }
+
   bool _matches(int id, String term) {
-    if (widget.networkOnly && !isCloudBookId(id)) return false;
-    if (!widget.networkOnly && isCloudBookId(id)) return false;
+    if (widget.networkOnly && !_isNetworkBook(id)) return false;
+    if (!widget.networkOnly && _isNetworkBook(id)) return false;
     if (_cacheOnly && _offline?.availableOffline(id) != true) return false;
     final book = _known(id);
     if (!bookshelfMatchesCategory(id, state, book: book)) return false;
@@ -2502,8 +2526,8 @@ class _ShelfPageState extends State<ShelfPage>
   }
 
   Set<int> _scope(Set<int> ids) => widget.networkOnly
-      ? ids.where(isCloudBookId).toSet()
-      : ids.where((id) => !isCloudBookId(id)).toSet();
+      ? ids.where(_isNetworkBook).toSet()
+      : ids.where((id) => !_isNetworkBook(id)).toSet();
 
   ({Set<int> all, List<int> saved, List<int> featured}) _projectBooks() {
     final query = _query.text.trim().toLowerCase();

@@ -31,7 +31,7 @@ class _GuangyaLoginPageState extends State<GuangyaLoginPage> {
   }
 
   Future<void> _sendCode() async {
-    final phone = _phone.text.trim();
+    final phone = GuangyaAuth.normalizePhone(_phone.text);
     if (!RegExp(r'^1[3-9]\d{9}$').hasMatch(phone)) {
       setState(() => _error = '请输入 11 位手机号');
       return;
@@ -58,7 +58,7 @@ class _GuangyaLoginPageState extends State<GuangyaLoginPage> {
   }
 
   Future<void> _login() async {
-    final phone = _phone.text.trim();
+    final phone = GuangyaAuth.normalizePhone(_phone.text);
     final code = _code.text.trim();
     final verificationId = _verificationId;
     if (!_sent ||

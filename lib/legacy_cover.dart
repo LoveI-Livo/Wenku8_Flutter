@@ -1,7 +1,11 @@
 import 'dart:async';
-
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
+
 import 'legacy_transport.dart';
 
 /// Bounded cover cache. Source previews use local seeds only.
@@ -10,6 +14,67 @@ abstract final class LegacyCover {
   static final _customUrls = <int, String>{};
   static String urlFor(int aid) =>
       'https://img.wenku8.com/image/${aid ~/ 1000}/$aid/${aid}s.jpg';
+
+  static final bool _diskEnabled = !Platform.environment.containsKey(
+    'FLUTTER_TEST',
+  );
+  static Future<Directory?>? _directoryFuture;
+
+  static Future<Directory?> _directory() => _directoryFuture ??= () async {
+    if (!_diskEnabled) return null;
+    try {
+      final root = await getApplicationCacheDirectory();
+      final directory = Directory('${root.path}/legacy-covers');
+      if (!await directory.exists()) await directory.create(recursive: true);
+      return directory;
+    } catch (_) {
+      return null;
+    }
+  }();
+
+  static Future<File?> _diskFile(String url) async {
+    final directory = await _directory();
+    if (directory == null) return null;
+    final name = sha256.convert(utf8.encode(url)).toString();
+    return File('${directory.path}/$name.img');
+  }
+
+  static Future<Uint8List?> _readDisk(String url) async {
+    try {
+      final file = await _diskFile(url);
+      if (file == null || !await file.exists()) return null;
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty || bytes.length > 16 * 1024 * 1024) return null;
+      return bytes.asUnmodifiableView();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _writeDisk(String url, Uint8List bytes) async {
+    try {
+      final file = await _diskFile(url);
+      if (file == null) return;
+      await file.writeAsBytes(bytes, flush: false);
+    } catch (_) {
+      // Cache writes are best-effort; the memory cache still works.
+    }
+  }
+
+  static Future<Uint8List?> _remote(String url) async {
+    final cached = await _readDisk(url);
+    if (cached != null) return cached;
+    try {
+      final bytes = await LegacyTransport.illustration(
+        url,
+        cacheForViewing: false,
+      );
+      if (bytes.isNotEmpty) unawaited(_writeDisk(url, bytes));
+      return bytes;
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<Uint8List?> _request(int aid) async {
     final custom = _customUrls[aid];
@@ -26,33 +91,38 @@ abstract final class LegacyCover {
           return null;
         }
       }
-      try {
-        return await LegacyTransport.illustration(
-          custom,
-          cacheForViewing: false,
-        );
-      } catch (_) {
-        return null;
-      }
+      return _remote(custom);
     }
-    try {
-      return await LegacyTransport.illustration(
-        urlFor(aid),
-        cacheForViewing: false,
-      );
-    } catch (_) {
-      return null;
-    }
+    return _remote(urlFor(aid));
   }
 
   static void clear() {
     _cache.clear();
     _customUrls.clear();
+    unawaited(_clearDisk());
   }
 
   static void forget(int aid) {
-    _customUrls.remove(aid);
+    final custom = _customUrls.remove(aid);
     _cache.forget(aid);
+    unawaited(_deleteDisk(custom ?? urlFor(aid)));
+  }
+
+  static Future<void> _clearDisk() async {
+    try {
+      final directory = await _directory();
+      if (directory == null) return;
+      for (final entity in directory.listSync()) {
+        if (entity is File) await entity.delete();
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> _deleteDisk(String url) async {
+    try {
+      final file = await _diskFile(url);
+      if (file != null && await file.exists()) await file.delete();
+    } catch (_) {}
   }
 
   static int get encodedBytes => _cache.encodedBytes;

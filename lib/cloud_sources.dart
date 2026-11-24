@@ -1834,7 +1834,9 @@ class RssBookClient extends DirectLinkBookClient {
             source,
             value,
             page: page,
-            allowHttp: config.allowHttp,
+            allowHttp:
+                config.allowHttp ||
+                source.url.trim().toLowerCase().startsWith('http://'),
             cookie: config.cookie,
             authorization: authHeaders[HttpHeaders.authorizationHeader] ?? '',
           );
@@ -1888,7 +1890,9 @@ class RssBookClient extends DirectLinkBookClient {
     final target = source.replaceAll('{page}', '$page');
     final uri = Uri.tryParse(target);
     if (uri == null) throw const CloudSourceFailure('小说书源地址无效');
-    CloudHttp.validateUrl(uri, allowHttp: config.allowHttp);
+    final allowHttp =
+        config.allowHttp || target.trim().toLowerCase().startsWith('http://');
+    CloudHttp.validateUrl(uri, allowHttp: allowHttp);
 
     final segments = uri.pathSegments.where((value) => value.isNotEmpty);
     final last = segments.isEmpty ? '' : Uri.decodeComponent(segments.last);
@@ -1914,7 +1918,7 @@ class RssBookClient extends DirectLinkBookClient {
         if (CloudHttp.sameOrigin(requested, uri)) ...authHeaders,
       },
       redirects: true,
-      allowHttp: config.allowHttp,
+      allowHttp: allowHttp,
       redirectMessage: '书源地址发生跳转，请填写最终地址',
     );
     final bytes = await _http.bytes(res, limit: 6 * 1024 * 1024);

@@ -61,11 +61,13 @@ final class LegadoReader {
     final ruleValue = source.rules['ruleSearch'];
     final rule = _ruleMap(ruleValue);
     final request = _searchRequest(source, query, page);
+    final effectiveHttp =
+        allowHttp || request.uri.scheme.toLowerCase() == 'http';
     final body = await _fetch(
       request.uri,
       cookie: cookie,
       authorization: authorization,
-      allowHttp: allowHttp,
+      allowHttp: effectiveHttp,
       method: request.method,
       body: request.body,
       extraHeaders: request.headers,
@@ -116,7 +118,7 @@ final class LegadoReader {
       final id = encodePayload(
         base: source.url,
         bookUrl: resolved,
-        rules: {...source.rules, 'allowHttp': allowHttp},
+        rules: {...source.rules, 'allowHttp': effectiveHttp},
       );
       entries.putIfAbsent(
         id,
@@ -147,9 +149,12 @@ final class LegadoReader {
     final rules = decoded['rules'] is Map
         ? Map<String, dynamic>.from(decoded['rules'] as Map)
         : <String, dynamic>{};
-    final useHttp = allowHttp || rules['allowHttp'] == true;
     final uri = Uri.tryParse(bookUrl);
     if (uri == null) throw const CloudSourceFailure('Legado 书籍地址无效');
+    final useHttp =
+        allowHttp ||
+        rules['allowHttp'] == true ||
+        uri.scheme.toLowerCase() == 'http';
     final body = await _fetch(
       uri,
       cookie: cookie,
@@ -272,9 +277,12 @@ final class LegadoReader {
     final rules = decoded['rules'] is Map
         ? Map<String, dynamic>.from(decoded['rules'] as Map)
         : <String, dynamic>{};
-    final useHttp = allowHttp || rules['allowHttp'] == true;
     final parsedUri = Uri.tryParse(url);
     if (parsedUri == null) throw const CloudSourceFailure('Legado 章节地址无效');
+    final useHttp =
+        allowHttp ||
+        rules['allowHttp'] == true ||
+        parsedUri.scheme.toLowerCase() == 'http';
     var currentUri = parsedUri;
     var currentBody = await _fetch(
       currentUri,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'app_ui.dart';
 import 'app_interactions.dart';
 import 'catalog.dart';
+import 'feature_pages.dart';
 import 'library_state.dart';
 import 'offline_repository.dart';
 
@@ -67,14 +68,11 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
             code: 'ARCHIVE / READING LOG',
           ),
           actions: [
-            GlassMenuAnchor(
-              child: Builder(
-                builder: (anchor) => GlassIconButton(
-                  icon: CupertinoIcons.trash,
-                  label: '清空阅读历史',
-                  onPressed: () => _clear(anchor),
-                ),
-              ),
+            GlassTextButton(
+              key: const ValueKey('history-clear-all'),
+              compact: true,
+              onPressed: () => _clear(context),
+              child: const AppText('清空'),
             ),
           ],
         ),
@@ -203,15 +201,13 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
-            GlassMenuAnchor(
-              child: Builder(
-                builder: (anchor) => GlassIconButton(
-                  icon: CupertinoIcons.ellipsis,
-                  label: '$title阅读记录操作',
-                  onPressed: () => _remove(anchor, id),
-                ),
-              ),
+            const SizedBox(width: 8),
+            GlassTextButton(
+              key: ValueKey('history-remove-$id'),
+              compact: true,
+              haptic: HapticCue.warning,
+              onPressed: () => _remove(context, id),
+              child: const AppText('删除'),
             ),
           ],
         ),
@@ -220,15 +216,6 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
   }
 
   Future<void> _remove(BuildContext context, int id) async {
-    final remove = await showGlassMenu<bool>(
-      context: context,
-      reduceMotion: widget.state.reduceMotion,
-      builder: (menu) => GlassMenuItem(
-        label: '移除这条历史',
-        onPressed: () => Navigator.pop(menu, true),
-      ),
-    );
-    if (!mounted || remove != true) return;
     try {
       await widget.state.hideReadingHistory(id);
       if (!mounted) return;
@@ -245,27 +232,21 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
   }
 
   Future<void> _clear(BuildContext context) async {
-    final clear = await showGlassMenu<bool>(
-      context: context,
+    final clear = await confirmNovelAction(
+      context,
+      title: '清空阅读历史？',
+      message:
+          '会隐藏全部阅读历史记录。书架、续读进度和离线缓存都会保留，'
+          '下次阅读仍会接着上次的位置。',
+      confirmLabel: '清空历史',
       reduceMotion: widget.state.reduceMotion,
-      builder: (menu) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GlassMenuItem(
-            label: '清空历史，保留进度',
-            onPressed: () => Navigator.pop(menu, true),
-          ),
-          GlassMenuItem(
-            order: 1,
-            label: '保留阅读历史',
-            onPressed: () => Navigator.pop(menu, false),
-          ),
-        ],
-      ),
     );
-    if (!mounted || clear != true) return;
+    if (!mounted || !clear) return;
     try {
       await widget.state.clearReadingHistory();
+      if (mounted) {
+        showNovelFeedback(this.context, '阅读历史已清空，续读进度保留');
+      }
     } catch (_) {
       if (mounted) _failed();
     }
