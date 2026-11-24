@@ -21,6 +21,7 @@
    - `cloud-parse/index.php`
    - `cloud-parse/cover.php`（封面代理）
    - `cloud-parse/manage.php`（可道云封面管理页）
+   - `cloud-parse/key.php`（接口地址与密钥自助页）
    - `cloud-parse/config.php.example`
 3. 复制 `config.php.example` 为同目录的 `config.php`，只修改 `config.php`，
    给 `token` 写一段至少 32 位的随机字符串。可以用下面的命令生成：
@@ -44,6 +45,10 @@ App 里进入「网盘在线阅读 → 云端主机解析」，填写这个地�
 可道云「个人空间/云端封面」，App 只保存 `cover.php?f=...` 的远端地址；可道云
 写入失败时才在主机 `covers` 留兜底。管理页为
 `https://你的域名/cloud-parse/manage.php?token=你的密钥`。
+
+接口地址和密钥自助页：
+`https://你的域名/cloud-parse/key.php?token=你的密钥`。打开后可复制接口地址和
+密钥、直接测试 `test` 请求，也可以在可道云桌面用 `.oexe` 快捷方式指向它。
 
 ## Nginx 示例
 
