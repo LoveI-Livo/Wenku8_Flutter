@@ -274,6 +274,7 @@ class Wenku8Client {
     String? appVer,
     Duration timeout = const Duration(seconds: 15),
     bool alternate = false,
+    bool guest = false,
   }) async {
     await ensureReady();
     final endpoint = alternate ? _apiUrlCn : apiUrl;
@@ -281,7 +282,7 @@ class Wenku8Client {
     request.headers
       ..set(HttpHeaders.userAgentHeader, _ua)
       ..set(HttpHeaders.contentTypeHeader, 'application/x-www-form-urlencoded');
-    if (_cookies.isNotEmpty) {
+    if (_cookies.isNotEmpty && !guest) {
       request.headers.set(HttpHeaders.cookieHeader, cookieHeader!);
     }
     final payload = <String, String>{
@@ -307,6 +308,7 @@ class Wenku8Client {
           appVer: appVer,
           timeout: timeout,
           alternate: true,
+          guest: guest,
         );
       }
       rethrow;
@@ -320,6 +322,7 @@ class Wenku8Client {
           appVer: appVer,
           timeout: timeout,
           alternate: true,
+          guest: guest,
         );
       }
       rethrow;
@@ -350,6 +353,7 @@ class Wenku8Client {
           appVer: appVer,
           timeout: timeout,
           alternate: true,
+          guest: guest,
         );
       }
       throw const FormatException('在线组件接口暂时不可用，请检查网络或稍后重试');

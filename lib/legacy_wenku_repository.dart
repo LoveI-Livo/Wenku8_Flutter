@@ -291,7 +291,10 @@ class LegacyWenkuRepository extends NovelRepository
       // 正好可以还原“最近更新”第一页，不再让整个发现页空白。
       if (sort != NovelSort.lastUpdate || page != 1) rethrow;
       final body = await client
-          .apiRaw('action=search&searchtype=articlename&searchkey=%&t=0')
+          .apiRaw(
+            'action=search&searchtype=articlename&searchkey=%&t=0',
+            guest: true,
+          )
           .catchError((Object fallbackFailure) {
             throw failure;
           });
