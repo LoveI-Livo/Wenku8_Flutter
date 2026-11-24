@@ -239,8 +239,24 @@ class BookSourceFileReader {
   }
 
   static String _legadoSearch(String base, String search) {
-    final raw = search.trim();
+    var raw = search.trim();
     if (raw.isEmpty) return base;
+    // 先展开最常见的 source.key / baseUrl；否则脚本判断会把整段原样保留，
+    // 运行时会得到 /search.php 这种缺少域名的地址。
+    final cleanBase = base.trim().replaceFirst(RegExp(r'/+$'), '');
+    raw = raw
+        .replaceAll(
+          RegExp(r'\{\{\s*source\.key\s*\}\}', caseSensitive: false),
+          cleanBase,
+        )
+        .replaceAll(
+          RegExp(r'\{\{\s*source\.url\s*\}\}', caseSensitive: false),
+          cleanBase,
+        )
+        .replaceAll(
+          RegExp(r'\{\{\s*baseUrl\s*\}\}', caseSensitive: false),
+          cleanBase,
+        );
     // data: / @js: / <js> / {{...}} 由脚本运行时处理，导入阶段只保留原文。
     // 之前这里把 data: URI 交给 Uri.resolve，Dart 会解码其中未展开的
     // {{java.base64Encode(...)}}，一个坏书源就能让整包 276 条全部导入失败。

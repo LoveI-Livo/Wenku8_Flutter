@@ -1260,10 +1260,12 @@ class GlassTextButton extends StatelessWidget {
     this.haptic = HapticCue.action,
     this.pageHeight,
     this.compactMainPage = false,
+    this.dense = false,
   });
   final Widget child;
   final VoidCallback? onPressed;
   final bool compact;
+  final bool dense;
   final bool? selected;
   final HapticCue? haptic;
   final double? pageHeight;
@@ -1285,7 +1287,7 @@ class GlassTextButton extends StatelessWidget {
           compact: smallFace,
           scaleY: geometry.scale,
           child: LiquidGlass(
-            radius: 22,
+            radius: dense ? 18 : 22,
             elevated: false,
             tintColor: selected == true
                 ? Color.lerp(
@@ -1304,13 +1306,13 @@ class GlassTextButton extends StatelessWidget {
                 : haptic,
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minWidth: compact ? 48 : 64,
-                minHeight: smallFace ? geometry.hit : 48,
+                minWidth: compact ? (dense ? 42 : 48) : 64,
+                minHeight: smallFace ? geometry.hit : (dense ? 36 : 48),
               ),
               child: Padding(
                 padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 8 : 14,
-                  vertical: 10,
+                  horizontal: compact ? (dense ? 6 : 8) : 14,
+                  vertical: dense ? 6 : 10,
                 ),
                 child: Align(
                   widthFactor: 1,

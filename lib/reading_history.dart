@@ -205,9 +205,17 @@ class _ReadingHistoryPageState extends State<ReadingHistoryPage> {
             GlassTextButton(
               key: ValueKey('history-remove-$id'),
               compact: true,
+              dense: true,
               haptic: HapticCue.warning,
               onPressed: () => _remove(context, id),
-              child: const AppText('删除'),
+              child: AppText(
+                '删除',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
             ),
           ],
         ),

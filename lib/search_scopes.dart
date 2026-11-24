@@ -1,6 +1,7 @@
 import 'catalog.dart';
 import 'book_search.dart';
 import 'cloud_catalog_search.dart';
+import 'cloud_sources.dart';
 
 enum SearchSource {
   library('文库搜索'),
@@ -75,6 +76,10 @@ class ScopedSearchRepository extends NovelRepository {
       sourceKeys: targetKeys,
       refresh: refresh,
     );
+    final failure = CloudCatalogSearch.instance.lastFailure;
+    if (cloud.isEmpty && failure != null && failure.trim().isNotEmpty) {
+      throw CloudSourceFailure(failure);
+    }
     final pattern = BookSearch(text, field: field);
     final matches = cloud
         .where(

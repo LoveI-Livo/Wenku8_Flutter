@@ -498,7 +498,9 @@ class LocalLibraryPreferences extends ChangeNotifier {
     const names = ['想读', '在读', '已读'];
     for (final name in names) {
       if (!groups.values.contains(name)) {
-        try { await addGroup(name); } catch (_) {}
+        try {
+          await addGroup(name);
+        } catch (_) {}
       }
     }
     return {
@@ -541,6 +543,19 @@ class LocalLibraryPreferences extends ChangeNotifier {
       next['groups'][id] = {'name': name, 'at': _stamp(), 'deleted': false};
       await _replaceOrganization(next);
     });
+  }
+
+  /// 0.8.5 一次性清理旧版本留下的“在线阅读”分类。
+  /// 网络书统一进「网络」书架后，这个分类只剩重复入口；命中的书回到未分类，
+  /// 原书、阅读进度和网盘文件都不受影响。清理标记写入后，用户以后自己新建
+  /// 同名分类不会被再次删除。
+  Future<void> cleanupLegacyOnlineCategory() async {
+    const marker = 'legacyOnlineReadingCategory.v1';
+    if (preferences.getBool(marker) == true) return;
+    for (final entry in groups.entries.toList()) {
+      if (entry.value.trim() == '在线阅读') await removeGroup(entry.key);
+    }
+    await preferences.setBool(marker, true);
   }
 
   Future<void> removeGroup(String id) {

@@ -392,8 +392,20 @@ final class LegadoReader {
       }
     }
     final target = _applyUrl(address, query, page, source);
-    final uri = Uri.tryParse(target);
-    if (uri == null) throw const CloudSourceFailure('书源搜索地址无效');
+    Uri? uri = Uri.tryParse(target);
+    // Legado 书源经常写 {{source.key}}/search.php 这种相对搜索地址。
+    // 以前 source.key 被当成空字符串，地址只剩 /search.php，随后被
+    // CloudHttp 当作“没有域名的文件地址”拒绝。这里统一按书源基地址
+    // 解析，保证相对地址、协议相对地址都能变成可请求的绝对地址。
+    if (uri != null && uri.host.isEmpty && !uri.hasScheme) {
+      final base = Uri.tryParse(source.url.trim());
+      if (base != null && base.hasScheme && base.host.isNotEmpty) {
+        uri = base.resolveUri(uri);
+      }
+    }
+    if (uri == null || uri.host.isEmpty || !uri.hasScheme) {
+      throw const CloudSourceFailure('书源搜索地址无效，可能是该源使用了脚本地址');
+    }
     final method = (map['method'] ?? map['Method'] ?? 'GET').toString();
     final rawBody = map['body'] ?? map['Body'] ?? '';
     final body = rawBody is Map
@@ -429,15 +441,23 @@ final class LegadoReader {
   static String _applySourceVars(String value, CloudBookSource? source) {
     if (source == null || !value.contains('{{source.')) return value;
     return value
+        .replaceAll(RegExp(r'\{\{\s*source\.key\s*\}\}'), _sourceBase(source))
         .replaceAll(
-          RegExp(r'\{\{\s*source\.key\s*\}\}'),
-          Uri.encodeQueryComponent(source.rules['searchKey']?.toString() ?? ''),
+          RegExp(r'\{\{\s*source\.bookSourceUrl\s*\}\}'),
+          _sourceBase(source),
         )
-        .replaceAll(RegExp(r'\{\{\s*source\.bookSourceUrl\s*\}\}'), source.url)
         .replaceAll(
           RegExp(r'\{\{\s*source\.bookSourceName\s*\}\}'),
           source.name,
         );
+  }
+
+  /// Legado 的 source.key 是书源基地址；少数源会把 searchKey 单独写成
+  /// 路径，因此优先使用明确的 searchKey，否则回退 bookSourceUrl。
+  static String _sourceBase(CloudBookSource source) {
+    final explicit = source.rules['searchKey']?.toString().trim() ?? '';
+    final value = explicit.isNotEmpty ? explicit : source.url.trim();
+    return value.replaceFirst(RegExp(r'/+$'), '');
   }
 
   static Map<String, String> _headers(Object? raw) {

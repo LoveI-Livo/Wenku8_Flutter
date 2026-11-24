@@ -25,12 +25,17 @@ class CloudCatalogSearch {
   static final instance = CloudCatalogSearch._();
   final CloudSourceSettings settings = CloudSourceSettings();
 
-  static const _walkBudget = Duration(seconds: 12);
-  static const _probeBudget = Duration(seconds: 12);
-  static const _maxProbeBytes = 8 * 1024 * 1024;
-  static const _maxProbeFiles = 12;
+  static const _walkBudget = Duration(seconds: 9);
+  static const _indexBudget = Duration(seconds: 7);
+  static const _folderBudget = Duration(seconds: 5);
+  static const _probeBudget = Duration(seconds: 5);
+  static const _folderWorkers = 4;
+  static const _indexLifetime = Duration(minutes: 10);
+  static const _maxProbeBytes = 4 * 1024 * 1024;
+  static const _maxProbeFiles = 6;
   static const _maxResults = 500;
   static const _cacheLifetime = Duration(minutes: 1);
+  final Map<String, _CloudSearchIndex> _indexes = {};
   String? _cacheQuery;
   CloudSearchScope? _cacheScope;
   String? _cacheTarget;
@@ -45,6 +50,7 @@ class CloudCatalogSearch {
   Future<void> reload() async {
     _cache = null;
     _cacheAt = null;
+    _indexes.clear();
     await settings.load();
   }
 
@@ -164,7 +170,12 @@ class CloudCatalogSearch {
               config.kind == CloudSourceKind.rss && selectedSources.isNotEmpty
               ? RssBookClient(config, sourceEntries: selectedSources)
               : CloudBookClient(config, settings: settings);
-          final walk = await _searchClient(client, value).timeout(_walkBudget);
+          final walk = await _searchClient(
+            client,
+            value,
+            config: config,
+            refresh: refresh,
+          ).timeout(_walkBudget);
 
           if (walk.matches.isNotEmpty) {
             for (final entry in walk.matches) {
@@ -215,7 +226,7 @@ class CloudCatalogSearch {
                       caseSensitive: false,
                     ).hasMatch(entry.name),
               )
-              .take(4);
+              .take(2);
           for (final entry in textCandidates) {
             if (results.length >= _maxResults) return;
             final novel = _novelFor(entry, config);
@@ -302,8 +313,10 @@ class CloudCatalogSearch {
 
   Future<_CloudSearchWalk> _searchClient(
     CloudBookClient client,
-    String query,
-  ) async {
+    String query, {
+    required CloudSourceConfig config,
+    required bool refresh,
+  }) async {
     final pattern = BookSearch(query);
     if (client is RssBookClient) {
       final listing = await client.search(query);
@@ -324,58 +337,156 @@ class CloudCatalogSearch {
         files: const [],
       );
     }
-    final matches = <String, CloudBookEntry>{};
+
+    final indexKey =
+        '${config.kind.name}|${config.connectionId}|${config.address}';
+    final cached = _indexes[indexKey];
+    if (!refresh &&
+        cached != null &&
+        DateTime.now().difference(cached.at) < _indexLifetime) {
+      return _matchIndex(cached, pattern);
+    }
+
+    final index = await _buildIndex(client);
+    if (index.complete) _indexes[indexKey] = index;
+    return _matchIndex(index, pattern);
+  }
+
+  Future<_CloudSearchIndex> _buildIndex(CloudBookClient client) async {
     final files = <String, CloudBookEntry>{};
-    final pending = <String>[client.root];
-    final matchedFolders = <String>{};
+    final folders = <String, CloudBookEntry>{};
+    final entries = <String, CloudBookEntry>{};
+    final children = <String, List<String>>{};
+    final failures = <String>[];
+    final queue = <String>[client.root];
+    final queued = <String>{client.root};
     final visited = <String>{};
-    var folders = 0;
-    // OpenList/NAS 的书常按文件夹分组。除了匹配文件名，也要匹配文件夹名，
-    // 命中文件夹后把里面的书都算作结果；否则“妹妹”这种目录名明明存在，
-    // 却因为里面的文件名不含关键词而搜不到。
-    while (pending.isNotEmpty && folders < 500 && files.length < 3000) {
-      final folder = pending.removeAt(0);
-      if (!visited.add(folder)) continue;
-      folders++;
-      // 每个网盘目录都要解析 JSON/XML；每几层主动让出一帧，避免长列表
-      // 搜索时把 UI isolate 连续占满导致滚动和输入卡住。
-      if (folders % 4 == 0) {
-        await Future<void>.delayed(Duration.zero);
+    final stopwatch = Stopwatch()..start();
+    var folderCount = 0;
+
+    while (queue.isNotEmpty &&
+        folderCount < 400 &&
+        files.length < 3000 &&
+        stopwatch.elapsed < _indexBudget) {
+      final batch = <String>[];
+      while (queue.isNotEmpty &&
+          batch.length < _folderWorkers &&
+          folderCount + batch.length < 400) {
+        final folder = queue.removeAt(0);
+        if (visited.add(folder)) batch.add(folder);
       }
-      final includeFolder = matchedFolders.contains(folder);
-      final listing = await client.list(folder);
-      for (final entry in listing.entries) {
+      if (batch.isEmpty) continue;
+      final listings = await Future.wait(
+        batch.map((folder) async {
+          try {
+            final listing = await client.list(folder).timeout(_folderBudget);
+            return (folder: folder, listing: listing);
+          } catch (error) {
+            failures.add(cloudFailureMessage(error));
+            return null;
+          }
+        }),
+      );
+      for (final item
+          in listings
+              .whereType<({String folder, CloudBookListing listing})>()) {
+        folderCount++;
+        final folder = item.folder;
+        children.putIfAbsent(folder, () => <String>[]);
+        for (final entry in item.listing.entries) {
+          if (entries.containsKey(entry.id)) continue;
+          entries[entry.id] = entry;
+          children[folder]!.add(entry.id);
+          if (entry.folder) {
+            folders[entry.id] = entry;
+            if (queued.add(entry.id)) queue.add(entry.id);
+          } else if (entry.isBook) {
+            files[entry.id] = entry;
+          }
+          if (files.length >= 3000) break;
+        }
+        if (files.length >= 3000) break;
+      }
+      // 每个批次主动让出一帧，避免长目录搜索把输入和滚动完全卡住。
+      await Future<void>.delayed(Duration.zero);
+    }
+    if (files.isEmpty && folders.isEmpty && failures.isNotEmpty) {
+      throw CloudSourceFailure(failures.first);
+    }
+    return _CloudSearchIndex(
+      files: files.values.toList(growable: false),
+      folders: folders.values.toList(growable: false),
+      children: children,
+      entries: entries,
+      at: DateTime.now(),
+      complete: queue.isEmpty && files.length < 3000,
+    );
+  }
+
+  _CloudSearchWalk _matchIndex(_CloudSearchIndex index, BookSearch pattern) {
+    final matches = <String, CloudBookEntry>{};
+    final selectedFolders = <String>{};
+    for (final folder in index.folders) {
+      if (pattern.matches(
+        title: folder.name,
+        author: folder.author,
+        tags: '',
+        summary: folder.summary,
+        id: folder.id,
+      )) {
+        selectedFolders.add(folder.id);
+      }
+    }
+    final folderFiles = <String>{};
+    void visit(String folder) {
+      for (final id in index.children[folder] ?? const <String>[]) {
+        final entry = index.entries[id];
+        if (entry == null) continue;
         if (entry.folder) {
-          pending.add(entry.id);
-          if (pattern.matches(
+          visit(id);
+        } else if (entry.isBook) {
+          folderFiles.add(id);
+        }
+      }
+    }
+
+    for (final folder in selectedFolders) {
+      visit(folder);
+    }
+    for (final entry in index.files) {
+      if (folderFiles.contains(entry.id) ||
+          pattern.matches(
             title: entry.name,
             author: entry.author,
             tags: '',
             summary: entry.summary,
             id: entry.id,
           )) {
-            matchedFolders.add(entry.id);
-          }
-        } else if (entry.isBook) {
-          files[entry.id] = entry;
-          if (includeFolder ||
-              pattern.matches(
-                title: entry.name,
-                author: entry.author,
-                tags: '',
-                summary: entry.summary,
-                id: entry.id,
-              )) {
-            matches[entry.id] = entry;
-          }
-        }
+        matches[entry.id] = entry;
       }
     }
     return _CloudSearchWalk(
       matches: matches.values.toList(),
-      files: files.values.toList(),
+      files: index.files,
     );
   }
+}
+
+class _CloudSearchIndex {
+  const _CloudSearchIndex({
+    required this.files,
+    required this.folders,
+    required this.children,
+    required this.entries,
+    required this.at,
+    required this.complete,
+  });
+  final List<CloudBookEntry> files;
+  final List<CloudBookEntry> folders;
+  final Map<String, List<String>> children;
+  final Map<String, CloudBookEntry> entries;
+  final DateTime at;
+  final bool complete;
 }
 
 class _CloudSearchWalk {

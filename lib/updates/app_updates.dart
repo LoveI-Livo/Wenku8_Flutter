@@ -19,8 +19,8 @@ const updateRepository = String.fromEnvironment(
   'UPDATE_REPOSITORY',
   defaultValue: officialUpdateRepository,
 );
-const currentAppVersion = '0.8.4';
-const currentAppBuild = 3026;
+const currentAppVersion = '0.8.5';
+const currentAppBuild = 3027;
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
   const ReleaseVersion(this.major, this.minor, this.patch, [this.build = 0]);

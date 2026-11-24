@@ -249,6 +249,11 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     }
     widget.state.blockedTagsChanges.addListener(_blockedTagsChanged);
     _blockedTagsChanged();
+    unawaited(
+      widget.state.organization.cleanupLegacyOnlineCategory().catchError(
+        (Object _) {},
+      ),
+    );
     if (widget.repository case final OfflineNovelRepository offline) {
       unawaited(offline.loadCache().catchError((Object _) {}));
     }
@@ -2157,6 +2162,33 @@ class ShelfPage extends StatefulWidget {
       )
       .toSet();
 
+  Future<void> _categorizeAllNetwork(BuildContext context) async {
+    final ids = _batchIds;
+    if (ids.isEmpty) return;
+    final group = await chooseBookCategory(
+      context,
+      state.organization,
+      bookIds: ids,
+      reduceMotion: state.reduceMotion,
+    );
+    if (!context.mounted || group == null) return;
+    try {
+      await state.organization.assignMany(ids, group);
+      if (!context.mounted) return;
+      final name = group == LocalLibraryPreferences.unfiled
+          ? '未分类'
+          : state.organization.nameOf(group);
+      showNovelFeedback(context, '已把 ${ids.length} 本网络书加入「$name」');
+    } catch (error) {
+      if (context.mounted) {
+        showNovelFeedback(
+          context,
+          error is FormatException ? error.message : '分类保存失败，请重试',
+        );
+      }
+    }
+  }
+
   Widget buildHeader(BuildContext context, {VoidCallback? search}) =>
       AnimatedBuilder(
         animation: state.navigationChanges,
@@ -2172,17 +2204,24 @@ class ShelfPage extends StatefulWidget {
                 label: '添加网盘或小说书源',
                 onPressed: onAddNetworkSources,
               ),
+            if (networkOnly && _batchIds.isNotEmpty)
+              GlassIconButton(
+                key: const ValueKey('shelf-network-category'),
+                icon: CupertinoIcons.folder,
+                label: '一键把全部网络书加入分类',
+                onPressed: () => _categorizeAllNetwork(context),
+              ),
             if (_batchIds.isNotEmpty)
               GlassIconButton(
                 key: const ValueKey('shelf-batch-entry'),
                 icon: CupertinoIcons.checkmark_circle,
-                label: '批量管理书架',
+                label: networkOnly ? '多选管理网络书' : '批量管理书架',
                 onPressed: () => openShelfBatch(
                   context,
                   library: state,
                   repository: repository,
                   ids: _batchIds,
-                  title: networkOnly ? '批量管理网络书' : '批量管理在线书',
+                  title: networkOnly ? '多选管理网络书' : '批量管理在线书',
                 ),
               ),
             GlassIconButton(

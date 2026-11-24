@@ -1716,8 +1716,9 @@ class RssBookClient extends DirectLinkBookClient {
 
   Future<void> _parallel<T>(
     List<T> sources,
-    Future<void> Function(T source) action,
-  ) async {
+    Future<void> Function(T source) action, {
+    int workers = 8,
+  }) async {
     var next = 0;
     Future<void> worker() async {
       while (true) {
@@ -1728,7 +1729,7 @@ class RssBookClient extends DirectLinkBookClient {
     }
 
     await Future.wait([
-      for (var i = 0; i < sources.length && i < 8; i++) worker(),
+      for (var i = 0; i < sources.length && i < workers; i++) worker(),
     ]);
   }
 
@@ -1826,61 +1827,87 @@ class RssBookClient extends DirectLinkBookClient {
     final pattern = BookSearch(value);
     var attempted = 0;
     Object? firstFailure;
-    await _parallel(_sourceObjects, (source) async {
-      attempted++;
-      if (LegadoReader.supports(source)) {
+    final completer = Completer<CloudBookListing>();
+    var stopped = false;
+    void finish() {
+      if (stopped) return;
+      stopped = true;
+      if (entries.isEmpty && attempted > 0 && firstFailure != null) {
+        completer.completeError(firstFailure!);
+      } else {
+        completer.complete(
+          CloudBookListing(entries.values.toList(growable: false)),
+        );
+      }
+    }
+
+    // 书源搜索全是独立 HTTP 请求。原来的 8 个并发配 276 个书源会让
+    // 搜索串行排到几分钟；提高到 32 路，8 秒内先把已经返回的条目交给
+    // 页面，单个坏源不再拖住整次搜索。
+    unawaited(
+      _parallel(_sourceObjects, workers: 32, (source) async {
+        if (stopped) return;
+        attempted++;
+        if (LegadoReader.supports(source)) {
+          try {
+            final listing = await LegadoReader.search(
+              source,
+              value,
+              page: page,
+              allowHttp:
+                  config.allowHttp ||
+                  source.url.trim().toLowerCase().startsWith('http://'),
+              cookie: config.cookie,
+              authorization: authHeaders[HttpHeaders.authorizationHeader] ?? '',
+            ).timeout(const Duration(seconds: 6));
+            for (final entry in listing.entries) {
+              if (stopped) return;
+              entries.putIfAbsent(entry.id, () => entry);
+              if (entries.length >= _maxEntries) return;
+            }
+          } catch (error) {
+            firstFailure ??= error;
+            // 一个 Legado 书源规则失效不影响其它书源。
+          }
+          return;
+        }
+        final sourceUrl = source.url;
+        final hasQuery = sourceUrl.contains('{query}');
+        final target = sourceUrl
+            .replaceAll('{query}', Uri.encodeQueryComponent(value))
+            .replaceAll('{page}', '$page');
         try {
-          final listing = await LegadoReader.search(
-            source,
-            value,
+          final pageEntries = await _entriesFor(
+            target,
             page: page,
-            allowHttp:
-                config.allowHttp ||
-                source.url.trim().toLowerCase().startsWith('http://'),
-            cookie: config.cookie,
-            authorization: authHeaders[HttpHeaders.authorizationHeader] ?? '',
-          );
-          for (final entry in listing.entries) {
+          ).timeout(const Duration(seconds: 6));
+          for (final entry in pageEntries) {
+            if (stopped) return;
+            final matches = hasQuery
+                ? true
+                : pattern.matches(
+                    title: entry.name,
+                    author: entry.author,
+                    tags: '',
+                    summary: entry.summary,
+                    id: entry.id,
+                  );
+            if (!matches) continue;
             entries.putIfAbsent(entry.id, () => entry);
             if (entries.length >= _maxEntries) return;
           }
         } catch (error) {
           firstFailure ??= error;
-          // 一个 Legado 书源规则失效不影响其它书源。
+          // 一个书源失效不影响其他书源。
         }
-        return;
-      }
-      final sourceUrl = source.url;
-      final hasQuery = sourceUrl.contains('{query}');
-      final target = sourceUrl
-          .replaceAll('{query}', Uri.encodeQueryComponent(value))
-          .replaceAll('{page}', '$page');
-      try {
-        final pageEntries = await _entriesFor(target, page: page);
-        for (final entry in pageEntries) {
-          final matches = hasQuery
-              ? true
-              : pattern.matches(
-                  title: entry.name,
-                  author: entry.author,
-                  tags: '',
-                  summary: entry.summary,
-                  id: entry.id,
-                );
-          if (!matches) continue;
-          entries.putIfAbsent(entry.id, () => entry);
-          if (entries.length >= _maxEntries) return;
-        }
-      } catch (error) {
-        firstFailure ??= error;
-        // 一个书源失效不影响其他书源。
-      }
-    });
-    if (entries.isEmpty && attempted > 0 && firstFailure != null) {
-      // 选中的书源全部失败时把原因交给页面显示，而不是假装“没有找到”。
-      throw firstFailure!;
+      }).whenComplete(finish),
+    );
+    final timer = Timer(const Duration(seconds: 8), finish);
+    try {
+      return await completer.future;
+    } finally {
+      timer.cancel();
     }
-    return CloudBookListing(entries.values.toList(growable: false));
   }
 
   Future<List<CloudBookEntry>> _entriesFor(
