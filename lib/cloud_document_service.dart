@@ -201,7 +201,8 @@ class CloudDocumentService {
       (novel.remoteKind == 'webdav' ||
           novel.remoteKind == 's3' ||
           novel.remoteKind == 'quark' ||
-          novel.remoteKind == 'lanzou');
+          novel.remoteKind == 'lanzou' ||
+          novel.remoteKind == 'guangya');
 
   Future<void> deleteRemote(Novel novel) async {
     if (!canDeleteRemote(novel)) {
@@ -252,6 +253,7 @@ class CloudDocumentService {
       CloudSourceKind.lanzou ||
       CloudSourceKind.lanzouPro ||
       CloudSourceKind.xunlei ||
+      CloudSourceKind.guangya ||
       CloudSourceKind.aliyun ||
       CloudSourceKind.baidu ||
       CloudSourceKind.pan123 ||

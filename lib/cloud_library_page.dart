@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'app_ui.dart';
 import 'book_source_manager_page.dart';
+import 'guangya_login_page.dart';
 import 'app_interactions.dart';
 import 'catalog.dart';
 import 'cloud_sources.dart';
+import 'cloud_guangya.dart';
 import 'cloud_catalog_search.dart';
 import 'cloud_parse_page.dart';
 import 'offline_cache.dart' show formatCacheBytes;
@@ -42,6 +44,7 @@ String _cloudLoginUrl(CloudSourceKind kind) => switch (kind) {
   CloudSourceKind.pan123 => 'https://yun.123pan.com/',
   CloudSourceKind.aliyun => 'https://www.alipan.com/sign/in',
   CloudSourceKind.xunlei => 'https://pan.xunlei.com/',
+  CloudSourceKind.guangya => 'https://www.guangyapan.com/',
   _ => 'https://pan.quark.cn/#/login',
 };
 
@@ -61,6 +64,7 @@ List<String> _cloudLoginStorage(CloudSourceKind kind) => switch (kind) {
     'credentials_Xqp0kJBXWhwaTpB6',
     'credentials_XseEZG9_7KHMCmS1',
   ],
+  CloudSourceKind.guangya => const ['sso'],
   _ => const [],
 };
 
@@ -70,6 +74,7 @@ List<String> _cloudLoginAutoAnyStorage(CloudSourceKind kind) => switch (kind) {
     'credentials_Xqp0kJBXWhwaTpB6',
     'credentials_XseEZG9_7KHMCmS1',
   ],
+  CloudSourceKind.guangya => const ['sso'],
   _ => const [],
 };
 
@@ -218,6 +223,33 @@ class CloudLibraryPage extends StatelessWidget {
     String? connectionId,
   }) async {
     final id = connectionId ?? settings.newConnectionId(kind);
+    if (kind == CloudSourceKind.guangya) {
+      final session = await pushNovelPage<GuangyaSession>(
+        context,
+        const GuangyaLoginPage(),
+        reduceMotion: reduceMotion,
+      );
+      if (session == null || !context.mounted) return;
+      try {
+        final config = CloudSourceConfig(
+          kind: kind,
+          connectionId: id,
+          address: 'https://www.guangyapan.com',
+          accessToken: session.encoded,
+          refreshToken: session.refreshToken,
+          deviceId: session.deviceId,
+        );
+        config.validate();
+        await settings.save(kind, config);
+        await CloudCatalogSearch.instance.reload();
+        if (context.mounted) await _browse(context, config);
+      } catch (error) {
+        if (context.mounted) {
+          showNovelFeedback(context, cloudFailureMessage(error));
+        }
+      }
+      return;
+    }
     final result = await pushNovelPage<SourceLoginResult>(
       context,
       SourceLoginPage(
@@ -404,6 +436,7 @@ class CloudLibraryPage extends StatelessWidget {
                     CloudSourceKind.quark =>
                       '点账号打开夸克官网，扫码或验证码登录后自动保存会话，直接浏览全盘并参与全局搜索。',
                     CloudSourceKind.s3 => '连接 Amazon S3 或 S3 兼容存储，按文件夹浏览并导入书籍。',
+                    CloudSourceKind.guangya => '登录光鸭云盘账号，浏览全部文件并在线阅读，支持全局搜索。',
                     CloudSourceKind.lanzou =>
                       '点账号打开蓝奏云官网登录，自动保存 Cookie，直接浏览账号全部文件夹并参与全局搜索。',
                     CloudSourceKind.lanzouPro =>
@@ -534,6 +567,7 @@ class CloudLibraryPage extends StatelessWidget {
                         CloudSourceKind.direct => '添加直链',
                         CloudSourceKind.aliyun => '登录阿里云盘',
                         CloudSourceKind.xunlei => '登录迅雷云盘',
+                        CloudSourceKind.guangya => '登录光鸭云盘',
                         CloudSourceKind.baidu => '登录百度网盘',
                         CloudSourceKind.pan123 => '登录 123 云盘',
                         CloudSourceKind.uc => '登录 UC 网盘',
@@ -1142,6 +1176,40 @@ class _CloudBookBrowserState extends State<CloudBookBrowser> {
 
   Future<void> _relogin() async {
     if (!_config.kind.isWebLogin) return;
+    if (_config.kind == CloudSourceKind.guangya) {
+      final session = await pushNovelPage<GuangyaSession>(
+        context,
+        const GuangyaLoginPage(),
+        reduceMotion: false,
+      );
+      if (session == null || !mounted) return;
+      try {
+        final next = _config.copyWith(
+          accessToken: session.encoded,
+          refreshToken: session.refreshToken,
+          deviceId: session.deviceId,
+        );
+        next.validate();
+        await widget.settings.save(next.kind, next);
+        _client.close();
+        _client = CloudBookClient(next, settings: widget.settings);
+        setState(() {
+          _config = next;
+          _error = null;
+          _entries = const [];
+          _next = null;
+          _current = null;
+          _loadedFolder = null;
+          _folders
+            ..clear()
+            ..add((id: _client.root, name: '全部文件'));
+        });
+        await _load();
+      } catch (error) {
+        if (mounted) setState(() => _error = cloudFailureMessage(error));
+      }
+      return;
+    }
     final result = await pushNovelPage<SourceLoginResult>(
       context,
       SourceLoginPage(

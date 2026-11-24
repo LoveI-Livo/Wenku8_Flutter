@@ -14,6 +14,7 @@ import 'package:html/parser.dart' as html;
 import 'package:html/dom.dart';
 import 'book_import_limits.dart';
 import 'book_search.dart';
+import 'cloud_guangya.dart';
 part 'cloud_s3.dart';
 part 'cloud_lanzou.dart';
 part 'cloud_ilanzou.dart';
@@ -30,6 +31,7 @@ enum CloudSourceKind {
   lanzou('蓝奏云 · 普通版'),
   lanzouPro('蓝奏云 · 优享版'),
   xunlei('迅雷云盘'),
+  guangya('光鸭云盘'),
   aliyun('阿里云盘'),
   baidu('百度网盘'),
   pan123('123 云盘'),
@@ -43,7 +45,7 @@ enum CloudSourceKind {
 
   /// 0.8.3 起只维护 WebDAV、蓝奏云、蓝奏云优享版、迅雷云盘和小说书源。
   /// 其余枚举保留用于读取旧记录，但不再出现在添加页、连接页和搜索里。
-  static const active = [webdav, lanzou, lanzouPro, xunlei, rss];
+  static const active = [webdav, lanzou, lanzouPro, xunlei, guangya, rss];
 
   bool get isActive => active.contains(this);
 
@@ -59,6 +61,7 @@ enum CloudSourceKind {
     lanzou ||
     lanzouPro ||
     xunlei ||
+    guangya ||
     baidu ||
     pan123 ||
     aliyun ||
@@ -74,6 +77,7 @@ enum CloudSourceKind {
     lanzou ||
     lanzouPro ||
     xunlei ||
+    guangya ||
     baidu ||
     pan123 ||
     aliyun ||
@@ -350,6 +354,17 @@ class CloudSourceConfig {
             (uri.scheme != 'https' && !(uri.scheme == 'http' && allowHttp))) {
           throw const CloudSourceFailure('迅雷云盘登录已失效，请重新登录账号');
         }
+      }
+      return;
+    }
+    if (kind == CloudSourceKind.guangya) {
+      if (accessToken.trim().isEmpty ||
+          accessToken.length > 32768 ||
+          RegExp(r'[\r\n\x00]').hasMatch(accessToken + refreshToken)) {
+        throw const CloudSourceFailure('请先登录光鸭云盘账号');
+      }
+      if (deviceId.length > 128 || RegExp(r'[\r\n\x00]').hasMatch(deviceId)) {
+        throw const CloudSourceFailure('光鸭云盘设备标识异常，请重新登录');
       }
       return;
     }
@@ -721,6 +736,7 @@ class CloudSourceSettings extends ChangeNotifier {
     String? refreshToken,
     String? driveId,
     String? cookie,
+    String? deviceId,
   }) => _save(
     config.kind,
     config.copyWith(
@@ -728,6 +744,7 @@ class CloudSourceSettings extends ChangeNotifier {
       refreshToken: refreshToken,
       driveId: driveId,
       cookie: cookie,
+      deviceId: deviceId,
     ),
   );
 
@@ -966,6 +983,7 @@ abstract class CloudBookClient {
       config.accessToken.trim().isEmpty
           ? DirectLinkBookClient(config)
           : XunleiBookClient(config, settings: settings),
+    CloudSourceKind.guangya => GuangyaBookClient(config, settings: settings),
     CloudSourceKind.rss => RssBookClient(config),
     CloudSourceKind.direct => DirectLinkBookClient(config),
     CloudSourceKind.s3 => S3BookClient(config),

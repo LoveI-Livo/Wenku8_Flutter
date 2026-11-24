@@ -14,6 +14,7 @@ class Wenku8Client {
   Wenku8Client();
 
   static const apiUrl = 'http://app.wenku8.com/android.php/';
+  static const _apiUrlCn = 'http://app.wenku8.cn/android.php/';
   static const webUrl = 'https://www.wenku8.net';
   static const webLoginPageUrl = '$webUrl/login.php';
   static const webLoginUrl = '$webUrl/login.php?do=submit';
@@ -272,9 +273,11 @@ class Wenku8Client {
     bool allowHtml = false,
     String? appVer,
     Duration timeout = const Duration(seconds: 15),
+    bool alternate = false,
   }) async {
     await ensureReady();
-    final request = await _http.postUrl(Uri.parse(apiUrl));
+    final endpoint = alternate ? _apiUrlCn : apiUrl;
+    final request = await _http.postUrl(Uri.parse(endpoint));
     request.headers
       ..set(HttpHeaders.userAgentHeader, _ua)
       ..set(HttpHeaders.contentTypeHeader, 'application/x-www-form-urlencoded');
@@ -291,7 +294,36 @@ class Wenku8Client {
     // connection ("Connection closed before full header was received").
     request.contentLength = payloadBytes.length;
     request.add(payloadBytes);
-    final response = await request.close().timeout(timeout);
+    HttpClientResponse response;
+    try {
+      response = await request.close().timeout(timeout);
+    } on SocketException {
+      if (!alternate) {
+        return apiRaw(
+          action,
+          allowNumeric: allowNumeric,
+          binary: binary,
+          allowHtml: allowHtml,
+          appVer: appVer,
+          timeout: timeout,
+          alternate: true,
+        );
+      }
+      rethrow;
+    } on HttpException {
+      if (!alternate) {
+        return apiRaw(
+          action,
+          allowNumeric: allowNumeric,
+          binary: binary,
+          allowHtml: allowHtml,
+          appVer: appVer,
+          timeout: timeout,
+          alternate: true,
+        );
+      }
+      rethrow;
+    }
     final changed = _absorbCookies(response);
     final bytes = await response.fold<List<int>>(
       <int>[],
@@ -309,6 +341,17 @@ class Wenku8Client {
         lower.contains('welcome</h1>') ||
         lower.contains('cloudflare') ||
         lower.contains('access denied')) {
+      if (!alternate) {
+        return apiRaw(
+          action,
+          allowNumeric: allowNumeric,
+          binary: binary,
+          allowHtml: allowHtml,
+          appVer: appVer,
+          timeout: timeout,
+          alternate: true,
+        );
+      }
       throw const FormatException('在线组件接口暂时不可用，请检查网络或稍后重试');
     }
     if (!allowNumeric && body.trim() == '4') {
