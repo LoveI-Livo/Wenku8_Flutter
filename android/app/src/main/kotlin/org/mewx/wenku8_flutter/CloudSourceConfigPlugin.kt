@@ -23,14 +23,15 @@ class CloudSourceConfigPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val io = Executors.newSingleThreadExecutor()
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private val alias = "wenku8.cloud-sources.v1"
+    private val credentialsAlias = "wenku8.account-credentials.v1"
 
     /**
      * 主保险箱绑定 AndroidKeyStore；系统升级或签名迁移极少数情况下会
      * 让旧密钥不可用。备用保险箱使用应用私有目录里的随机 AES 密钥，
      * 不写明文，也不读取设备标识；更新后仍能解密，随系统备份可迁移。
      */
-    private fun fallbackKey(): SecretKey {
-        val prefs = context.getSharedPreferences("cloud_sources_fallback", 0)
+    private fun fallbackKey(prefsName: String = "cloud_sources_fallback"): SecretKey {
+        val prefs = context.getSharedPreferences(prefsName, 0)
         prefs.getString("key", null)?.let { encoded ->
             return SecretKeySpec(Base64.decode(encoded, Base64.NO_WRAP), "AES")
         }
@@ -40,10 +41,10 @@ class CloudSourceConfigPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         return SecretKeySpec(material, "AES")
     }
 
-    private fun key(): SecretKey {
+    private fun key(aliasName: String = alias): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        return (store.getKey(alias, null) as? SecretKey) ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+        return (store.getKey(aliasName, null) as? SecretKey) ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+            init(KeyGenParameterSpec.Builder(aliasName, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
@@ -74,40 +75,60 @@ class CloudSourceConfigPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         check(prefs.edit().remove("config").commit())
     }
 
+    private fun readVault(
+        secure: String,
+        fallback: String,
+        secretAlias: String,
+    ): String? {
+        var text: String? = runCatching { decrypt(secure, key(secretAlias)) }.getOrNull()
+        if (text == null) {
+            text = runCatching { decrypt(fallback, fallbackKey("${fallback}")) }.getOrNull()
+        }
+        if (text != null) {
+            // 每次成功读取都刷新备用保险箱，升级后仍能直接恢复。
+            runCatching { encrypt(fallback, fallbackKey("${fallback}"), text) }
+        } else if (context.getSharedPreferences(secure, 0).contains("config") ||
+            context.getSharedPreferences(fallback, 0).contains("config")) {
+            throw IllegalStateException("secure vault unavailable")
+        }
+        return text
+    }
+
+    private fun writeVault(
+        secure: String,
+        fallback: String,
+        secretAlias: String,
+        text: String?,
+    ) {
+        if (text == null) {
+            runCatching { remove(secure) }
+            runCatching { remove(fallback) }
+            return
+        }
+        var primary = false
+        var backup = false
+        runCatching { encrypt(secure, key(secretAlias), text) }.onSuccess { primary = true }
+        runCatching { encrypt(fallback, fallbackKey("${fallback}"), text) }.onSuccess { backup = true }
+        check(primary || backup)
+    }
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method != "read" && call.method != "write") { result.notImplemented(); return }
+        when (call.method) {
+            "read", "write", "readCredentials", "writeCredentials", "clearCredentials" -> Unit
+            else -> { result.notImplemented(); return }
+        }
         io.execute {
             try {
-                val value = if (call.method == "read") {
-                    var text: String? = runCatching { decrypt("cloud_sources_secure", key()) }.getOrNull()
-                    if (text == null) {
-                        text = runCatching { decrypt("cloud_sources_fallback", fallbackKey()) }.getOrNull()
-                    }
-                    if (text != null) {
-                        // 每次成功读取都刷新备用保险箱，旧版本升级上来的用户
-                        // 不需要重新登录一次，后续更新也能直接恢复连接。
-                        runCatching { encrypt("cloud_sources_fallback", fallbackKey(), text) }
-                    } else if (context.getSharedPreferences("cloud_sources_secure", 0).contains("config") ||
-                        context.getSharedPreferences("cloud_sources_fallback", 0).contains("config")) {
-                        throw IllegalStateException("cloud vault unavailable")
-                    }
-                    text
-                } else {
-                    val text = call.arguments as? String
-                    if (text == null) {
-                        runCatching { remove("cloud_sources_secure") }
-                        runCatching { remove("cloud_sources_fallback") }
-                    } else {
-                        var primary = false
-                        var fallback = false
-                        runCatching { encrypt("cloud_sources_secure", key(), text) }.onSuccess { primary = true }
-                        runCatching { encrypt("cloud_sources_fallback", fallbackKey(), text) }.onSuccess { fallback = true }
-                        check(primary || fallback)
-                    }
-                    null
+                val value = when (call.method) {
+                    "read" -> readVault("cloud_sources_secure", "cloud_sources_fallback", alias)
+                    "write" -> { writeVault("cloud_sources_secure", "cloud_sources_fallback", alias, call.arguments as? String); null }
+                    "readCredentials" -> readVault("wenku_credentials_secure", "wenku_credentials_fallback", credentialsAlias)
+                    "writeCredentials" -> { writeVault("wenku_credentials_secure", "wenku_credentials_fallback", credentialsAlias, call.arguments as? String); null }
+                    "clearCredentials" -> { writeVault("wenku_credentials_secure", "wenku_credentials_fallback", credentialsAlias, null); null }
+                    else -> null
                 }
                 main.post { result.success(value) }
-            } catch (_: Exception) { main.post { result.error("secure_storage", "无法读取或保存本机网盘连接，请重试", null) } }
+            } catch (_: Exception) { main.post { result.error("secure_storage", "无法读取或保存本机账号保险箱，请重试", null) } }
         }
     }
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {

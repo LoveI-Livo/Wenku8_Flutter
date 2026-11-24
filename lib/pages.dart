@@ -1067,7 +1067,9 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
 
   Future<void> _pickSearchTarget() async {
     if (_searchSource == SearchSource.library) return;
-    if (_searchTargets.isEmpty) await _loadSearchTargets(_searchSource);
+    // 每次打开来源选择都重新读取配置，用户刚导入的书源/刚连接的网盘
+    // 不用重启 App 就能出现在列表里。
+    await _loadSearchTargets(_searchSource);
     if (!mounted) return;
     final selected = await Navigator.of(context).push<Set<String>>(
       MaterialPageRoute(
@@ -1114,30 +1116,45 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
         if (_searchSource != SearchSource.library)
           SizedBox(
             height: 44,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: GlassTextButton(
-                key: const ValueKey('home-search-target'),
-                onPressed: _searchTargets.isEmpty ? null : _pickSearchTarget,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ArchiveIcon(
-                      (_searchTargetKeys[_searchSource] ?? const <String>{})
-                              .isEmpty
-                          ? CupertinoIcons.circle
-                          : CupertinoIcons.checkmark_circle_fill,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 6),
-                    AppText(
-                      '来源：$_searchTargetLabel ▾',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ],
+            child: Row(
+              children: [
+                GlassTextButton(
+                  key: const ValueKey('home-search-target'),
+                  onPressed: _searchTargets.isEmpty ? null : _pickSearchTarget,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ArchiveIcon(
+                        (_searchTargetKeys[_searchSource] ?? const <String>{})
+                                .isEmpty
+                            ? CupertinoIcons.circle
+                            : CupertinoIcons.checkmark_circle_fill,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      AppText(
+                        '来源：$_searchTargetLabel ▾',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                const Spacer(),
+                GlassTextButton(
+                  key: const ValueKey('home-search-recent'),
+                  compact: true,
+                  onPressed: _showRecentSearches,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ArchiveIcon(CupertinoIcons.time, size: 15),
+                      SizedBox(width: 5),
+                      AppText('最近搜索', style: TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         AppControls.segments<BookSearchField>(
@@ -1157,6 +1174,42 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       ],
     ),
   );
+
+  Future<void> _showRecentSearches() async {
+    _dismissSearchKeyboard();
+    await showJellySheet<void>(
+      context: context,
+      reduceMotion: widget.state.reduceMotion,
+      heightFactor: .55,
+      builder: (sheet) => SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+        child: AnimatedBuilder(
+          animation: widget.state.searchChanges,
+          builder: (context, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              RecentSearches(
+                state: widget.state,
+                onRecall: (query) {
+                  Navigator.pop(sheet);
+                  _recallSearch(query);
+                },
+              ),
+              if (widget.state.recentSearches.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 16, bottom: 16),
+                  child: AppText('还没有最近搜索，搜过的关键词会出现在这里。'),
+                ),
+              GlassTextButton(
+                onPressed: () => Navigator.pop(sheet),
+                child: const AppText('关闭'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _selectSearchSource(SearchSource source) async {
     if (_searchSource == source) return;
@@ -4245,6 +4298,50 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
+class SearchProgressLine extends StatelessWidget {
+  const SearchProgressLine({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = CloudCatalogSearch.instance.progress;
+    if (!progress.active) return const SizedBox.shrink();
+    final value = progress.total <= 0
+        ? null
+        : (progress.done / progress.total).clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: AppText(
+                  '正在搜索书源',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+              AppText(
+                '${progress.done} / ${progress.total}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 4,
+              semanticsLabel: '搜索进度',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class InlineSearchResults extends StatelessWidget {
   const InlineSearchResults({
     super.key,
@@ -4270,7 +4367,7 @@ class InlineSearchResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: feed,
+    animation: Listenable.merge([feed, CloudCatalogSearch.instance.progress]),
     builder: (context, _) => feed.searchGroups.isNotEmpty
         ? _buildGroupedResults(context)
         : LoadedContentSequence(
@@ -4306,6 +4403,7 @@ class InlineSearchResults extends StatelessWidget {
           ),
           sliver: SliverMainAxisGroup(
             slivers: [
+              const SliverToBoxAdapter(child: SearchProgressLine()),
               if (allowBlockedTags)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -4460,6 +4558,7 @@ class InlineSearchResults extends StatelessWidget {
           24,
         ),
         children: [
+          const SearchProgressLine(),
           RecentSearches(state: state, onRecall: onRecall!),
           if (feed.loading && !feed.hasLoaded)
             const Padding(
@@ -4482,7 +4581,17 @@ class InlineSearchResults extends StatelessWidget {
       );
     }
     if (books.isEmpty && feed.loading && !feed.hasLoaded) {
-      return SearchSkeleton(status: feed.tagProgressLabel);
+      final progress = CloudCatalogSearch.instance.progress;
+      final status = progress.active
+          ? '正在搜索 ${progress.done} / ${progress.total} 个来源'
+          : feed.tagProgressLabel;
+      return Column(
+        children: [
+          const SizedBox(height: 8),
+          const SearchProgressLine(),
+          Expanded(child: SearchSkeleton(status: status)),
+        ],
+      );
     }
     if (books.isEmpty && feed.error != null) {
       return ContentNotice(
@@ -4574,6 +4683,7 @@ class InlineSearchResults extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      const SearchProgressLine(),
                       if (feed.query.isEmpty && onRecall != null)
                         RecentSearches(state: state, onRecall: onRecall!),
                       Row(

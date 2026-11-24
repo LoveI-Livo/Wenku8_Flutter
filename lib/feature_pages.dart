@@ -616,7 +616,7 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                         ),
                         AppText(
                           account.keepSession
-                              ? '登录后官网会话保存在本机；退出账号会清除会话。'
+                              ? '登录后账号会加密保存在本机；覆盖安装/重启会自动恢复，退出账号才会清除。'
                               : '当前会话只在本次运行有效，关闭或重启应用后需重新登录。',
                           style: const TextStyle(fontSize: 12, height: 1.55),
                         ),
@@ -750,7 +750,7 @@ class _WenkuAccountPageState extends State<WenkuAccountPage> {
                           ),
                           AppText(
                             account.keepSession
-                                ? '官网会话已保存在本机，过期后需重新登录；退出账号会清除会话。'
+                                ? '账号已加密保存在本机，覆盖安装/重启会自动登录；退出账号才会清除。'
                                 : '当前会话只在本次运行有效，关闭或重启应用后需重新登录。',
                             style: const TextStyle(fontSize: 12, height: 1.55),
                           ),

@@ -1544,12 +1544,13 @@ Uint8List? _coverPeek(Novel novel) {
       LegacyCover.peek(novel.id);
 }
 
+/// 书源/网页书即使搜索列表没给封面，也可以在详情页懒加载时补封面。
+/// 网盘 EPUB 仍只在配置解析主机时才探测内嵌图，避免为了封面下载整本。
 bool _canLazyCloudCover(Novel novel) =>
     novel.coverUrl == null &&
     novel.remoteKind != null &&
-    novel.remoteKind != 'rss' &&
     novel.remoteEntryId != null &&
-    CloudParseSettings.instance.enabled;
+    (novel.remoteKind == 'rss' || CloudParseSettings.instance.enabled);
 
 Future<Uint8List> _coverLoad(Novel novel) {
   final url = novel.coverUrl;
@@ -1745,7 +1746,12 @@ class NovelCover extends StatelessWidget {
         ],
       ),
     );
-    final face = novel.coverUrl == null && !_canLazyCloudCover(novel)
+    // 文库原生书没有显式 coverUrl 时仍要按 aid 去取官方封面；0.8.6
+    // 把这种情况直接当兜底，导致整个文库结果页都不再请求封面。
+    final legacyById =
+        novel.coverUrl == null && novel.remoteKind == null && novel.id > 0;
+    final face =
+        novel.coverUrl == null && !_canLazyCloudCover(novel) && !legacyById
         ? fallback
         : Builder(
             builder: (context) {

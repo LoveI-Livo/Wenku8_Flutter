@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as web;
 import 'package:xml/xml.dart';
 
+import 'account_vault.dart';
 import 'library_state.dart';
 import 'online_component.dart';
 import 'wenku8_client.dart';
@@ -58,12 +59,17 @@ class WenkuAccount extends ChangeNotifier {
   int? syncedAt;
   bool _initialized = false;
   int _revision = 0;
+  bool _autoLoginTried = false;
   int get sessionRevision => _revision;
   int get publicationRevision => _revision;
   bool get keepSession => client.keepSession;
 
   Future<void> setKeepSession(bool value) async {
     await client.setKeepSession(value);
+    if (!value) {
+      await WenkuAccountVault.clear();
+      _autoLoginTried = true;
+    }
     notifyListeners();
   }
 
@@ -76,6 +82,22 @@ class WenkuAccount extends ChangeNotifier {
     error = '登录状态已过期，请重新登录';
     _revision++;
     notifyListeners();
+    unawaited(_recoverSession());
+  }
+
+  /// 运行中会话过期也尽量静默恢复，不必等用户重启或重新打开账号页。
+  Future<void> _recoverSession() async {
+    if (busy) return;
+    busy = true;
+    notifyListeners();
+    try {
+      if (await _autoLoginWithVault()) {
+        error = null;
+      }
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
   }
 
   static String describeError(Object error) {
@@ -88,21 +110,37 @@ class WenkuAccount extends ChangeNotifier {
   Future<void> initialize() async {
     if (authenticated || busy || _initialized) return;
     _initialized = true;
+    var accepted = false;
     try {
       await client.ensureReady();
-      if (!client.hasSession) return;
       busy = true;
       notifyListeners();
-      await refreshProfile();
-      error = null;
-    } on OnlineAuthenticationRequired {
-      await client.clearSession();
-      authenticated = false;
-      profile = null;
-      error = null;
+      if (client.hasSession) {
+        try {
+          await refreshProfile();
+          error = null;
+          accepted = true;
+        } on OnlineAuthenticationRequired {
+          // 旧会话可能只是接口暂时拒绝，先不要删 Cookie。下面用本机
+          // 保险箱里的账号密码自动重登；失败时仍保留原会话供手动重试。
+        } catch (failure) {
+          // 网络错误不等于登录失效；保留会话和真实原因，允许下次重试。
+          authenticated = false;
+          profile = null;
+          error = '账号资料加载失败：${describeError(failure)}';
+          _initialized = false;
+          return;
+        }
+      }
+      if (!accepted) {
+        accepted = await _autoLoginWithVault();
+        if (!accepted) {
+          authenticated = false;
+          profile = null;
+          error = client.hasSession ? '登录状态已过期，请重新登录' : null;
+        }
+      }
     } catch (failure) {
-      // 以前这里把异常吞掉，主页面只会一直显示“登录失败”而没有原因。
-      // 保留会话并允许下一次重试，同时把真实原因交给账号页展示。
       authenticated = false;
       profile = null;
       error = '账号资料加载失败：${describeError(failure)}';
@@ -110,6 +148,39 @@ class WenkuAccount extends ChangeNotifier {
     } finally {
       busy = false;
       notifyListeners();
+    }
+  }
+
+  /// 覆盖安装/系统清理导致官网会话失效时，用本机加密保险箱里的账号密码
+  /// 静默重登；明文不写 SharedPreferences。用户主动退出账号会清掉保险箱。
+  Future<bool> _autoLoginWithVault() async {
+    if (_autoLoginTried) return false;
+    _autoLoginTried = true;
+    final credentials = await WenkuAccountVault.read();
+    if (credentials == null || !credentials.valid) return false;
+    operation = '正在自动登录';
+    notifyListeners();
+    try {
+      await client.login(credentials.username, credentials.password);
+      if (!client.hasSession) return false;
+      await _acceptSession('自动登录成功，但账号资料暂时读取失败：');
+      error = null;
+      return authenticated;
+    } catch (_) {
+      return false;
+    } finally {
+      operation = null;
+    }
+  }
+
+  Future<void> _rememberCredentials(String username, String password) async {
+    if (!client.keepSession) return;
+    try {
+      await WenkuAccountVault.write(
+        WenkuAccountCredentials(username.trim(), password),
+      );
+    } catch (_) {
+      // 保险箱写入失败不能影响本次已经成功的登录。
     }
   }
 
@@ -124,6 +195,7 @@ class WenkuAccount extends ChangeNotifier {
       if (!client.hasSession) {
         throw const FormatException('登录接口没有返回会话，请用网页登录');
       }
+      await _rememberCredentials(username, password);
       await _acceptSession('登录成功，但账号资料暂时读取失败：');
     } catch (failure) {
       authenticated = false;
@@ -183,6 +255,7 @@ class WenkuAccount extends ChangeNotifier {
         authenticated = true;
         _revision++;
       }
+      _autoLoginTried = false;
       error = '$profileFailurePrefix${describeError(failure)}';
     }
   }
@@ -511,6 +584,8 @@ class WenkuAccount extends ChangeNotifier {
 
   Future<void> logout() async {
     await client.logout();
+    await WenkuAccountVault.clear();
+    _autoLoginTried = true;
     _initialized = true;
     authenticated = false;
     profile = null;

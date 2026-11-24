@@ -134,4 +134,64 @@ void main() {
     expect(text, contains('第二段正文'));
     expect(text, contains('第三段正文'));
   });
+
+  test('Legado 多页目录去重并按章节号排序', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((request) async {
+      final response = request.response;
+      response.headers.contentType = ContentType.html;
+      if (request.uri.path == '/book') {
+        response.write("""
+<html><body><h1>乱序书</h1><ul class="chapters">
+<li><a href="/c/1918">第1918章 吞下</a></li>
+<li><a href="/c/1917">第1917章 十七</a></li>
+<li><a href="/c/1">第1章 开端</a></li>
+<li><a href="/c/2">第2章 继续</a></li>
+<li><a href="/c/1">第1章 开端</a></li>
+</ul><a class="next" href="/book/2">下一页</a></body></html>""");
+      } else if (request.uri.path == '/book/2') {
+        response.write("""
+<html><body><ul class="chapters">
+<li><a href="/c/1916">第1916章 十六</a></li>
+<li><a href="/c/1915">第1915章 十五</a></li>
+<li><a href="/c/1914">第1914章 十四</a></li>
+<li><a href="/c/1913">第1913章 十三</a></li>
+<li><a href="/c/1912">第1912章 十二</a></li>
+</ul></body></html>""");
+      } else {
+        response.statusCode = 404;
+      }
+      await response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final rules = <String, dynamic>{
+      'ruleBookInfo': {'name': 'tag.h1.0@text'},
+      'ruleToc': {
+        'chapterList': 'class.chapters@tag.li',
+        'chapterName': 'tag.a.0@text',
+        'chapterUrl': 'tag.a.0@href',
+        'nextTocUrl': 'class.next@href',
+      },
+    };
+    final payload = LegadoReader.encodePayload(
+      base: base,
+      bookUrl: '$base/book',
+      rules: rules,
+    );
+    final detail = await LegadoReader.detail(payload, allowHttp: true);
+    expect(detail.document.title, '乱序书');
+    expect(detail.document.chapters.length, 9);
+    expect(detail.document.chapters.map((chapter) => chapter.title).toList(), [
+      '第1章 开端',
+      '第2章 继续',
+      '第1912章 十二',
+      '第1913章 十三',
+      '第1914章 十四',
+      '第1915章 十五',
+      '第1916章 十六',
+      '第1917章 十七',
+      '第1918章 吞下',
+    ]);
+  });
 }

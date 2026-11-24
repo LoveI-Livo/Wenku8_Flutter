@@ -216,7 +216,9 @@ final class LegadoReader {
     final tocPages = <(String, Uri)>[(tocBody, tocUri)];
     final nextTocRule = toc['nextTocUrl'] ?? info['nextTocUrl'];
     if (nextTocRule != null) {
-      for (var page = 0; page < 20; page++) {
+      // 目录分页不再只翻 20 页；长书 100+ 页目录很常见，提前截断正是
+      // “章节缺失”的来源之一。
+      for (var page = 0; page < 120; page++) {
         final next = _textValue(tocPages.last.$1, nextTocRule);
         if (next.isEmpty) break;
         final nextUri = Uri.tryParse(_resolve(tocPages.last.$2, next));
@@ -232,6 +234,7 @@ final class LegadoReader {
       }
     }
     final chapters = <WebNovelChapter>[];
+    final seenChapterUrls = <String>{};
     for (final page in tocPages) {
       final chapterList = _list(page.$1, chapterRule, page.$2);
       for (final item in chapterList) {
@@ -241,15 +244,18 @@ final class LegadoReader {
         if (name.isEmpty) continue;
         final resolved = link.isEmpty ? bookUrl : _resolve(page.$2, link);
         if (resolved.isEmpty) continue;
+        // 多页目录经常把“最新章节”和第一页重复拼接，先按“地址+标题”
+        // 去重；不同标题即使共用同一个阅读页也不能误删。
+        if (!seenChapterUrls.add('$resolved|$name')) continue;
         chapters.add(WebNovelChapter(name, resolved));
       }
       if (chapters.length >= 10000) break;
     }
-    if (reverse) {
-      final reversed = chapters.reversed.toList(growable: false);
+    final ordered = _orderChapters(chapters, reverse: reverse);
+    if (ordered.isNotEmpty) {
       chapters
         ..clear()
-        ..addAll(reversed);
+        ..addAll(ordered);
     }
     if (chapters.isEmpty) {
       // 规则没有给出目录时，最后再用通用网页目录识别兜底一次。
@@ -267,6 +273,95 @@ final class LegadoReader {
       ),
       rules: rules,
     );
+  }
+
+  static int? _chapterOrdinal(String title) {
+    final arabic = RegExp(r'第\s*(\d+)\s*[章节回卷部篇]').firstMatch(title);
+    if (arabic != null) return int.tryParse(arabic.group(1)!);
+    final chinese = RegExp(
+      r'第\s*([一二三四五六七八九十百千万零两〇]+)\s*[章节回卷部篇]',
+    ).firstMatch(title);
+    if (chinese != null) return _chineseNumber(chinese.group(1)!);
+    final leading = RegExp(
+      r'^\s*(?:Chapter\s*)?(\d{1,6})(?:[.、．\s]|$)',
+    ).firstMatch(title);
+    return leading == null ? null : int.tryParse(leading.group(1)!);
+  }
+
+  static int? _chineseNumber(String text) {
+    const digits = {
+      '零': 0,
+      '〇': 0,
+      '一': 1,
+      '二': 2,
+      '两': 2,
+      '三': 3,
+      '四': 4,
+      '五': 5,
+      '六': 6,
+      '七': 7,
+      '八': 8,
+      '九': 9,
+    };
+    const units = {'十': 10, '百': 100, '千': 1000, '万': 10000};
+    var total = 0, section = 0, number = 0;
+    for (final rune in text.runes) {
+      final char = String.fromCharCode(rune);
+      if (digits.containsKey(char)) {
+        number = digits[char]!;
+      } else if (units.containsKey(char)) {
+        final unit = units[char]!;
+        if (unit == 10000) {
+          section = (section + number) * unit;
+          total += section;
+          section = 0;
+        } else {
+          section += (number == 0 ? 1 : number) * unit;
+        }
+        number = 0;
+      }
+    }
+    final value = total + section + number;
+    return value > 0 ? value : null;
+  }
+
+  static List<WebNovelChapter> _orderChapters(
+    List<WebNovelChapter> chapters, {
+    required bool reverse,
+  }) {
+    if (chapters.length < 2) return chapters;
+    final entries = <({int index, int? number, WebNovelChapter chapter})>[
+      for (final (index, chapter) in chapters.indexed)
+        (
+          index: index,
+          number: _chapterOrdinal(chapter.title),
+          chapter: chapter,
+        ),
+    ];
+    final numbered = entries.where((entry) => entry.number != null).length;
+    if (numbered >= chapters.length * 0.6) {
+      final front = <WebNovelChapter>[];
+      final back = <WebNovelChapter>[];
+      for (final entry in entries.where((entry) => entry.number == null)) {
+        final title = entry.chapter.title;
+        if (RegExp(r'^(?:序|楔子|引子|前言|序章|卷首)').hasMatch(title)) {
+          front.add(entry.chapter);
+        } else {
+          back.add(entry.chapter);
+        }
+      }
+      final orderedNumbered =
+          entries.where((entry) => entry.number != null).toList()..sort((a, b) {
+            final byNumber = a.number!.compareTo(b.number!);
+            return byNumber != 0 ? byNumber : a.index.compareTo(b.index);
+          });
+      return [
+        ...front,
+        ...orderedNumbered.map((entry) => entry.chapter),
+        ...back,
+      ];
+    }
+    return reverse ? chapters.reversed.toList(growable: false) : chapters;
   }
 
   static Future<String> content(

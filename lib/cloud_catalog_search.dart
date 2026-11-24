@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import 'book_search.dart';
 import 'catalog.dart';
 import 'cloud_document_service.dart';
@@ -7,6 +9,32 @@ import 'cloud_parse_service.dart';
 import 'cloud_sources.dart';
 
 enum CloudSearchScope { all, netDisks, sources }
+
+/// 搜索页顶部的确定性进度。total 按“单个书源/单个网盘连接”计算，
+/// 500 个书源 + 再导入 500 个时进度是 1..1000，而不是 1..2。
+class CloudSearchProgress extends ChangeNotifier {
+  int done = 0, total = 0;
+  bool get active => total > 0;
+
+  void begin(int value) {
+    done = 0;
+    total = value < 0 ? 0 : value;
+    notifyListeners();
+  }
+
+  void advance() {
+    if (done >= total) return;
+    done++;
+    notifyListeners();
+  }
+
+  void close() {
+    if (total == 0 && done == 0) return;
+    total = 0;
+    done = 0;
+    notifyListeners();
+  }
+}
 
 /// 搜索页可选的单一来源。
 class CloudSearchTarget {
@@ -44,6 +72,9 @@ class CloudCatalogSearch {
 
   /// 最近一次搜索中被跳过的来源错误，页面可用来提示“不是没书，而是源没连上”。
   String? lastFailure;
+
+  /// 当前搜索进度；页面监听它绘制 1..N 的进度条。
+  final progress = CloudSearchProgress();
 
   /// 每次搜索都重新读取当前已连接来源，新添加的网盘会自动进入搜索，
   /// 不需要重启 App，也不依赖固定列表。
@@ -152,104 +183,147 @@ class CloudCatalogSearch {
                         )),
         )
         .toList();
-    if (configs.isEmpty) return const [];
+    if (configs.isEmpty) {
+      progress.close();
+      return const [];
+    }
 
+    final sourcePlan = <CloudSourceConfig, List<CloudBookSource>>{};
+    var total = 0;
+    for (final config in configs) {
+      if (config.kind == CloudSourceKind.rss) {
+        final selected = config.effectiveSources
+            .where((source) => keys.contains('rss:${source.key}'))
+            .toList(growable: false);
+        sourcePlan[config] = selected;
+        total += selected.isEmpty
+            ? config.effectiveSources.length
+            : selected.length;
+      } else {
+        sourcePlan[config] = const [];
+        total++;
+      }
+    }
+    progress.begin(total);
     final parseSettings = CloudParseSettings.instance;
     await parseSettings.load();
     final results = <Novel>[];
-    await Future.wait(
-      configs.map((config) async {
-        CloudBookClient? client;
-        try {
-          final selectedSources = config.kind == CloudSourceKind.rss
-              ? config.effectiveSources
-                    .where((source) => keys.contains('rss:${source.key}'))
-                    .toList(growable: false)
-              : const <CloudBookSource>[];
-          client =
-              config.kind == CloudSourceKind.rss && selectedSources.isNotEmpty
-              ? RssBookClient(config, sourceEntries: selectedSources)
-              : CloudBookClient(config, settings: settings);
-          final walk = await _searchClient(
-            client,
-            value,
-            config: config,
-            refresh: refresh,
-          ).timeout(_walkBudget);
+    try {
+      await Future.wait(
+        configs.map((config) async {
+          CloudBookClient? client;
+          try {
+            final selectedSources =
+                sourcePlan[config] ?? const <CloudBookSource>[];
+            client =
+                config.kind == CloudSourceKind.rss && selectedSources.isNotEmpty
+                ? RssBookClient(
+                    config,
+                    sourceEntries: selectedSources,
+                    onSourceDone: progress.advance,
+                  )
+                : CloudBookClient(config, settings: settings);
+            final walk = await _searchClient(
+              client,
+              value,
+              config: config,
+              refresh: refresh,
+            ).timeout(_walkBudget);
+            // 让进度条等到单源任务完成/超时，不因首批结果提前出现而收起。
+            if (client is RssBookClient) {
+              try {
+                await client.sourcesDone.timeout(const Duration(seconds: 9));
+              } catch (_) {
+                // 超时由 client 内部的 8 秒计时器结束，不阻塞结果展示。
+              }
+            }
 
-          if (walk.matches.isNotEmpty) {
-            for (final entry in walk.matches) {
+            if (walk.matches.isNotEmpty) {
+              for (final entry in walk.matches) {
+                if (results.length >= _maxResults) return;
+                final novel = _novelFor(entry, config);
+                if (!results.any((existing) => existing.id == novel.id)) {
+                  results.add(novel);
+                }
+              }
+              return;
+            }
+
+            // 文件名、作者、RSS 简介都没有命中时，只对少量小文件做元数据识别。
+            // 这样可以搜到 TXT/EPUB 内部写的书名、作者和简介，同时避免把整个
+            // 网盘的大文件都拉一遍。
+            if (!parseSettings.enabled || walk.files.isEmpty) return;
+            final candidates = _probeCandidates(walk.files);
+            for (var start = 0; start < candidates.length; start += 3) {
+              final batch = candidates.skip(start).take(3);
+              final probed = await Future.wait<Novel?>(
+                batch.map((entry) async {
+                  try {
+                    return await CloudDocumentService.instance
+                        .enrich(_novelFor(entry, config), cloudOnly: true)
+                        .timeout(_probeBudget);
+                  } catch (_) {
+                    return null;
+                  }
+                }),
+              );
+              for (final novel in probed.whereType<Novel>()) {
+                if (_matches(value, novel) &&
+                    !results.any((existing) => existing.id == novel.id)) {
+                  results.add(novel);
+                }
+              }
+              if (results.length >= _maxResults) return;
+            }
+            // 正文兜底：只对最小的几个文本文件解析正文，避免为了搜索把整个
+            // 网盘都下载下来。搜“妹妹”这类只出现在正文里的词也能命中。
+            final textCandidates = candidates
+                .where(
+                  (entry) =>
+                      entry.size > 0 &&
+                      entry.size <= 2 * 1024 * 1024 &&
+                      RegExp(
+                        r'\.(?:txt|md|markdown|html?|xhtml)$',
+                        caseSensitive: false,
+                      ).hasMatch(entry.name),
+                )
+                .take(2);
+            for (final entry in textCandidates) {
               if (results.length >= _maxResults) return;
               final novel = _novelFor(entry, config);
-              if (!results.any((existing) => existing.id == novel.id)) {
+              if (results.any((existing) => existing.id == novel.id)) continue;
+              if (await CloudDocumentService.instance.containsText(
+                novel,
+                value,
+              )) {
                 results.add(novel);
               }
             }
-            return;
+          } catch (failure) {
+            // 单个来源超时、未登录或格式不支持不影响其他来源，但要记录原因。
+            failures.add('${config.label}：${cloudFailureMessage(failure)}');
+          } finally {
+            client?.close();
+            if (config.kind != CloudSourceKind.rss) progress.advance();
           }
-
-          // 文件名、作者、RSS 简介都没有命中时，只对少量小文件做元数据识别。
-          // 这样可以搜到 TXT/EPUB 内部写的书名、作者和简介，同时避免把整个
-          // 网盘的大文件都拉一遍。
-          if (!parseSettings.enabled || walk.files.isEmpty) return;
-          final candidates = _probeCandidates(walk.files);
-          for (var start = 0; start < candidates.length; start += 3) {
-            final batch = candidates.skip(start).take(3);
-            final probed = await Future.wait<Novel?>(
-              batch.map((entry) async {
-                try {
-                  return await CloudDocumentService.instance
-                      .enrich(_novelFor(entry, config), cloudOnly: true)
-                      .timeout(_probeBudget);
-                } catch (_) {
-                  return null;
-                }
-              }),
-            );
-            for (final novel in probed.whereType<Novel>()) {
-              if (_matches(value, novel) &&
-                  !results.any((existing) => existing.id == novel.id)) {
-                results.add(novel);
-              }
-            }
-            if (results.length >= _maxResults) return;
-          }
-          // 正文兜底：只对最小的几个文本文件解析正文，避免为了搜索把整个
-          // 网盘都下载下来。搜“妹妹”这类只出现在正文里的词也能命中。
-          final textCandidates = candidates
-              .where(
-                (entry) =>
-                    entry.size > 0 &&
-                    entry.size <= 2 * 1024 * 1024 &&
-                    RegExp(
-                      r'\.(?:txt|md|markdown|html?|xhtml)$',
-                      caseSensitive: false,
-                    ).hasMatch(entry.name),
-              )
-              .take(2);
-          for (final entry in textCandidates) {
-            if (results.length >= _maxResults) return;
-            final novel = _novelFor(entry, config);
-            if (results.any((existing) => existing.id == novel.id)) continue;
-            if (await CloudDocumentService.instance.containsText(
-              novel,
-              value,
-            )) {
-              results.add(novel);
-            }
-          }
-        } catch (failure) {
-          // 单个来源超时、未登录或格式不支持不影响其他来源，但要记录原因。
-          failures.add('${config.label}：${cloudFailureMessage(failure)}');
-        } finally {
-          client?.close();
-        }
-      }),
-    );
+        }),
+      );
+    } finally {
+      progress.close();
+    }
     // 已经在本机识别过的网盘书也参与搜索。在线目录偶尔超时、分页或
     // 站点改版时，书架里已有的书不能从搜索里消失。
     if (results.length < _maxResults) {
       for (final known in CloudDocumentService.instance.knownBooks) {
+        final kind = known.remoteKind;
+        // 网盘页不能把书源缓存书混进来，书源页也不能混入网盘书。
+        final inScope = switch (scope) {
+          CloudSearchScope.netDisks =>
+            kind != null && kind != CloudSourceKind.rss.name,
+          CloudSearchScope.sources => kind == CloudSourceKind.rss.name,
+          CloudSearchScope.all => kind != null,
+        };
+        if (!inScope) continue;
         if (results.any((existing) => existing.id == known.id)) continue;
         if (_matches(value, known)) results.add(known);
         if (results.length >= _maxResults) break;

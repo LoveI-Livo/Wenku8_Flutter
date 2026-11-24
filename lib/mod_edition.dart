@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.8.6';
-const modEditionBuild = 3028;
+const modEditionVersion = '0.8.7';
+const modEditionBuild = 3029;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -57,6 +57,18 @@ class ModChange {
 
 /// 改动清单，显示在「关于 → 改版说明」。
 const modEditionChanges = <ModChange>[
+  ModChange(
+    '账号保险箱与自动登录',
+    '账号密码保存在 AndroidKeyStore / iOS Keychain 加密保险箱；覆盖安装、重启或官网会话过期后自动静默重登，只有主动退出账号才清除。',
+  ),
+  ModChange(
+    '搜索隔离与来源进度',
+    '网盘搜索不再混入书源缓存书，书源搜索也不会出现网盘书；搜索进度按单个书源/网盘连接推进，500+500 个书源会显示 1..1000。',
+  ),
+  ModChange(
+    '目录去重与章节排序',
+    '书源目录最多翻 120 页，多页目录按章节 URL 去重，再按章节号升序排列；正文规则失效时回退通用网页正文，章节不再点不开。',
+  ),
   ModChange(
     '云端主机解析',
     '可把自己的 PHP 虚拟主机设为解析服务：网盘直链交给主机拉取和解析，'

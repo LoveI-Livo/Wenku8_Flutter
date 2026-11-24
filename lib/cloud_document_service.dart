@@ -462,16 +462,46 @@ class CloudDocumentService {
   }
 
   Future<Novel> _detailFromLegado(Novel novel, String payload) async {
-    final parsed = await _bounded(
-      LegadoReader.detail(
-        payload,
-        allowHttp: false,
-        cookie: novel.remoteCookie ?? '',
-        authorization: novel.remoteAuthorization ?? '',
-      ),
-      '书源详情加载超时，请换一个书源或稍后重试',
-    );
-    final document = parsed.document;
+    WebNovelDocument? document;
+    Object? primaryError;
+    try {
+      final parsed = await _bounded(
+        LegadoReader.detail(
+          payload,
+          allowHttp: false,
+          cookie: novel.remoteCookie ?? '',
+          authorization: novel.remoteAuthorization ?? '',
+        ),
+        '书源详情加载超时，请换一个书源或稍后重试',
+      );
+      document = parsed.document;
+    } catch (error) {
+      primaryError = error;
+      // 规则选择器失效时，仍然尝试把书源详情页当普通网页解析。
+      final decoded = LegadoReader.decodePayload(payload);
+      final bookUrl = (decoded?['book'] ?? '').toString().trim();
+      if (bookUrl.isNotEmpty) {
+        try {
+          final generic = await _bounded(
+            WebNovelReader.inspect(
+              bookUrl,
+              cookie: novel.remoteCookie ?? '',
+              authorization: novel.remoteAuthorization ?? '',
+              allowHttp: bookUrl.startsWith('http://'),
+            ),
+            '书源详情加载超时，请换一个书源或稍后重试',
+          );
+          if (generic.hasContent) document = generic;
+        } catch (_) {
+          // 保留原始错误，下面会换成可操作提示。
+        }
+      }
+    }
+    if (document == null) {
+      throw CloudSourceFailure(
+        '书源详情加载失败：${primaryError == null ? '目录为空' : primaryError.toString()}',
+      );
+    }
     final chapters = <NovelChapter>[
       for (var index = 0; index < document.chapters.length; index++)
         NovelChapter(document.chapters[index].title, '', id: index + 1),
@@ -533,17 +563,33 @@ class CloudDocumentService {
       return '本章正文暂时没有取到，请返回目录重新打开，或换一个来源重试。';
     }
     if (_legadoPayloads[id] case final payload?) {
-      final text = await _bounded(
-        LegadoReader.content(
-          url,
-          payload: payload,
-          cookie: document.novel.remoteCookie ?? '',
-          authorization: document.novel.remoteAuthorization ?? '',
-        ),
-        '书源正文加载超时，请重试',
-      );
-      document.bodies[chapter.id] = text;
-      return text;
+      try {
+        final text = await _bounded(
+          LegadoReader.content(
+            url,
+            payload: payload,
+            cookie: document.novel.remoteCookie ?? '',
+            authorization: document.novel.remoteAuthorization ?? '',
+          ),
+          '书源正文加载超时，请重试',
+        );
+        document.bodies[chapter.id] = text;
+        return text;
+      } catch (_) {
+        // 规则选择器失效或章节页结构变了时，不要让阅读页永远空着；
+        // 再用通用网页正文识别兜底一次（这是同一章 URL，不会串章）。
+        final fallback = await _bounded(
+          WebNovelReader.content(
+            url,
+            cookie: document.novel.remoteCookie ?? '',
+            authorization: document.novel.remoteAuthorization ?? '',
+            allowHttp: url.startsWith('http://'),
+          ),
+          '书源正文加载超时，请重试',
+        );
+        document.bodies[chapter.id] = fallback;
+        return fallback;
+      }
     }
     final novel = document.novel;
     final text = await _bounded(

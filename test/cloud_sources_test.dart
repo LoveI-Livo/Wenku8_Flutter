@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wenku8_flutter/cloud_catalog_search.dart';
 import 'package:wenku8_flutter/cloud_sources.dart';
 
 class _MemoryStorage implements CloudConfigStorage {
@@ -223,5 +224,22 @@ void main() {
       expect(kind.isAccount, isTrue);
       expect(kind.isDirectLink, isFalse);
     }
+  });
+
+  test('搜索进度按单个来源递增并收尾', () {
+    final progress = CloudSearchProgress();
+    progress.begin(1000);
+    expect(progress.active, isTrue);
+    expect(progress.done, 0);
+    for (var i = 0; i < 998; i++) {
+      progress.advance();
+    }
+    expect(progress.done, 998);
+    expect(progress.total, 1000);
+    progress.advance();
+    progress.advance();
+    expect(progress.done, 1000);
+    progress.close();
+    expect(progress.active, isFalse);
   });
 }

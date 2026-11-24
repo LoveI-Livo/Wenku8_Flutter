@@ -8,6 +8,7 @@ struct NativeSecureRecord {
   let account: String
 
   static let cloudSources = appRecord("cloud_sources", account: "connections")
+  static let wenkuCredentials = appRecord("wenku_account", account: "credentials")
   static let customSpeech = appRecord("custom_speech", account: "configuration")
   static let lanReading = appRecord("lan_reading_config", account: "configuration")
 

@@ -135,6 +135,14 @@ final class NativeLibraryPlugin: NSObject, FlutterPlugin, UIDocumentPickerDelega
               try storage.write(text)
             } else { try storage.write(call.arguments as? String) }
             value = nil
+          case "readCredentials":
+            value = try NativeSecureRecord.wenkuCredentials.read()
+          case "writeCredentials":
+            try NativeSecureRecord.wenkuCredentials.write(call.arguments as? String)
+            value = nil
+          case "clearCredentials":
+            try NativeSecureRecord.wenkuCredentials.write(nil)
+            value = nil
           default: value = FlutterMethodNotImplemented
           }
           DispatchQueue.main.async { result(value) }

@@ -1691,6 +1691,7 @@ class RssBookClient extends DirectLinkBookClient {
     super.config, {
     List<String>? sources,
     List<CloudBookSource>? sourceEntries,
+    this.onSourceDone,
   }) : _override = sources,
        _entriesOverride = sourceEntries;
 
@@ -1698,6 +1699,11 @@ class RssBookClient extends DirectLinkBookClient {
   static const _maxEntries = 500;
   final List<String>? _override;
   final List<CloudBookSource>? _entriesOverride;
+  final void Function()? onSourceDone;
+  final Completer<void> _sourcesDone = Completer<void>();
+
+  /// 搜索提前返回首批结果时，进度条仍要等所有书源完成/超时后再收起。
+  Future<void> get sourcesDone => _sourcesDone.future;
 
   List<CloudBookSource> get _sourceObjects {
     if (_entriesOverride case final entries?) {
@@ -1723,6 +1729,7 @@ class RssBookClient extends DirectLinkBookClient {
     List<T> sources,
     Future<void> Function(T source) action, {
     int workers = 8,
+    void Function()? onDone,
   }) async {
     var next = 0;
     Future<void> worker() async {
@@ -1730,6 +1737,7 @@ class RssBookClient extends DirectLinkBookClient {
         final index = next++;
         if (index >= sources.length) return;
         await action(sources[index]);
+        onDone?.call();
       }
     }
 
@@ -1849,65 +1857,77 @@ class RssBookClient extends DirectLinkBookClient {
     // 书源搜索全是独立 HTTP 请求。原来的 8 个并发配 276 个书源会让
     // 搜索串行排到几分钟；提高到 32 路，8 秒内先把已经返回的条目交给
     // 页面，单个坏源不再拖住整次搜索。
-    unawaited(
-      _parallel(_sourceObjects, workers: 32, (source) async {
-        if (stopped) return;
-        attempted++;
-        if (LegadoReader.supports(source)) {
-          try {
-            final listing = await LegadoReader.search(
-              source,
-              value,
-              page: page,
-              allowHttp:
-                  config.allowHttp ||
-                  source.url.trim().toLowerCase().startsWith('http://'),
-              cookie: config.cookie,
-              authorization: authHeaders[HttpHeaders.authorizationHeader] ?? '',
-            ).timeout(const Duration(seconds: 6));
-            for (final entry in listing.entries) {
-              if (stopped) return;
-              entries.putIfAbsent(entry.id, () => entry);
-              if (entries.length >= _maxEntries) return;
-            }
-          } catch (error) {
-            firstFailure ??= error;
-            // 一个 Legado 书源规则失效不影响其它书源。
-          }
-          return;
-        }
-        final sourceUrl = source.url;
-        final hasQuery = sourceUrl.contains('{query}');
-        final target = sourceUrl
-            .replaceAll('{query}', Uri.encodeQueryComponent(value))
-            .replaceAll('{page}', '$page');
-        try {
-          final pageEntries = await _entriesFor(
-            target,
-            page: page,
-          ).timeout(const Duration(seconds: 6));
-          for (final entry in pageEntries) {
+    final sourceTasks =
+        _parallel(
+          _sourceObjects,
+          (source) async {
             if (stopped) return;
-            final matches = hasQuery
-                ? true
-                : pattern.matches(
-                    title: entry.name,
-                    author: entry.author,
-                    tags: '',
-                    summary: entry.summary,
-                    id: entry.id,
-                  );
-            if (!matches) continue;
-            entries.putIfAbsent(entry.id, () => entry);
-            if (entries.length >= _maxEntries) return;
-          }
-        } catch (error) {
-          firstFailure ??= error;
-          // 一个书源失效不影响其他书源。
-        }
-      }).whenComplete(finish),
-    );
-    final timer = Timer(const Duration(seconds: 8), finish);
+            attempted++;
+            if (LegadoReader.supports(source)) {
+              try {
+                final listing = await LegadoReader.search(
+                  source,
+                  value,
+                  page: page,
+                  allowHttp:
+                      config.allowHttp ||
+                      source.url.trim().toLowerCase().startsWith('http://'),
+                  cookie: config.cookie,
+                  authorization:
+                      authHeaders[HttpHeaders.authorizationHeader] ?? '',
+                ).timeout(const Duration(seconds: 6));
+                for (final entry in listing.entries) {
+                  if (stopped) return;
+                  entries.putIfAbsent(entry.id, () => entry);
+                  if (entries.length >= _maxEntries) return;
+                }
+              } catch (error) {
+                firstFailure ??= error;
+                // 一个 Legado 书源规则失效不影响其它书源。
+              }
+              return;
+            }
+            final sourceUrl = source.url;
+            final hasQuery = sourceUrl.contains('{query}');
+            final target = sourceUrl
+                .replaceAll('{query}', Uri.encodeQueryComponent(value))
+                .replaceAll('{page}', '$page');
+            try {
+              final pageEntries = await _entriesFor(
+                target,
+                page: page,
+              ).timeout(const Duration(seconds: 6));
+              for (final entry in pageEntries) {
+                if (stopped) return;
+                final matches = hasQuery
+                    ? true
+                    : pattern.matches(
+                        title: entry.name,
+                        author: entry.author,
+                        tags: '',
+                        summary: entry.summary,
+                        id: entry.id,
+                      );
+                if (!matches) continue;
+                entries.putIfAbsent(entry.id, () => entry);
+                if (entries.length >= _maxEntries) return;
+              }
+            } catch (error) {
+              firstFailure ??= error;
+              // 一个书源失效不影响其他书源。
+            }
+          },
+          workers: 32,
+          onDone: onSourceDone,
+        ).whenComplete(() {
+          if (!_sourcesDone.isCompleted) _sourcesDone.complete();
+          finish();
+        });
+    unawaited(sourceTasks);
+    final timer = Timer(const Duration(seconds: 8), () {
+      if (!_sourcesDone.isCompleted) _sourcesDone.complete();
+      finish();
+    });
     try {
       return await completer.future;
     } finally {
