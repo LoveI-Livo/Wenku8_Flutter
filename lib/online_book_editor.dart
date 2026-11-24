@@ -11,6 +11,7 @@ import 'book_documents.dart';
 import 'legacy_cover.dart';
 import 'book_categories.dart';
 import 'catalog.dart';
+import 'cloud_document_service.dart';
 import 'cloud_parse_service.dart';
 import 'feature_pages.dart' show FeatureEntry, FeatureError, featurePadding;
 import 'library_state.dart';
@@ -38,7 +39,11 @@ class OnlineBookEditor extends StatefulWidget {
 class _OnlineBookEditorState extends State<OnlineBookEditor> {
   late final _title = TextEditingController(text: widget.book.title);
   late final _author = TextEditingController(text: widget.book.author);
-  late final _summary = TextEditingController(text: widget.book.summary);
+  late final _summary = TextEditingController(
+    text: CloudDocumentService.isPlaceholderSummary(widget.book.summary)
+        ? ''
+        : widget.book.summary,
+  );
   late List<String> _tags = widget.book.tags;
   late String? _coverUrl = widget.book.coverUrl;
   String? get _originalCoverUrl => widget.book.coverUrl;

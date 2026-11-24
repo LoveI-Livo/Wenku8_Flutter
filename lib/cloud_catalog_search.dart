@@ -215,11 +215,12 @@ class CloudCatalogSearch {
           try {
             final selectedSources =
                 sourcePlan[config] ?? const <CloudBookSource>[];
-            client =
-                config.kind == CloudSourceKind.rss && selectedSources.isNotEmpty
+            client = config.kind == CloudSourceKind.rss
                 ? RssBookClient(
                     config,
-                    sourceEntries: selectedSources,
+                    sourceEntries: selectedSources.isEmpty
+                        ? null
+                        : selectedSources,
                     onSourceDone: progress.advance,
                   )
                 : CloudBookClient(config, settings: settings);

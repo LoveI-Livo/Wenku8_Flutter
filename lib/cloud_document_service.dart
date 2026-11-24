@@ -17,6 +17,7 @@ import 'cloud_cover_media.dart';
 import 'cloud_parse_service.dart';
 import 'cloud_sources.dart';
 import 'portable_book_text.dart';
+import 'reader_text_cleaner.dart';
 
 /// 把网盘直链当作“远程书籍”读取：只在内存里解析，不落地保存原文件。
 ///
@@ -82,9 +83,7 @@ class CloudDocumentService {
       title: _cleanName(title?.trim().isNotEmpty == true ? title! : name),
       author: author?.trim().isNotEmpty == true ? author! : '网盘书源',
       genre: '',
-      summary: summary?.trim().isNotEmpty == true
-          ? summary!.trim()
-          : '来自网盘直链，在线阅读，不下载原文件。',
+      summary: summary?.trim().isNotEmpty == true ? summary!.trim() : '',
       colors: const [Color(0xFF225577), Color(0xFF44AACC)],
       coverUrl: coverUrl,
       remoteUrl: url,
@@ -104,12 +103,32 @@ class CloudDocumentService {
   /// 重新挂回内存，避免 `chapters()` 在详情还没加载时误报“请从书架重新打开”。
   Novel adopt(Novel novel) {
     final url = novel.remoteUrl?.trim() ?? '';
-    final source = _polishDisplay(novel);
+    var source = _polishDisplay(novel);
+    if (isPlaceholderSummary(source.summary)) {
+      source = source.withMetadata(summary: '');
+    }
     if (url.isNotEmpty) {
       _urls[novel.id] = url;
-      _metadata.putIfAbsent(novel.id, () => source);
+      _metadata[novel.id] = source;
     }
     return source;
+  }
+
+  /// 旧版给没有简介的网盘书写过占位文案。它不是原书简介，任何界面都
+  /// 不应再把它当成正文简介展示。
+  static bool isPlaceholderSummary(String value) {
+    final text = value.trim();
+    return text.isEmpty ||
+        text == '来自网盘直链，在线阅读，不下载原文件。' ||
+        text == '在线阅读，不下载原文件' ||
+        text == '在线阅读，不下载原文件。';
+  }
+
+  String? _detailSummary(String? incoming, String current) {
+    final text = incoming?.trim() ?? '';
+    if (text.isNotEmpty && !isPlaceholderSummary(text)) return text;
+    if (isPlaceholderSummary(current)) return '';
+    return null;
   }
 
   /// 网盘书不再在书架、详情页堆一长串“OpenList / WebDAV · 在线阅读”，
@@ -447,11 +466,15 @@ class CloudDocumentService {
         .withMetadata(
           title: document.title,
           author: document.author,
-          summary: document.summary,
+          summary: _detailSummary(document.summary, novel.summary),
           coverUrl: document.coverUrl,
         )
         .withChapters(chapters);
-    _documents[novel.id] = _CloudDocument(full, <int, String>{});
+    final initialBodies = <int, String>{};
+    if (document.content.trim().isNotEmpty && chapters.isNotEmpty) {
+      initialBodies[chapters.first.id] = document.content;
+    }
+    _documents[novel.id] = _CloudDocument(full, initialBodies);
     _webChapterUrls[novel.id] = {
       for (var index = 0; index < document.chapters.length; index++)
         index + 1: document.chapters[index].url,
@@ -488,6 +511,7 @@ class CloudDocumentService {
               cookie: novel.remoteCookie ?? '',
               authorization: novel.remoteAuthorization ?? '',
               allowHttp: bookUrl.startsWith('http://'),
+              referer: bookUrl,
             ),
             '书源详情加载超时，请换一个书源或稍后重试',
           );
@@ -510,11 +534,15 @@ class CloudDocumentService {
         .withMetadata(
           title: document.title,
           author: document.author,
-          summary: document.summary,
+          summary: _detailSummary(document.summary, novel.summary),
           coverUrl: document.coverUrl,
         )
         .withChapters(chapters);
-    _documents[novel.id] = _CloudDocument(full, <int, String>{});
+    final initialBodies = <int, String>{};
+    if (document.content.trim().isNotEmpty && chapters.isNotEmpty) {
+      initialBodies[chapters.first.id] = document.content;
+    }
+    _documents[novel.id] = _CloudDocument(full, initialBodies);
     _legadoPayloads[novel.id] = payload;
     _webChapterUrls[novel.id] = {
       for (var index = 0; index < document.chapters.length; index++)
@@ -557,52 +585,74 @@ class CloudDocumentService {
   Future<String> chapterContent(int id, NovelChapter chapter) async {
     final document = await _ensure(id);
     final cached = document.bodies[chapter.id];
-    if (cached != null && cached.isNotEmpty) return cached;
+    if (cached != null && cached.isNotEmpty) return cleanReadingText(cached);
     final url = _webChapterUrls[id]?[chapter.id];
     if (url == null) {
       return '本章正文暂时没有取到，请返回目录重新打开，或换一个来源重试。';
     }
+    final novel = document.novel;
+    final referer = novel.remoteUrl?.trim() ?? '';
     if (_legadoPayloads[id] case final payload?) {
+      final decoded = LegadoReader.decodePayload(payload);
+      final bookUrl = (decoded?['book'] ?? '').toString().trim();
       try {
         final text = await _bounded(
           LegadoReader.content(
             url,
             payload: payload,
-            cookie: document.novel.remoteCookie ?? '',
-            authorization: document.novel.remoteAuthorization ?? '',
+            cookie: novel.remoteCookie ?? '',
+            authorization: novel.remoteAuthorization ?? '',
+            referer: bookUrl,
           ),
           '书源正文加载超时，请重试',
         );
-        document.bodies[chapter.id] = text;
-        return text;
+        final cleaned = cleanReadingText(text);
+        document.bodies[chapter.id] = cleaned;
+        return cleaned;
       } catch (_) {
-        // 规则选择器失效或章节页结构变了时，不要让阅读页永远空着；
+        // 规则选择器失效、反盗链或章节页结构变了时，不要让阅读页永远空着；
         // 再用通用网页正文识别兜底一次（这是同一章 URL，不会串章）。
-        final fallback = await _bounded(
-          WebNovelReader.content(
-            url,
-            cookie: document.novel.remoteCookie ?? '',
-            authorization: document.novel.remoteAuthorization ?? '',
-            allowHttp: url.startsWith('http://'),
-          ),
-          '书源正文加载超时，请重试',
-        );
-        document.bodies[chapter.id] = fallback;
-        return fallback;
+        try {
+          final fallback = await _bounded(
+            WebNovelReader.content(
+              url,
+              cookie: novel.remoteCookie ?? '',
+              authorization: novel.remoteAuthorization ?? '',
+              allowHttp: url.startsWith('http://'),
+              referer: bookUrl,
+            ),
+            '书源正文加载超时，请重试',
+            after: const Duration(seconds: 12),
+          );
+          final cleaned = cleanReadingText(fallback);
+          document.bodies[chapter.id] = cleaned;
+          return cleaned;
+        } catch (_) {
+          throw const CloudSourceFailure('这一章的正文被来源网站拦截了，请返回目录重试，或换一个书源');
+        }
       }
     }
-    final novel = document.novel;
-    final text = await _bounded(
+    var text = await _bounded(
       WebNovelReader.content(
         url,
         cookie: novel.remoteCookie ?? '',
         authorization: novel.remoteAuthorization ?? '',
         allowHttp: url.startsWith('http://'),
+        referer: referer,
       ),
       '书源正文加载超时，请重试',
     );
-    document.bodies[chapter.id] = text;
-    return text;
+    var cleaned = cleanReadingText(text);
+    if (cleaned.trim().isEmpty) {
+      // 有的站点只在详情页给正文；单页书详情阶段已经抓到正文时直接复用。
+      final pageBody = document.bodies[chapter.id];
+      cleaned = cleanReadingText(pageBody ?? '');
+    }
+    if (cleaned.trim().isEmpty) {
+      throw const CloudSourceFailure('这一章的正文为空，请返回目录重试，或换一个书源');
+    }
+    document.bodies[chapter.id] = cleaned;
+    return cleaned;
   }
 
   Future<_CloudDocument> _ensure(int id) async {
@@ -1211,7 +1261,7 @@ class CloudDocumentService {
   Novel _withSource(Novel parsed, Novel source) {
     final fallbackAuthor =
         parsed.author == '网盘书源' || parsed.author.trim().isEmpty;
-    final fallbackSummary = parsed.summary == '来自网盘直链，在线阅读，不下载原文件。';
+    final fallbackSummary = isPlaceholderSummary(parsed.summary);
     return Novel(
       id: parsed.id,
       title: parsed.title,
@@ -1219,7 +1269,10 @@ class CloudDocumentService {
           ? source.author
           : parsed.author,
       genre: parsed.genre,
-      summary: fallbackSummary && source.summary.trim().isNotEmpty
+      summary:
+          fallbackSummary &&
+              source.summary.trim().isNotEmpty &&
+              !isPlaceholderSummary(source.summary)
           ? source.summary
           : parsed.summary,
       colors: parsed.colors,
@@ -1265,7 +1318,7 @@ class CloudDocumentService {
     genre: '',
     summary: summary?.trim().isNotEmpty == true
         ? _limit(summary!.trim(), 500)
-        : '来自网盘直链，在线阅读，不下载原文件。',
+        : '',
     colors: const [Color(0xFF225577), Color(0xFF44AACC)],
     chapters: chapters,
     coverUrl:

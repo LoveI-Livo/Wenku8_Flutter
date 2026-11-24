@@ -259,7 +259,13 @@ final class LegadoReader {
     }
     if (chapters.isEmpty) {
       // 规则没有给出目录时，最后再用通用网页目录识别兜底一次。
-      final doc = await WebNovelReader.inspect(bookUrl, allowHttp: useHttp);
+      final doc = await WebNovelReader.inspect(
+        bookUrl,
+        allowHttp: useHttp,
+        cookie: cookie,
+        authorization: authorization,
+        referer: bookUrl,
+      );
       if (doc.chapters.isNotEmpty) return (document: doc, rules: rules);
       throw const CloudSourceFailure('Legado 书源没有找到目录');
     }
@@ -370,6 +376,7 @@ final class LegadoReader {
     bool allowHttp = false,
     String cookie = '',
     String authorization = '',
+    String referer = '',
   }) async {
     final decoded = decodePayload(payload);
     if (decoded == null) throw const CloudSourceFailure('Legado 书源链接已损坏');
@@ -388,7 +395,11 @@ final class LegadoReader {
       cookie: cookie,
       authorization: authorization,
       allowHttp: useHttp,
-      extraHeaders: _headers(rules['header']),
+      extraHeaders: {
+        ..._headers(rules['header']),
+        if (referer.trim().isNotEmpty)
+          HttpHeaders.refererHeader: referer.trim(),
+      },
     );
     final contentMap = _ruleMap(rules['ruleContent']);
     final selector =
@@ -409,7 +420,11 @@ final class LegadoReader {
           cookie: cookie,
           authorization: authorization,
           allowHttp: useHttp,
-          extraHeaders: _headers(rules['header']),
+          extraHeaders: {
+            ..._headers(rules['header']),
+            if (referer.trim().isNotEmpty)
+              HttpHeaders.refererHeader: referer.trim(),
+          },
         );
         final part = _contentText(currentBody, selector);
         if (part.trim().isNotEmpty) parts.add(part);

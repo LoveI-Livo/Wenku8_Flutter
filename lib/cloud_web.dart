@@ -13,6 +13,7 @@ class WebNovelDocument {
     this.coverUrl,
     this.chapters = const [],
     this.singlePage = false,
+    this.content = '',
   });
 
   final String? title;
@@ -21,6 +22,9 @@ class WebNovelDocument {
   final String? coverUrl;
   final List<WebNovelChapter> chapters;
   final bool singlePage;
+
+  /// 单页书详情页已经抓到的正文，打开阅读时直接复用，避免二次请求被站点拦截。
+  final String content;
   bool get hasContent => singlePage || chapters.isNotEmpty;
 }
 
@@ -90,12 +94,14 @@ class WebNovelReader {
     String cookie = '',
     String authorization = '',
     bool allowHttp = false,
+    String referer = '',
   }) async {
     final page = await _fetch(
       url,
       cookie: cookie,
       authorization: authorization,
       allowHttp: allowHttp,
+      referer: referer,
     );
     final doc = html.parse(page.body);
     final info = _bookInfo(doc, page.uri);
@@ -121,6 +127,18 @@ class WebNovelReader {
           WebNovelChapter(title.isEmpty ? '正文' : title, page.uri.toString()),
         ],
         singlePage: true,
+        content: content,
+      );
+    }
+    if (chapters.length == 1) {
+      // 单章书或“开始阅读”入口只有一个链接：至少给出一章，不让详情页
+      // 显示 0 章；正文仍按该链接读取，失败会给出可重试提示。
+      return WebNovelDocument(
+        title: title,
+        author: info.author,
+        summary: info.summary,
+        coverUrl: info.coverUrl,
+        chapters: chapters,
       );
     }
     throw const CloudSourceFailure('这个网页既没有目录，也没有可识别的正文');
@@ -131,12 +149,14 @@ class WebNovelReader {
     String cookie = '',
     String authorization = '',
     bool allowHttp = false,
+    String referer = '',
   }) async {
     final page = await _fetch(
       url,
       cookie: cookie,
       authorization: authorization,
       allowHttp: allowHttp,
+      referer: referer,
     );
     final text = _extractContent(html.parse(page.body));
     if (text.isEmpty) throw const CloudSourceFailure('章节网页没有可读取的正文');
@@ -148,18 +168,25 @@ class WebNovelReader {
     required String cookie,
     required String authorization,
     required bool allowHttp,
+    String referer = '',
   }) async {
     final target = Uri.tryParse(url.trim());
     if (target == null) throw const CloudSourceFailure('书源网页地址无效');
     CloudHttp.validateUrl(target, allowHttp: allowHttp);
     final client = CloudHttp();
     try {
+      final refererUri = Uri.tryParse(referer.trim());
       final response = await client.request(
         'GET',
         target,
         headers: (requested) => {
           HttpHeaders.acceptHeader:
               'text/html,application/xhtml+xml,application/json,application/xml,text/xml,*/*',
+          HttpHeaders.acceptLanguageHeader: 'zh-CN,zh;q=0.9,en;q=0.6',
+          if (refererUri != null &&
+              refererUri.host.isNotEmpty &&
+              CloudHttp.sameOrigin(requested, refererUri))
+            HttpHeaders.refererHeader: refererUri.toString(),
           if (CloudHttp.sameOrigin(requested, target) &&
               cookie.trim().isNotEmpty)
             HttpHeaders.cookieHeader: cookie.trim(),

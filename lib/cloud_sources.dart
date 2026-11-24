@@ -37,7 +37,7 @@ enum CloudSourceKind {
   pan123('123 云盘'),
   uc('UC 网盘'),
   direct('其他网盘直链'),
-  rss('小说书源 · RSS / Atom / JSON / 网页'),
+  rss('小说书源'),
   s3('S3 / 兼容对象存储');
 
   const CloudSourceKind(this.label);

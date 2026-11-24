@@ -544,8 +544,15 @@ class _ArchiveShelfSkeletonPainter extends CustomPainter {
 }
 
 class SearchSkeleton extends StatelessWidget {
-  const SearchSkeleton({super.key, this.status});
+  const SearchSkeleton({
+    super.key,
+    this.status,
+    this.progress,
+    this.progressLabel,
+  });
   final String? status;
+  final double? progress;
+  final String? progressLabel;
   @override
   Widget build(BuildContext context) => Semantics(
     label: status ?? '正在找故事',
@@ -564,7 +571,28 @@ class SearchSkeleton extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (status case final text?)
+              if (progress != null) ...[
+                Row(
+                  children: [
+                    if (status case final text?) Expanded(child: AppText(text)),
+                    if (progressLabel != null)
+                      AppText(
+                        progressLabel!,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 5,
+                    semanticsLabel: '搜索进度',
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ] else if (status case final text?)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
                   child: AppText(text),

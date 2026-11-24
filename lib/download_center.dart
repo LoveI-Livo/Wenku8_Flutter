@@ -285,6 +285,24 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
   }
 
+  Future<void> _deleteAvailable(Novel novel) async {
+    final confirmed = await confirmNovelAction(
+      context,
+      title: '从网络书架删除？',
+      message: '只会移除《${novel.title}》在网络书架里的记录，网盘或书源里的原文件不会被删除。',
+      confirmLabel: '删除',
+      reduceMotion: widget.state.reduceMotion,
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await widget.state.setShelfMembership(novel.id, false);
+      CloudDocumentService.instance.forget(novel.id);
+      if (mounted) showNovelFeedback(context, '已从网络书架删除《${novel.title}》');
+    } catch (_) {
+      if (mounted) showNovelFeedback(context, '删除失败，请稍后重试');
+    }
+  }
+
   Future<void> _clearAll() async {
     final records = DownloadStore.instance.records;
     if (records.isEmpty) return;
@@ -327,7 +345,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     title: '下载',
     code: 'SYSTEM / DOWNLOADS',
     child: ActiveListenableBuilder(
-      listenable: DownloadStore.instance,
+      listenable: Listenable.merge([DownloadStore.instance, widget.state]),
       builder: (context) => ListView(
         padding: featurePadding(context),
         children: [
@@ -511,13 +529,28 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    GlassTextButton(
-                      key: ValueKey('download-start-${novel.id}'),
-                      compact: true,
-                      onPressed: _busyBook == null
-                          ? () => _download(novel)
-                          : null,
-                      child: AppText(_busyBook == novel.id ? '下载中' : '下载'),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        GlassTextButton(
+                          key: ValueKey('download-start-${novel.id}'),
+                          compact: true,
+                          onPressed: _busyBook == null
+                              ? () => _download(novel)
+                              : null,
+                          child: AppText(_busyBook == novel.id ? '下载中' : '下载'),
+                        ),
+                        const SizedBox(height: 4),
+                        GlassTextButton(
+                          key: ValueKey('download-remove-${novel.id}'),
+                          compact: true,
+                          onPressed: _busyBook == null
+                              ? () => _deleteAvailable(novel)
+                              : null,
+                          haptic: HapticCue.warning,
+                          child: const AppText('删除'),
+                        ),
+                      ],
                     ),
                   ],
                 ),

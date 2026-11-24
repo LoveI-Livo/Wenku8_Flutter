@@ -2215,33 +2215,6 @@ class ShelfPage extends StatefulWidget {
       )
       .toSet();
 
-  Future<void> _categorizeAllNetwork(BuildContext context) async {
-    final ids = _batchIds;
-    if (ids.isEmpty) return;
-    final group = await chooseBookCategory(
-      context,
-      state.organization,
-      bookIds: ids,
-      reduceMotion: state.reduceMotion,
-    );
-    if (!context.mounted || group == null) return;
-    try {
-      await state.organization.assignMany(ids, group);
-      if (!context.mounted) return;
-      final name = group == LocalLibraryPreferences.unfiled
-          ? '未分类'
-          : state.organization.nameOf(group);
-      showNovelFeedback(context, '已把 ${ids.length} 本网络书加入「$name」');
-    } catch (error) {
-      if (context.mounted) {
-        showNovelFeedback(
-          context,
-          error is FormatException ? error.message : '分类保存失败，请重试',
-        );
-      }
-    }
-  }
-
   Widget buildHeader(BuildContext context, {VoidCallback? search}) =>
       AnimatedBuilder(
         animation: state.navigationChanges,
@@ -2256,13 +2229,6 @@ class ShelfPage extends StatefulWidget {
                 icon: CupertinoIcons.add,
                 label: '添加网盘或小说书源',
                 onPressed: onAddNetworkSources,
-              ),
-            if (networkOnly && _batchIds.isNotEmpty)
-              GlassIconButton(
-                key: const ValueKey('shelf-network-category'),
-                icon: CupertinoIcons.folder,
-                label: '一键把全部网络书加入分类',
-                onPressed: () => _categorizeAllNetwork(context),
               ),
             if (_batchIds.isNotEmpty)
               GlassIconButton(
@@ -4582,14 +4548,21 @@ class InlineSearchResults extends StatelessWidget {
     }
     if (books.isEmpty && feed.loading && !feed.hasLoaded) {
       final progress = CloudCatalogSearch.instance.progress;
-      final status = progress.active
-          ? '正在搜索 ${progress.done} / ${progress.total} 个来源'
-          : feed.tagProgressLabel;
+      final status = progress.active ? '正在搜索书源' : feed.tagProgressLabel;
+      final ratio = progress.active && progress.total > 0
+          ? (progress.done / progress.total).clamp(0.0, 1.0)
+          : null;
       return Column(
         children: [
-          const SizedBox(height: 8),
-          const SearchProgressLine(),
-          Expanded(child: SearchSkeleton(status: status)),
+          Expanded(
+            child: SearchSkeleton(
+              status: status,
+              progress: ratio,
+              progressLabel: progress.active
+                  ? '${progress.done} / ${progress.total}'
+                  : null,
+            ),
+          ),
         ],
       );
     }
@@ -5636,6 +5609,8 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                   loadError != null
                       ? '目录暂未载入'
                       : '${novel.isComplete ? '已完结' : '连载中'} · ${bookshelfSource(novel.id, repository is OfflineNovelRepository ? repository as OfflineNovelRepository : null, book: novel)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontSize: 13,

@@ -8,6 +8,7 @@ import 'app_language.dart';
 import 'reader_rich_content.dart';
 import 'reader_coordinate_map.dart';
 import 'reader_languages.dart';
+import 'reader_text_cleaner.dart';
 
 ReaderRichBody _splitParagraphs(String source) => ReaderRichBody.decode(source);
 
@@ -103,10 +104,11 @@ class ReaderContent {
   }
 
   static Future<ReaderContent> parse(String source) async {
-    if (source.trim().isEmpty) throw const FormatException('章节正文为空');
-    final rich = source.length > 64 * 1024
-        ? await compute(_splitParagraphs, source)
-        : _splitParagraphs(source);
+    final cleaned = cleanReadingText(source);
+    if (cleaned.trim().isEmpty) throw const FormatException('章节正文为空');
+    final rich = cleaned.length > 64 * 1024
+        ? await compute(_splitParagraphs, cleaned)
+        : _splitParagraphs(cleaned);
     return ReaderContent(
       List.unmodifiable(rich.paragraphs),
       formats: rich.formats,
