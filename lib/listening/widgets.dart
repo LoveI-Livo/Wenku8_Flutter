@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
 
 import '../app_interactions.dart';
 import '../app_ui.dart';
@@ -862,6 +863,40 @@ class _OnlineVoicePicker extends StatefulWidget {
 class _OnlineVoicePickerState extends State<_OnlineVoicePicker> {
   late Future<List<SpeechVoice>> _voices;
   bool _refreshing = false;
+  final _previewer = AudioPlayer();
+  String? _previewing;
+
+  @override
+  void dispose() {
+    unawaited(_previewer.dispose());
+    super.dispose();
+  }
+
+  Future<void> _preview(SpeechVoice voice) async {
+    if (_previewing != null) return;
+    setState(() => _previewing = voice.id);
+    try {
+      const sample = '你好，这是音色试听。旁白、对话和停顿都会按这本书的节奏来读。';
+      final language = chineseSpeechLocale(voice.locale) ?? 'zh-CN';
+      final file = await widget.controller.audio.prepare(
+        SpeechSegment(0, 0, sample.length, sample, language: language),
+        voice,
+        SpeechCancellation(),
+      );
+      await _previewer.stop();
+      await _previewer.setFilePath(file.path);
+      await _previewer.play();
+    } catch (error) {
+      if (mounted) {
+        showNovelFeedback(
+          context,
+          error is SpeechFailure ? error.message : '试听暂时不可用，请稍后重试',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _previewing = null);
+    }
+  }
 
   @override
   void initState() {
@@ -938,35 +973,57 @@ class _OnlineVoicePickerState extends State<_OnlineVoicePicker> {
                   for (final voice in voices ?? const <SpeechVoice>[])
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: GlassTextButton(
-                        key: ValueKey('listening-online-voice-${voice.id}'),
-                        selected: selected.id == voice.id,
-                        onPressed: () => Navigator.pop(context, voice),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GlassTextButton(
+                              key: ValueKey(
+                                'listening-online-voice-${voice.id}',
+                              ),
+                              selected: selected.id == voice.id,
+                              onPressed: () => Navigator.pop(context, voice),
+                              child: Row(
                                 children: [
-                                  AppText(
-                                    voice.label,
-                                    style: const TextStyle(fontSize: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        AppText(
+                                          voice.label,
+                                          style: const TextStyle(fontSize: 14),
+                                        ),
+                                        AppText(
+                                          '${voice.locale} · Edge 神经网络',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  AppText(
-                                    '${voice.locale} · Edge 神经网络',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
+                                  if (voice.id == defaultEdgeVoice.id ||
+                                      voice.id == alternateEdgeVoice.id)
+                                    const AppText(
+                                      '推荐',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
                                 ],
                               ),
                             ),
-                            if (voice.id == defaultEdgeVoice.id ||
-                                voice.id == alternateEdgeVoice.id)
-                              const AppText(
-                                '推荐',
-                                style: TextStyle(fontSize: 11),
-                              ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 6),
+                          GlassIconButton(
+                            key: ValueKey(
+                              'listening-online-voice-preview-${voice.id}',
+                            ),
+                            icon: _previewing == voice.id
+                                ? CupertinoIcons.stop_circle
+                                : CupertinoIcons.play_circle_fill,
+                            label: '试听 ${voice.label}',
+                            onPressed: _previewing == null
+                                ? () => _preview(voice)
+                                : null,
+                          ),
+                        ],
                       ),
                     ),
                 ],

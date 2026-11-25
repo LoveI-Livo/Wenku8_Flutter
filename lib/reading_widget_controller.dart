@@ -211,6 +211,9 @@ class ReadingWidgetController extends ChangeNotifier {
     state.readingMoments.addListener(_changed);
     state.historyChanges.addListener(_changed);
     notifyListeners();
+    // 用户可能先加桌面组件、之后才打开 App。这里补一次首帧发布，
+    // 避免系统组件一直停在“无数据”的空白状态。
+    unawaited(publish(force: false));
     // 启动时不主动渲染小组件图片；只有阅读数据真正变化或用户改配置时才写。
     // 这样清掉的缓存不会在下一次启动 5 秒后又自己长回来。
   }

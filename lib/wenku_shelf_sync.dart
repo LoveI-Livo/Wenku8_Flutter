@@ -47,9 +47,7 @@ class WenkuShelfSync extends ChangeNotifier with WidgetsBindingObserver {
   Set<int> _observed = {};
   Set<int>? _cloudObserved;
   Set<int> get _local => library.shelf
-      .where(
-        (id) => id > 0 && id < 0x60000000 && !isCloudBookId(id),
-      )
+      .where((id) => id > 0 && id < 0x60000000 && !isCloudBookId(id))
       .toSet();
   void start() {
     _observed = _local;
@@ -145,9 +143,7 @@ class WenkuShelfSync extends ChangeNotifier with WidgetsBindingObserver {
         }
         return (map[field] as List)
             .whereType<int>()
-            .where(
-              (id) => id > 0 && id < 0x60000000 && !isCloudBookId(id),
-            )
+            .where((id) => id > 0 && id < 0x60000000 && !isCloudBookId(id))
             .toSet();
       }
 

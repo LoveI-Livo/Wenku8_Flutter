@@ -66,11 +66,36 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
   DateTime _nextPlaybackTrim = DateTime.fromMillisecondsSinceEpoch(0);
   int _writtenSinceTrim = 0;
   static const maximumBytes = 96 * 1024 * 1024;
+  static Future<Directory> appDirectory() async =>
+      Directory('${(await getTemporaryDirectory()).path}/listening-audio-v1');
+
+  static Future<int> appBytes() async {
+    final directory = await appDirectory();
+    if (!await directory.exists()) return 0;
+    var total = 0;
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is File) {
+        try {
+          total += await entity.length();
+        } catch (_) {}
+      }
+    }
+    return total;
+  }
+
+  static Future<void> clearAppCache() async {
+    final directory = await appDirectory();
+    if (await directory.exists()) await directory.delete(recursive: true);
+  }
+
   static Future<SpeechAudioCache> forApp({
     CustomSpeechSettings? customSpeech,
     NetworkStatus? network,
   }) async => SpeechAudioCache(
-    Directory('${(await getTemporaryDirectory()).path}/listening-audio-v1'),
+    await appDirectory(),
     EdgeSpeechClient(),
     customSpeech: customSpeech,
     network: network,

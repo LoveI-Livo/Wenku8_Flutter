@@ -734,8 +734,7 @@ class _ArchiveFileCarouselState extends State<ArchiveFileCarousel>
                             'NO.${number.toString().padLeft(3, '0')}',
                           ),
                         ),
-                        if (widget.sourceLabel?.call(book) case final label?)
-                          BookSourceBadge(label, maxWidth: 48),
+                        // 来源标签不进入立体书架/列表封面。
                       ],
                     ),
                     const SizedBox(height: 7),
@@ -885,16 +884,7 @@ class _FlatArchiveCarouselState extends State<_FlatArchiveCarousel> {
                                     height: 220,
                                     heroTag: tag,
                                   ),
-                                  if (widget.sourceLabel?.call(book)
-                                      case final label?)
-                                    Positioned(
-                                      top: 5,
-                                      right: 5,
-                                      child: BookSourceBadge(
-                                        label,
-                                        maxWidth: 48,
-                                      ),
-                                    ),
+                                  // 封面不叠加来源徽标。
                                 ],
                               ),
                             ),

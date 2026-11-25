@@ -1,4 +1,5 @@
-const currentReleaseSourcePolicy = '本 APP 支持轻小说文库、本地导入、网盘直链在线阅读与 RSS / Atom / JSON / 网页小说书源。';
+const currentReleaseSourcePolicy =
+    '本 APP 支持轻小说文库、本地导入、网盘直链在线阅读与 RSS / Atom / JSON / 网页小说书源。';
 
 const projectFreeNotice = '''**免费使用与公开源码**
 

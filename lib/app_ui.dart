@@ -1609,6 +1609,25 @@ Future<Uint8List> _coverLoad(Novel novel) {
   return LegacyCover.bytes(novel.id, url: url);
 }
 
+const _animeCoverAssets = <String>[
+  'assets/fallback_covers/01_rain.webp',
+  'assets/fallback_covers/02_sakura.webp',
+  'assets/fallback_covers/03_adventure.webp',
+  'assets/fallback_covers/04_moon.webp',
+  'assets/fallback_covers/05_cyber.webp',
+  'assets/fallback_covers/06_cozy.webp',
+];
+
+/// 真实封面没有返回时使用的内置动漫封面。它是可见的画面，不是加载骨架，
+/// 也不是把书名印在色块上的假封面；真实封面返回后会直接盖上去。
+String _animeCoverAsset(Novel novel) {
+  var value = novel.id;
+  for (final unit in novel.title.runes) {
+    value = (value * 31 + unit) & 0x7fffffff;
+  }
+  return _animeCoverAssets[value % _animeCoverAssets.length];
+}
+
 class NovelCover extends StatelessWidget {
   const NovelCover(
     this.novel, {
@@ -1704,78 +1723,22 @@ class NovelCover extends StatelessWidget {
   Widget _visual({bool clip = true, bool recordArrival = true}) {
     final base = novel.colors.isEmpty ? accent : novel.colors.first;
     final deep = Color.lerp(base, Colors.black, .42)!;
-    final fallback = DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [base, deep],
+    final imageFallback = Image.asset(
+      _animeCoverAsset(novel),
+      fit: BoxFit.cover,
+      width: width,
+      height: height,
+      errorBuilder: (context, error, stack) => DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [base, deep],
+          ),
         ),
       ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 用书名首字做半透明底纹，没有封面时也不至于只剩一块纯色。
-          Positioned(
-            top: -width * .18,
-            right: -width * .12,
-            child: ExcludeSemantics(
-              child: AppText(
-                novel.title.isEmpty
-                    ? '文'
-                    : String.fromCharCode(novel.title.runes.first),
-                textScaler: TextScaler.noScaling,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: .14),
-                  fontSize: width * .82,
-                  fontWeight: FontWeight.w800,
-                  height: 1,
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.all(width * .12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Container(
-                  width: width * .22,
-                  height: 2,
-                  margin: EdgeInsets.only(bottom: width * .08),
-                  color: Colors.white.withValues(alpha: .65),
-                ),
-                AppText(
-                  novel.title,
-                  textScaler: TextScaler.noScaling,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: width * .16,
-                    height: 1.25,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                AppText(
-                  displayNovelAuthor(novel),
-                  textScaler: TextScaler.noScaling,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .78),
-                    fontSize: width * .082,
-                    letterSpacing: .3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
+    final fallback = imageFallback;
     // 文库原生书没有显式 coverUrl 时仍要按 aid 去取官方封面；0.8.6
     // 把这种情况直接当兜底，导致整个文库结果页都不再请求封面。
     final legacyById =
@@ -1785,13 +1748,9 @@ class NovelCover extends StatelessWidget {
         ? fallback
         : Builder(
             builder: (context) {
-              final placeholder = ColoredBox(
-                color: Theme.of(context).colorScheme.surface,
-                child: const LoadingSkeleton(
-                  layout: SkeletonLayout.cover,
-                  label: '正在载入封面',
-                ),
-              );
+              // 有封面地址时也先显示动漫封面，而不是骨架或书名假封面；
+              // 真实封面到达后由 CoverArrival 淡入替换。
+              final placeholder = fallback;
               return FutureBuilder<Uint8List>(
                 key: ValueKey(('cover-bytes', novel.id, novel.coverUrl)),
                 future: _coverLoadCached(novel),

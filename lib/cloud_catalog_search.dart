@@ -66,7 +66,7 @@ class CloudCatalogSearch {
   static const _indexLifetime = Duration(minutes: 10);
   static const _maxProbeBytes = 4 * 1024 * 1024;
   static const _maxProbeFiles = 6;
-  static const _maxResults = 500;
+  static const _maxResults = 5000;
   static const _cacheLifetime = Duration(minutes: 1);
   final Map<String, _CloudSearchIndex> _indexes = {};
   String? _cacheQuery;

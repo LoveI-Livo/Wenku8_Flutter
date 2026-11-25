@@ -640,7 +640,10 @@ class ReadingDesktopCardPainter extends CustomPainter {
       maxWidth: body.width,
     );
     final captionHeight = caption.height;
-    caption.paint(canvas, Offset(body.left, body.top + numberHeight + 3.0 * scale));
+    caption.paint(
+      canvas,
+      Offset(body.left, body.top + numberHeight + 3.0 * scale),
+    );
     caption.dispose();
     var contentBottom = body.top + numberHeight + captionHeight + 3.0 * scale;
     final book = data.showBookDetails ? data.currentBook : null;
@@ -664,11 +667,7 @@ class ReadingDesktopCardPainter extends CustomPainter {
         if (chapter.isNotEmpty) {
           final chapterPainter = _layout(
             _ellipsis(chapter, size.isCompact ? 12 : 28),
-            TextStyle(
-              color: colors.muted,
-              fontSize: 9.5 * scale,
-              height: 1.25,
-            ),
+            TextStyle(color: colors.muted, fontSize: 9.5 * scale, height: 1.25),
             maxWidth: body.width,
           );
           final chapterTop = contentBottom + 2.0 * scale;
@@ -712,7 +711,8 @@ class ReadingDesktopCardPainter extends CustomPainter {
     final slot = body.width / days.length;
     final barWidth = (slot * 0.44).clamp(2.0, 14.0 * scale).toDouble();
     final radius = Radius.circular(barWidth / 2);
-    final trackPaint = Paint()..color = colors.foreground.withValues(alpha: 0.06);
+    final trackPaint = Paint()
+      ..color = colors.foreground.withValues(alpha: 0.06);
     final fillPaint = Paint()..color = colors.accent;
     final softPaint = Paint()..color = colors.accent.withValues(alpha: 0.42);
     final labelStyle = TextStyle(
@@ -756,10 +756,7 @@ class ReadingDesktopCardPainter extends CustomPainter {
       );
       label.paint(
         canvas,
-        Offset(
-          body.left + slot * index,
-          body.top + chartHeight + 3.0 * scale,
-        ),
+        Offset(body.left + slot * index, body.top + chartHeight + 3.0 * scale),
       );
       label.dispose();
     }
@@ -831,12 +828,20 @@ class ReadingDesktopCardPainter extends CustomPainter {
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(body.left, body.top + 1.0 * scale, spineWidth, heading.height),
+        Rect.fromLTWH(
+          body.left,
+          body.top + 1.0 * scale,
+          spineWidth,
+          heading.height,
+        ),
         Radius.circular(spineWidth / 2),
       ),
       Paint()..color = colors.accent.withValues(alpha: 0.8),
     );
-    heading.paint(canvas, Offset(body.left + spineWidth + 8.0 * scale, body.top));
+    heading.paint(
+      canvas,
+      Offset(body.left + spineWidth + 8.0 * scale, body.top),
+    );
     final headingHeight = heading.height;
     heading.dispose();
     final parts = <String>[];
@@ -1007,7 +1012,12 @@ class ReadingDesktopCardPainter extends CustomPainter {
       final progress = (today / (goal * 60)).clamp(0.0, 1.0).toDouble();
       if (progress > 0) {
         final fill = RRect.fromRectAndRadius(
-          Rect.fromLTWH(area.left, area.top, area.width * progress, trackHeight),
+          Rect.fromLTWH(
+            area.left,
+            area.top,
+            area.width * progress,
+            trackHeight,
+          ),
           Radius.circular(trackHeight),
         );
         canvas.drawRRect(fill, Paint()..color = colors.accent);

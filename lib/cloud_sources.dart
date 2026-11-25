@@ -45,7 +45,7 @@ enum CloudSourceKind {
 
   /// 0.8.3 起只维护 WebDAV、蓝奏云、蓝奏云优享版、迅雷云盘和小说书源。
   /// 其余枚举保留用于读取旧记录，但不再出现在添加页、连接页和搜索里。
-  static const active = [webdav, lanzou, lanzouPro, xunlei, guangya, rss];
+  static const active = [webdav, lanzou, xunlei, guangya, rss];
 
   bool get isActive => active.contains(this);
 

@@ -33,10 +33,7 @@ void main() {
 
   test('旧的 ABI 包名仍然兼容', () {
     final release = AppRelease.fromGithub(
-      releaseJson(
-        version: '0.7.5',
-        assetName: 'wenku8-0.7.5-arm64-v8a.apk',
-      ),
+      releaseJson(version: '0.7.5', assetName: 'wenku8-0.7.5-arm64-v8a.apk'),
       'LoveI-Livo/qingxiaoshuo-wenku',
     );
     expect(release, isNotNull);
@@ -45,10 +42,7 @@ void main() {
 
   test('旧版检查器兼容的 universal 包名能被选中', () {
     final release = AppRelease.fromGithub(
-      releaseJson(
-        version: '0.7.7',
-        assetName: 'wenku8-0.7.7-universal.apk',
-      ),
+      releaseJson(version: '0.7.7', assetName: 'wenku8-0.7.7-universal.apk'),
       'LoveI-Livo/qingxiaoshuo-wenku',
     );
     expect(release, isNotNull);

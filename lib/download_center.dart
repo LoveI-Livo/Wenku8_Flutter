@@ -507,7 +507,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           ),
                           const SizedBox(height: 5),
                           AppText(
-                            '${novel.sourceLabel ?? '在线书籍'} · ${novel.author}',
+                            novel.author.trim().isEmpty
+                                ? '在线书籍'
+                                : novel.author.trim(),
                             style: TextStyle(
                               fontSize: 12,
                               color: Theme.of(

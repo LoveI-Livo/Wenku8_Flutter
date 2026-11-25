@@ -23,7 +23,10 @@ class ReadingReportPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          const Text('阅读报告', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+          const Text(
+            '阅读报告',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 12),
           Text(
             '原工程的报告页面属于未公开模块，这里提供简化版本：'

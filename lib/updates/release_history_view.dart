@@ -88,9 +88,11 @@ class _ReleaseHistoryViewState extends State<ReleaseHistoryView> {
                           height: 16,
                           color: theme.dividerColor.withValues(alpha: .5),
                         ),
-                        for (var index = 0;
-                            index < group.minors.length;
-                            index++) ...[
+                        for (
+                          var index = 0;
+                          index < group.minors.length;
+                          index++
+                        ) ...[
                           if (index > 0) const SizedBox(height: 8),
                           _minorCard(
                             context,
@@ -155,9 +157,11 @@ class _ReleaseHistoryViewState extends State<ReleaseHistoryView> {
                           height: 14,
                           color: theme.dividerColor.withValues(alpha: .4),
                         ),
-                        for (var index = 0;
-                            index < group.releases.length;
-                            index++) ...[
+                        for (
+                          var index = 0;
+                          index < group.releases.length;
+                          index++
+                        ) ...[
                           if (index > 0) const SizedBox(height: 8),
                           _releaseCard(
                             context,
@@ -190,7 +194,12 @@ class _ReleaseHistoryViewState extends State<ReleaseHistoryView> {
     borderRadius: BorderRadius.circular(ArchiveDesign.panelRadius),
     onTap: onTap,
     child: Padding(
-      padding: EdgeInsets.fromLTRB(16, compact ? 12 : 14, 12, compact ? 12 : 14),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        compact ? 12 : 14,
+        12,
+        compact ? 12 : 14,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -215,7 +224,9 @@ class _ReleaseHistoryViewState extends State<ReleaseHistoryView> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(alpha: .10),
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: .10,
+                          ),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -312,7 +323,11 @@ class _ReleaseHistoryViewState extends State<ReleaseHistoryView> {
                         const SizedBox(height: 4),
                         Text(
                           release.summary,
-                          style: TextStyle(fontSize: 12, height: 1.5, color: muted),
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.5,
+                            color: muted,
+                          ),
                         ),
                       ],
                     ),
@@ -358,14 +373,19 @@ class _ReleaseHistoryViewState extends State<ReleaseHistoryView> {
                                   padding: const EdgeInsets.only(top: 2),
                                   child: Text(
                                     '•',
-                                    style: TextStyle(color: theme.colorScheme.primary),
+                                    style: TextStyle(
+                                      color: theme.colorScheme.primary,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     change,
-                                    style: const TextStyle(fontSize: 13, height: 1.65),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      height: 1.65,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -418,7 +438,9 @@ List<_MajorGroup> _groupReleases(List<ModRelease> releases) {
   for (final release in releases) {
     final parts = release.version.split('.');
     final major = parts.isNotEmpty ? parts[0] : release.version;
-    final minor = parts.length >= 2 ? '${parts[0]}.${parts[1]}' : release.version;
+    final minor = parts.length >= 2
+        ? '${parts[0]}.${parts[1]}'
+        : release.version;
     if (!majors.containsKey(major)) {
       majors[major] = [];
       majorOrder.add(major);
@@ -432,17 +454,19 @@ List<_MajorGroup> _groupReleases(List<ModRelease> releases) {
     minors[minor]!.add(release);
   }
   final currentVersion = releases.isEmpty ? '' : releases.first.version;
-   return [
+  return [
     for (final major in majorOrder)
       _MajorGroup(
         key: major,
-        range: '${majors[major]!.last.version} – ${majors[major]!.first.version}',
+        range:
+            '${majors[major]!.last.version} – ${majors[major]!.first.version}',
         releases: majors[major]!,
         minors: [
           for (final minor in minorOrder[major]!)
             _MinorGroup(
               key: minor,
-              range: '${minors[minor]!.last.version} – ${minors[minor]!.first.version}',
+              range:
+                  '${minors[minor]!.last.version} – ${minors[minor]!.first.version}',
               releases: minors[minor]!,
               current: currentVersion.startsWith('$minor.'),
             ),

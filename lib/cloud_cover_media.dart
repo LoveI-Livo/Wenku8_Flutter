@@ -107,7 +107,7 @@ abstract final class CloudCoverMedia {
     if (cached != null) return Future.value(cached);
     final failed = _failedAt[id];
     if (failed != null &&
-        DateTime.now().difference(failed) < const Duration(seconds: 30)) {
+        DateTime.now().difference(failed) < const Duration(seconds: 10)) {
       return Future.value(null);
     }
     final pending = _pending[id];
@@ -166,29 +166,33 @@ abstract final class CloudCoverMedia {
         : '${uri.scheme}://${uri.host}/';
     final allowHttp = uri.scheme.toLowerCase() == 'http';
     CloudHttp.validateUrl(uri, allowHttp: allowHttp);
-    final response = await _http.request(
-      'GET',
-      uri,
-      headers: (requested) => {
-        'accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        'user-agent':
-            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
-        'referer': referer,
-        if (source != null &&
-            CloudHttp.sameOrigin(requested, source) &&
-            cookie.trim().isNotEmpty)
-          'cookie': cookie.trim(),
-        if (source != null &&
-            CloudHttp.sameOrigin(requested, source) &&
-            authorization.trim().isNotEmpty)
-          'authorization': authorization.trim(),
-      },
-      redirects: true,
-      allowHttp: allowHttp,
-      redirectMessage: '封面地址发生跳转',
-    );
-    final bytes = await _http.bytes(response, limit: _maxBytes);
+    final response = await _http
+        .request(
+          'GET',
+          uri,
+          headers: (requested) => {
+            'accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+            'user-agent':
+                'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
+                '(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36',
+            'referer': referer,
+            if (source != null &&
+                CloudHttp.sameOrigin(requested, source) &&
+                cookie.trim().isNotEmpty)
+              'cookie': cookie.trim(),
+            if (source != null &&
+                CloudHttp.sameOrigin(requested, source) &&
+                authorization.trim().isNotEmpty)
+              'authorization': authorization.trim(),
+          },
+          redirects: true,
+          allowHttp: allowHttp,
+          redirectMessage: '封面地址发生跳转',
+        )
+        .timeout(const Duration(seconds: 7));
+    final bytes = await _http
+        .bytes(response, limit: _maxBytes)
+        .timeout(const Duration(seconds: 7));
     _writeDisk(raw, bytes);
     return _remember(id, raw, bytes);
   }

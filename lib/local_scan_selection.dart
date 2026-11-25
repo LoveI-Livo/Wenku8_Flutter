@@ -23,8 +23,7 @@ class _LocalScanSelectionState extends State<LocalScanSelection> {
     for (final book in widget.snapshot.books) book.token,
   };
 
-  bool get _allSelected =>
-      _selected.length == widget.snapshot.books.length;
+  bool get _allSelected => _selected.length == widget.snapshot.books.length;
 
   void _toggle(String token, bool selected) {
     setState(() {
@@ -111,11 +110,7 @@ class _LocalScanSelectionState extends State<LocalScanSelection> {
       title: Text(book.name, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: subtitle.isEmpty
           ? null
-          : Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+          : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
 
@@ -145,8 +140,10 @@ class _LocalScanSelectionState extends State<LocalScanSelection> {
             Row(
               children: [
                 Expanded(
-                  child: Text('已选 ${_selected.length} / '
-                      '${widget.snapshot.books.length} 本'),
+                  child: Text(
+                    '已选 ${_selected.length} / '
+                    '${widget.snapshot.books.length} 本',
+                  ),
                 ),
                 const SizedBox(width: 12),
                 FilledButton(

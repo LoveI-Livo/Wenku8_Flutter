@@ -120,10 +120,7 @@ class _ReadingWidgetSkinTile extends StatelessWidget {
           decoration: BoxDecoration(
             color: fillColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: borderColor,
-              width: selected ? 1.6 : 1,
-            ),
+            border: Border.all(color: borderColor, width: selected ? 1.6 : 1),
           ),
           child: Material(
             type: MaterialType.transparency,

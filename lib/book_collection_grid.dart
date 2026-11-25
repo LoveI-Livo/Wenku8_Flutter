@@ -45,12 +45,7 @@ class BookGridTile extends StatelessWidget {
                 heroTag: coverHeroTag,
               ),
             ),
-            if (sourceLabel != null)
-              Positioned(
-                top: 4,
-                right: 4,
-                child: BookSourceBadge(sourceLabel!),
-              ),
+            // 网格封面不显示来源徽标。
           ],
         ),
       ),

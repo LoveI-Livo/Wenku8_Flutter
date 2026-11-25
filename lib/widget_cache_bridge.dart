@@ -43,7 +43,10 @@ class WidgetCacheBridge {
     final directory = await flutterDirectory();
     if (directory == null) return 0;
     var total = 0;
-    await for (final entity in directory.list(recursive: true, followLinks: false)) {
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
       if (entity is File) {
         try {
           total += await entity.length();

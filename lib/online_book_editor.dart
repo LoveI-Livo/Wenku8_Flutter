@@ -55,6 +55,8 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
   bool _busy = false;
   String? _error;
   String? _summaryPlaceholder;
+  bool _summaryEdited = false;
+  bool _applyingSummary = false;
 
   @override
   void initState() {
@@ -63,24 +65,36 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
         widget.book.remoteKind == 'rss') {
       _summaryPlaceholder = '正在从来源读取简介…';
     }
+    _summary.addListener(() {
+      if (!_applyingSummary) _summaryEdited = true;
+    });
     _load();
     unawaited(_loadSummary());
   }
 
   Future<void> _loadSummary() async {
-    if (!CloudDocumentService.isPlaceholderSummary(widget.book.summary)) return;
+    // 书源书的简介常常在搜索阶段抓到了站点宣传语或别的字段。打开编辑页时
+    // 总是重新按详情规则读一次，识别正确就替换；用户手动改过则绝不覆盖。
     if (widget.book.remoteKind != 'rss') return;
     try {
       final text = (await CloudDocumentService.instance.refreshSummary(
         widget.book,
       )).trim();
-      if (!mounted || _summary.text.trim().isNotEmpty) return;
+      if (!mounted || _summaryEdited) return;
       if (!CloudDocumentService.isPlaceholderSummary(text)) {
+        if (_summary.text.trim() == text) {
+          if (_summaryPlaceholder != null) {
+            setState(() => _summaryPlaceholder = null);
+          }
+          return;
+        }
         setState(() {
+          _applyingSummary = true;
           _summary.text = text;
+          _applyingSummary = false;
           _summaryPlaceholder = null;
         });
-      } else if (mounted) {
+      } else if (_summary.text.trim().isEmpty && mounted) {
         setState(() => _summaryPlaceholder = '来源未提供简介，可手动补充');
       }
     } catch (_) {

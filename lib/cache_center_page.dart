@@ -12,6 +12,7 @@ import 'cloud_cover_media.dart';
 import 'feature_pages.dart';
 import 'legacy_cover.dart';
 import 'library_state.dart';
+import 'listening/cache.dart';
 import 'mod_edition.dart';
 import 'offline_cache.dart';
 import 'offline_repository.dart';
@@ -50,6 +51,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
   int _widgetBytes = 0;
   int _cloudMediaBytes = 0;
   int _imageBytes = 0;
+  int _listeningBytes = 0;
 
   @override
   void initState() {
@@ -87,6 +89,12 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
     } catch (_) {
       cloudMediaBytes = 0;
     }
+    var listeningBytes = 0;
+    try {
+      listeningBytes = await SpeechAudioCache.appBytes();
+    } catch (_) {
+      listeningBytes = 0;
+    }
     try {
       tempBytes = await _folderBytes(await getTemporaryDirectory());
     } catch (_) {
@@ -111,6 +119,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
       _cacheBytes = cacheBytes;
       _widgetBytes = widgetBytes;
       _cloudMediaBytes = cloudMediaBytes;
+      _listeningBytes = listeningBytes;
       _imageBytes =
           PaintingBinding.instance.imageCache.currentSizeBytes +
           LegacyCover.encodedBytes +
@@ -245,7 +254,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
   Future<void> _clearAll() => _run(
     title: '清理全部缓存？',
     message:
-        '包括正文与插图、网盘封面与插图、网页与应用缓存、临时文件、桌面小组件图片和图片内存缓存。'
+        '包括正文与插图、网盘封面与插图、听书语音、网页与应用缓存、临时文件、桌面小组件图片和图片内存缓存。'
         '书架、阅读进度、书签、登录状态与本地导入的原书都会保留，缓存内容在需要时重新生成。',
     confirmLabel: '全部清理',
     action: () async {
@@ -254,6 +263,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
       await _clearAppCache();
       await _clearTemp();
       await _clearWidgets();
+      await SpeechAudioCache.clearAppCache();
     },
   );
 
@@ -311,7 +321,8 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
         _tempBytes +
         _cacheBytes +
         _widgetBytes +
-        _cloudMediaBytes;
+        _cloudMediaBytes +
+        _listeningBytes;
     return ArchiveFeaturePage(
       title: '缓存与存储',
       code: 'SYSTEM / CACHE',
@@ -339,6 +350,7 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
                   '正文 ${formatCacheBytes(_chapterBytes)}（$_chapterBooks 本） · '
                   '网页 ${formatCacheBytes(_cacheBytes)} · 临时 ${formatCacheBytes(_tempBytes)}\n'
                   '网盘书图片 ${formatCacheBytes(_cloudMediaBytes)} · '
+                  '听书音频 ${formatCacheBytes(_listeningBytes)} · '
                   '小组件图片 ${formatCacheBytes(_widgetBytes)}\n'
                   '图片内存 ${formatCacheBytes(_imageBytes)}（运行期，不占存储）',
                   style: TextStyle(fontSize: 12, height: 1.6, color: muted),
@@ -429,6 +441,21 @@ class _CacheCenterPageState extends State<CacheCenterPage> {
                     message: '会删除桌面小组件旧图片；桌面上的小组件会在下次刷新时重建，不影响书架。',
                     confirmLabel: '清理',
                     action: _clearWidgets,
+                  ),
+          ),
+          const SizedBox(height: 14),
+          _row(
+            icon: CupertinoIcons.waveform,
+            title: '听书语音缓存',
+            subtitle: '朗读时生成的语音片段，自动限制在 96 MB；清理后再次朗读会重新生成',
+            trailing: formatCacheBytes(_listeningBytes),
+            onTap: _busy
+                ? null
+                : () => _run(
+                    title: '清理听书语音缓存？',
+                    message: '只删除已经生成的朗读片段，书架、阅读进度和当前音色设置都会保留。',
+                    confirmLabel: '清理',
+                    action: SpeechAudioCache.clearAppCache,
                   ),
           ),
           const SizedBox(height: 14),

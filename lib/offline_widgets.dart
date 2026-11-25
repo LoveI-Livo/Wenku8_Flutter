@@ -7,8 +7,11 @@ import 'app_ui.dart';
 import 'archive_progress.dart';
 import 'app_interactions.dart';
 import 'catalog.dart';
+import 'cloud_cover_media.dart';
+import 'cloud_cover_media.dart';
 import 'offline_cache.dart';
 import 'offline_repository.dart';
+import 'cloud_cover_media.dart';
 
 class OfflineBookStatus extends StatelessWidget {
   const OfflineBookStatus({
@@ -280,6 +283,34 @@ class _OfflineVolumeCacheSheetState extends State<OfflineVolumeCacheSheet> {
     ),
   );
 
+  Future<void> _clearBookCache(int bytes) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('清理本书缓存？'),
+        content: Text(
+          '将删除这本书已缓存的 ${formatCacheBytes(bytes)} 正文和插图，'
+          '书架、阅读进度、书签和本地原书都不会删除。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('清理'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    widget.repository.cancel(widget.novel.id);
+    await widget.repository.cache.removeBook(widget.novel.id);
+    PaintingBinding.instance.imageCache.clear();
+    if (mounted) showNovelFeedback(context, '本书缓存已清理');
+  }
+
   Widget _contents(BuildContext context) {
     final repository = widget.repository;
     final saved = repository.cache.book(widget.novel.id);
@@ -330,6 +361,13 @@ class _OfflineVolumeCacheSheetState extends State<OfflineVolumeCacheSheet> {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                 ),
               ),
+              if (saved != null &&
+                  (saved.bytes > 0 || saved.chapterBytes.isNotEmpty))
+                GlassTextButton(
+                  key: const ValueKey('clear-book-cache'),
+                  onPressed: () => _clearBookCache(saved.bytes),
+                  child: const AppText('清理本书缓存'),
+                ),
               if (active)
                 GlassTextButton(
                   onPressed: () => repository.cancel(widget.novel.id),

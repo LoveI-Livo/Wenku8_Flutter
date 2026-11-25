@@ -231,7 +231,6 @@ class _ShelfBatchPageState extends State<ShelfBatchPage> {
     subtitle: Text(
       [
         book.author.trim().isEmpty ? '在线书籍' : book.author.trim(),
-        book.sourceLabel?.trim() ?? '',
         isCloudBookId(book.id) ? '在线阅读 · 不占本机' : '书架收藏',
       ].where((value) => value.isNotEmpty).join(' · '),
       maxLines: 1,

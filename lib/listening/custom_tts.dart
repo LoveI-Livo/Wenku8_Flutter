@@ -23,9 +23,7 @@ const customSpeechMaximumAudioBytes = 8 * 1024 * 1024;
 String _text(Object? value) => value is String ? value.trim() : '';
 
 int _percent(Object? value) {
-  final number = value is num
-      ? value.round()
-      : int.tryParse(_text(value)) ?? 0;
+  final number = value is num ? value.round() : int.tryParse(_text(value)) ?? 0;
   return number
       .clamp(customSpeechMinimumRatePercent, customSpeechMaximumRatePercent)
       .toInt();
@@ -375,10 +373,7 @@ class CustomSpeechClient {
   ) async {
     final spoken = speechText(text);
     if (!hasSpeechText(spoken)) {
-      throw const SpeechFailure(
-        '这一段没有可朗读的文本',
-        kind: SpeechFailureKind.content,
-      );
+      throw const SpeechFailure('这一段没有可朗读的文本', kind: SpeechFailureKind.content);
     }
     final endpoint = config.endpoint;
     if (endpoint == null || !config.usable) {

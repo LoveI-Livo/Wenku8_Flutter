@@ -112,8 +112,9 @@ final class LegadoReader {
       final resolved = _resolve(request.uri, book);
       if (resolved.isEmpty) continue;
       final author = _textValue(item, rule['author'] ?? rule['authorName']);
-      final summary = _cleanJsText(
+      final summary = _summaryCandidate(
         _textValue(item, rule['intro'] ?? rule['summary'] ?? rule['desc']),
+        item,
       );
       final cover = _itemCover(item, rule, request.uri);
       final coverUrl = cover.isEmpty ? null : _resolve(request.uri, cover);
@@ -166,17 +167,18 @@ final class LegadoReader {
       extraHeaders: _headers(rules['header']),
     );
     final info = _ruleMap(rules['ruleBookInfo']);
-    var summary = _textValue(
+    final ruleSummary = _textValue(
       body,
       info['intro'] ?? info['summary'] ?? info['desc'],
       base: uri,
     );
+    var summary = ruleSummary;
     if (summary.trim().isEmpty &&
         !body.trimLeft().startsWith('{') &&
         !body.trimLeft().startsWith('[')) {
       summary = WebNovelReader.parseBookInfo(body, uri).summary ?? '';
     }
-    return _cleanJsText(summary).trim();
+    return _summaryCandidate(summary, body).trim();
   }
 
   /// 打开书：读取书名/作者/简介和目录。
@@ -217,7 +219,7 @@ final class LegadoReader {
       }
     }
     var author = _textValue(body, info['author'], base: uri);
-    var summary = _textValue(
+    final ruleSummary = _textValue(
       body,
       info['intro'] ?? info['summary'] ?? info['desc'],
       base: uri,
@@ -240,9 +242,8 @@ final class LegadoReader {
     if (author.isEmpty && genericInfo?.author != null) {
       author = genericInfo!.author!;
     }
-    if (summary.isEmpty && genericInfo?.summary != null) {
-      summary = genericInfo!.summary!;
-    }
+    final genericSummary = genericInfo?.summary ?? '';
+    var summary = _summaryCandidate(ruleSummary, body, extra: genericSummary);
     if ((coverUrl == null || coverUrl.isEmpty) &&
         genericInfo?.coverUrl != null) {
       coverUrl = genericInfo!.coverUrl;
@@ -287,7 +288,7 @@ final class LegadoReader {
     if (nextTocRule != null) {
       // 目录分页不再只翻 20 页；长书 100+ 页目录很常见，提前截断正是
       // “章节缺失”的来源之一。
-      for (var page = 0; page < 120; page++) {
+      for (var page = 0; page < 400; page++) {
         final next = _textValue(
           tocPages.last.$1,
           nextTocRule,
@@ -311,7 +312,7 @@ final class LegadoReader {
     for (final page in tocPages) {
       final chapterList = _list(page.$1, chapterRule, page.$2);
       for (final item in chapterList) {
-        if (chapters.length >= 10000) break;
+        if (chapters.length >= 20000) break;
         final name = _textValue(
           item,
           toc['chapterName'] ?? toc['name'],
@@ -331,7 +332,7 @@ final class LegadoReader {
         if (!seenChapterUrls.add('$resolved|$name')) continue;
         chapters.add(WebNovelChapter(name, resolved));
       }
-      if (chapters.length >= 10000) break;
+      if (chapters.length >= 20000) break;
     }
     final ordered = _orderChapters(chapters, reverse: reverse);
     if (ordered.isNotEmpty) {
@@ -873,6 +874,84 @@ final class LegadoReader {
       return current;
     }
     return current;
+  }
+
+  /// 书源简介的字段经常被作者写成站点宣传语、最新章节列表，甚至抓错到
+  /// 导航栏。只接受像正文段落的内容；不合法时从 JSON 的 intro/description
+  /// 等常见字段里重新找，避免详情页把错的简介一直带到书架。
+  static String _summaryCandidate(
+    String ruleText,
+    Object body, {
+    String extra = '',
+  }) {
+    final candidates = <String>[];
+    void add(String value) {
+      final text = _cleanJsText(value).trim();
+      if (text.isEmpty) return;
+      if (text.length > 2400) return;
+      if (!_plausibleSummary(text)) return;
+      if (!candidates.contains(text)) candidates.add(text);
+    }
+
+    add(ruleText);
+    add(extra);
+    if (body is Map || body is List) {
+      _collectSummaryFields(body, add);
+    }
+    if (candidates.isEmpty) {
+      // 规则给的简介为空时，宁可留空让详情页/UI 提示，也不塞站点广告。
+      return '';
+    }
+    candidates.sort((a, b) => b.length.compareTo(a.length));
+    return candidates.first;
+  }
+
+  static bool _plausibleSummary(String text) {
+    final value = text.trim();
+    if (value.length < 8) return false;
+    if (RegExp(r'^(简介|内容简介|暂无简介|无简介|展开|收起)[:：]?$').hasMatch(value)) {
+      return false;
+    }
+    final ads = RegExp(
+      r'笔趣阁|新笔趣|顶点小说|最新章节|全文阅读|请记住本站|加入书架|投推荐票|'
+      r'手机阅读|免费阅读|www\.|https?://|广告|域名|网址导航',
+      caseSensitive: false,
+    );
+    if (ads.hasMatch(value)) return false;
+    // 导航/章节列表通常由很多短行拼成，不像简介段落。
+    final lines = value.split('\n').where((line) => line.trim().isNotEmpty);
+    if (lines.length > 12 && value.length < 800) return false;
+    return true;
+  }
+
+  static void _collectSummaryFields(Object? node, void Function(String) add) {
+    if (node is List) {
+      for (final item in node) {
+        _collectSummaryFields(item, add);
+      }
+      return;
+    }
+    if (node is! Map) return;
+    for (final entry in node.entries) {
+      final key = '${entry.key}'.toLowerCase().replaceAll('_', '');
+      if (const {
+        'intro',
+        'introduction',
+        'description',
+        'desc',
+        'summary',
+        'bookintro',
+        'booksummary',
+        'abstract',
+      }.contains(key)) {
+        final value = entry.value;
+        if (value is String) add(value);
+      }
+      final child = entry.value;
+      if (child is Map || child is List) {
+        _collectSummaryFields(child, add);
+      }
+    }
   }
 
   static String _cleanJsText(String value) {

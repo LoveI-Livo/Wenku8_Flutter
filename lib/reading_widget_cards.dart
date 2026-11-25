@@ -120,18 +120,22 @@ class ReadingWidgetCards extends ChangeNotifier {
     // 旧版首次安装会生成五张默认卡片；未改动过的默认组合收敛为一张。
     if (_cards.length == designs.length &&
         _cards.every((card) {
-          final design = designs.firstWhere((d) => d.name == card.id, orElse: () => ReadingWidgetDesign.focus);
+          final design = designs.firstWhere(
+            (d) => d.name == card.id,
+            orElse: () => ReadingWidgetDesign.focus,
+          );
           return card.id == design.name && card.label == design.label;
         })) {
-      final focus = _cards.firstWhere((card) => card.id == ReadingWidgetDesign.focus.name);
+      final focus = _cards.firstWhere(
+        (card) => card.id == ReadingWidgetDesign.focus.name,
+      );
       _cards = [focus];
       await _save();
     }
     // 延迟到首屏稳定后再清旧临时图片，避免和启动读盘/首帧抢 I/O。
-    unawaited(Future<void>.delayed(
-      const Duration(seconds: 8),
-      _cleanStaleCache,
-    ));
+    unawaited(
+      Future<void>.delayed(const Duration(seconds: 8), _cleanStaleCache),
+    );
     if (_cards.isEmpty && !hadStoredCards) {
       final oldSkin = ReadingWidgetSkin.fromId(
         prefs.getString('reading_widgets_skin_v1'),
@@ -163,7 +167,10 @@ class ReadingWidgetCards extends ChangeNotifier {
       final root = await getTemporaryDirectory();
       await for (final entity in root.list(followLinks: false)) {
         if (entity is Directory &&
-            entity.path.split(Platform.pathSeparator).last.startsWith('reading-cards-')) {
+            entity.path
+                .split(Platform.pathSeparator)
+                .last
+                .startsWith('reading-cards-')) {
           try {
             await entity.delete(recursive: true);
           } catch (_) {}

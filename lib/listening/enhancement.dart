@@ -112,8 +112,8 @@ class ListeningEnhancement implements Listenable {
   int? get audioSessionId => _audioSessionId;
 
   ListeningEnhancement({
-    ListeningEnhancementPreference preference = ListeningEnhancementPreference
-        .none,
+    ListeningEnhancementPreference preference =
+        ListeningEnhancementPreference.none,
   }) : _preference = preference;
 
   ListeningEnhancementPreference _preference;
@@ -125,9 +125,8 @@ class ListeningEnhancement implements Listenable {
   bool get enabled => _preference.enabled;
 
   /// Gain that playback should apply, already neutralised when switched off.
-  double get effectiveGain => _preference.mode == ListeningEnhancementMode.off
-      ? 0
-      : _preference.gain;
+  double get effectiveGain =>
+      _preference.mode == ListeningEnhancementMode.off ? 0 : _preference.gain;
 
   @override
   void addListener(VoidCallback listener) {

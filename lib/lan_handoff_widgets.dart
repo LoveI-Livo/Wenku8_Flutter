@@ -44,7 +44,9 @@ class LanHandoffMonitor extends StatelessWidget {
               bottom: MediaQuery.paddingOf(context).bottom + 18,
               child: noticeWrapper(
                 Material(
-                  color: Theme.of(context).colorScheme.surface.withValues(alpha: .96),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surface.withValues(alpha: .96),
                   elevation: 12,
                   borderRadius: BorderRadius.circular(18),
                   clipBehavior: Clip.antiAlias,
@@ -61,7 +63,9 @@ class LanHandoffMonitor extends StatelessWidget {
                             Expanded(
                               child: AppText(
                                 '${receipt.deviceName} 正在读',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ],
@@ -73,7 +77,9 @@ class LanHandoffMonitor extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 13,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -157,7 +163,10 @@ class _LanSendBookSheetState extends State<LanSendBookSheet> {
         children: [
           Text('发送到我的设备', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 10),
-          Text('《${widget.book.title}》', style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            '《${widget.book.title}》',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           Text(
             '两台设备连同一个 Wi-Fi。发送后，另一台设备会收到续读卡片；本机需要已有同一本书。',
@@ -165,7 +174,10 @@ class _LanSendBookSheetState extends State<LanSendBookSheet> {
           ),
           if (_result != null) ...[
             const SizedBox(height: 10),
-            Text(_result!, style: TextStyle(fontSize: 13, height: 1.6, color: muted)),
+            Text(
+              _result!,
+              style: TextStyle(fontSize: 13, height: 1.6, color: muted),
+            ),
           ],
           const SizedBox(height: 16),
           FilledButton(

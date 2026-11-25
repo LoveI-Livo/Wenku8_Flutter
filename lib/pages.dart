@@ -452,19 +452,10 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     // Returning must not resume an old request to open the keyboard.
     if (current == false) {
       _searchFocusPending = false;
-    } else if (current == true &&
-        _routeCurrent == false &&
-        _searchOpen &&
-        _searchScope != 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted &&
-            _searchOpen &&
-            _searchScope != 0 &&
-            _routeCurrent == true) {
-          _activeSearch.refresh();
-        }
-      });
     }
+    // Returning from a book detail must keep the exact search list and scroll
+    // position. The old code refreshed the network search here, which replaced
+    // the user's chosen result set with a brand-new one.
     _routeCurrent = current;
   }
 
@@ -1800,36 +1791,36 @@ class FeedFooter extends StatelessWidget {
             gridDensity: gridDensity,
           ),
         ] else if (feed.loading && feed.search && feed.items.isNotEmpty) ...[
-          // 搜索还在逐源追加，但已有结果；此时“下一页”不能消失。
-          // 点击后 loadMore 会排队，等这一轮字段完成后立即请求下一页。
-          GlassTextButton(
-            key: const ValueKey('search-load-more-while-running'),
-            onPressed: feed.loadMore,
-            child: const AppText('加载下一页（搜索继续中）'),
+          // 搜索继续逐源追加时只提示进度，不出现“下一页”按钮。
+          // 用户顺着列表往下滑，新结果会直接并入当前列表。
+          const AppText(
+            '正在继续搜索更多书源，新结果会自动接在下面',
+            key: ValueKey('search-live-footer'),
           ),
-          const SizedBox(height: 6),
-          const AppText('已先显示返回的结果，剩余书源仍在搜索'),
         ] else if (feed.error != null) ...[
           AppText(
-            feed.refreshFailed
+            feed.search && feed.items.isNotEmpty
+                ? '部分来源没有返回，已保留搜索到的书籍'
+                : feed.refreshFailed
                 ? '刷新失败，已保留原列表'
                 : feed.hasLoaded
-                ? '加载下一页失败'
+                ? '加载失败，已保留原列表'
                 : '搜索尚未完成，已保留找到的书籍',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontSize: 12,
             ),
           ),
-          GlassTextButton(
-            onPressed: feed.refreshFailed || !feed.hasLoaded
-                ? feed.retry
-                : feed.loadMore,
-            child: AppText(
-              feed.hasLoaded && !feed.refreshFailed ? '加载下一页' : '重试',
+          if (!feed.search || feed.items.isEmpty)
+            GlassTextButton(
+              onPressed: feed.refreshFailed || !feed.hasLoaded
+                  ? feed.retry
+                  : feed.loadMore,
+              child: AppText(
+                feed.hasLoaded && !feed.refreshFailed ? '重试' : '重试',
+              ),
             ),
-          ),
-        ] else if (feed.hasMore)
+        ] else if (feed.hasMore && !feed.search)
           GlassTextButton(
             onPressed: feed.loadMore,
             child: const AppText('加载下一页'),
@@ -2133,12 +2124,8 @@ class NovelRow extends StatelessWidget {
                   heroTag: coverHeroTag,
                 ),
               ),
-              if (sourceLabel != null)
-                Positioned(
-                  top: 3,
-                  right: 3,
-                  child: BookSourceBadge(sourceLabel!, maxWidth: 50),
-                ),
+
+              // 书架/搜索列表不显示来源徽标；来源只在编辑页和详情介绍页显示。
             ],
           ),
           const SizedBox(width: 15),

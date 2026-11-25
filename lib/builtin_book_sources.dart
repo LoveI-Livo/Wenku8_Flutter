@@ -13,7 +13,7 @@ abstract final class BuiltInBookSources {
 
   static const asset = 'assets/book_sources/legado-pack.json';
   static const connectionId = 'rss-builtin';
-  static const _seededFlag = 'builtinBookSourcesV1';
+  static const _seededFlag = 'builtinBookSourcesV2';
   static bool _done = false;
   static Future<void>? _installing;
 

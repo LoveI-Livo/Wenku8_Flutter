@@ -46,8 +46,8 @@ class LocalScanPage extends StatefulWidget {
 
 class _LocalScanPageState extends State<LocalScanPage> {
   /// Read once: the folder changes from the import settings page, not here.
-  late final Future<BookScanFolder?> _folder =
-      widget.documents.scanFolderInfo();
+  late final Future<BookScanFolder?> _folder = widget.documents
+      .scanFolderInfo();
   bool _starting = false;
 
   Future<void> _scan() async {
@@ -163,10 +163,7 @@ class _LocalScanPageState extends State<LocalScanPage> {
       color: colors.errorContainer,
       child: ListTile(
         leading: Icon(Icons.error_outline, color: colors.onErrorContainer),
-        title: Text(
-          failure,
-          style: TextStyle(color: colors.onErrorContainer),
-        ),
+        title: Text(failure, style: TextStyle(color: colors.onErrorContainer)),
       ),
     );
   }
