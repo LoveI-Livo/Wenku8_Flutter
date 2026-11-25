@@ -176,7 +176,7 @@ final class LegadoReader {
         !body.trimLeft().startsWith('[')) {
       summary = WebNovelReader.parseBookInfo(body, uri).summary ?? '';
     }
-    return summary.trim();
+    return _cleanJsText(summary).trim();
   }
 
   /// 打开书：读取书名/作者/简介和目录。
