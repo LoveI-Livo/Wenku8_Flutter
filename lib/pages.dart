@@ -4416,119 +4416,79 @@ class InlineSearchResults extends StatelessWidget {
           ),
   );
 
-  Widget _buildGroupedResults(BuildContext context) => FeedRefresh(
-    feed: feed,
-    child: CustomScrollView(
-      key: PageStorageKey(('grouped-search-results', feed.query)),
-      clipBehavior: LibraryReflowScope.clipOf(context),
-      physics: const AlwaysScrollableScrollPhysics(),
-      cacheExtent: BookCollectionLayout.cacheExtentFor(
-        MediaQuery.sizeOf(context).width - 48,
-        base: 250,
-      ),
-      slivers: [
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(
-            24,
-            MediaQuery.paddingOf(context).top +
-                FrostedHeader.toolbarHeight +
-                20,
-            24,
-            MediaQuery.paddingOf(context).bottom + 24,
-          ),
-          sliver: SliverMainAxisGroup(
-            slivers: [
-              const SliverToBoxAdapter(child: SearchProgressLine()),
-              if (allowBlockedTags)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Row(
-                      children: [
-                        BlockedTagsButton(
-                          key: const ValueKey('search-blocked-tags-manage'),
-                          state: state,
-                          feed: feed,
-                          compact: true,
-                        ),
-                        if (feed.blockedItemCount > 0) ...[
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: AppText(
-                              '当前已隐藏 ${feed.blockedItemCount} 条结果',
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              for (final group in feed.searchGroups)
-                LoadedContentSequence(
-                  key: ValueKey('search-group-${group.searchField.name}'),
-                  generation: group.resultReplacesRetained
-                      ? null
-                      : group.resultRevision,
-                  firstIndex: group.resultStartIndex + 1,
-                  child: SliverMainAxisGroup(
+  Widget _buildGroupedResults(BuildContext context) {
+    final groupedIds = <int>{
+      for (final group in feed.searchGroups)
+        for (final book in group.items) book.id,
+    };
+    final live = [
+      for (final book in feed.liveItems)
+        if (!groupedIds.contains(book.id)) book,
+    ];
+    return FeedRefresh(
+      feed: feed,
+      child: CustomScrollView(
+        key: PageStorageKey(('grouped-search-results', feed.query)),
+        clipBehavior: LibraryReflowScope.clipOf(context),
+        physics: const AlwaysScrollableScrollPhysics(),
+        cacheExtent: BookCollectionLayout.cacheExtentFor(
+          MediaQuery.sizeOf(context).width - 48,
+          base: 250,
+        ),
+        slivers: [
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              MediaQuery.paddingOf(context).top +
+                  FrostedHeader.toolbarHeight +
+                  20,
+              24,
+              MediaQuery.paddingOf(context).bottom + 24,
+            ),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                const SliverToBoxAdapter(child: SearchProgressLine()),
+                if (live.isNotEmpty)
+                  SliverMainAxisGroup(
+                    key: const ValueKey('search-live-results'),
                     slivers: [
                       SliverToBoxAdapter(
                         child: Padding(
-                          padding: EdgeInsets.only(
-                            top: group.searchField == BookSearchField.title
-                                ? 0
-                                : 20,
-                            bottom: 10,
-                          ),
+                          padding: const EdgeInsets.only(bottom: 10),
                           child: Row(
                             children: [
-                              Expanded(
+                              const Expanded(
                                 child: AppText(
-                                  group.searchField.label,
-                                  key: ValueKey(
-                                    'search-group-heading-${group.searchField.name}',
-                                  ),
-                                  style: const TextStyle(
+                                  '即时结果',
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
-                              if (group.hasLoaded || group.items.isNotEmpty)
-                                AppText(
-                                  group.hasBlockedTags
-                                      ? '已显示 ${group.items.length}'
-                                      : group.totalItems == null ||
-                                            group.error != null ||
-                                            group.searchNotice != null
-                                      ? '已找到 ${group.items.length}'
-                                      : '${group.totalItems} 个结果',
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                    fontSize: 13,
-                                  ),
+                              AppText(
+                                '已先显示 ${live.length} 本',
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                  fontSize: 13,
                                 ),
+                              ),
                             ],
                           ),
                         ),
                       ),
                       BookCollectionSliver(
-                        itemCount: group.items.length,
+                        itemCount: live.length,
                         itemBuilder: (context, index) {
-                          final book = group.items[index];
-                          final hero = CoverHeroTag(group, book.id);
+                          final book = live[index];
+                          final hero = CoverHeroTag(feed, book.id);
                           return LoadedContentItem(
                             index: index + 1,
                             placeholder: const BookRowSkeleton(),
                             child: NovelRow(
-                              key: ValueKey((
-                                'search-group-book',
-                                group.searchField,
-                                book.id,
-                              )),
+                              key: ValueKey(('search-live-book', book.id)),
                               novel: book,
                               sourceLabel:
                                   showSources || book.sourceLabel != null
@@ -4556,28 +4516,149 @@ class InlineSearchResults extends StatelessWidget {
                           );
                         },
                       ),
-                      SliverToBoxAdapter(
-                        child: _SearchGroupFooter(
-                          feed: group,
-                          reduceMotion: state.reduceMotion,
-                          onManageBlockedTags: allowBlockedTags
-                              ? () => showBlockedTagsSettings(
-                                  context,
-                                  state: state,
-                                  feed: feed,
-                                )
-                              : null,
-                        ),
-                      ),
                     ],
                   ),
-                ),
-            ],
+                if (allowBlockedTags)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          BlockedTagsButton(
+                            key: const ValueKey('search-blocked-tags-manage'),
+                            state: state,
+                            feed: feed,
+                            compact: true,
+                          ),
+                          if (feed.blockedItemCount > 0) ...[
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: AppText(
+                                '当前已隐藏 ${feed.blockedItemCount} 条结果',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                for (final group in feed.searchGroups)
+                  LoadedContentSequence(
+                    key: ValueKey('search-group-${group.searchField.name}'),
+                    generation: group.resultReplacesRetained
+                        ? null
+                        : group.resultRevision,
+                    firstIndex: group.resultStartIndex + 1,
+                    child: SliverMainAxisGroup(
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              top: group.searchField == BookSearchField.title
+                                  ? 0
+                                  : 20,
+                              bottom: 10,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: AppText(
+                                    group.searchField.label,
+                                    key: ValueKey(
+                                      'search-group-heading-${group.searchField.name}',
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                if (group.hasLoaded || group.items.isNotEmpty)
+                                  AppText(
+                                    group.hasBlockedTags
+                                        ? '已显示 ${group.items.length}'
+                                        : group.totalItems == null ||
+                                              group.error != null ||
+                                              group.searchNotice != null
+                                        ? '已找到 ${group.items.length}'
+                                        : '${group.totalItems} 个结果',
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        BookCollectionSliver(
+                          itemCount: group.items.length,
+                          itemBuilder: (context, index) {
+                            final book = group.items[index];
+                            final hero = CoverHeroTag(group, book.id);
+                            return LoadedContentItem(
+                              index: index + 1,
+                              placeholder: const BookRowSkeleton(),
+                              child: NovelRow(
+                                key: ValueKey((
+                                  'search-group-book',
+                                  group.searchField,
+                                  book.id,
+                                )),
+                                novel: book,
+                                sourceLabel:
+                                    showSources || book.sourceLabel != null
+                                    ? bookshelfSource(
+                                        book.id,
+                                        repository is OfflineNovelRepository
+                                            ? repository
+                                                  as OfflineNovelRepository
+                                            : null,
+                                        book: book,
+                                      )
+                                    : null,
+                                coverHeroTag: hero,
+                                onTap: () {
+                                  onOpenBook();
+                                  openDetail(
+                                    context,
+                                    book,
+                                    state,
+                                    repository,
+                                    coverHeroTag: hero,
+                                    fromCache: fromCache,
+                                  );
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                        SliverToBoxAdapter(
+                          child: _SearchGroupFooter(
+                            feed: group,
+                            reduceMotion: state.reduceMotion,
+                            onManageBlockedTags: allowBlockedTags
+                                ? () => showBlockedTagsSettings(
+                                    context,
+                                    state: state,
+                                    feed: feed,
+                                  )
+                                : null,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 
   Widget _buildResults(BuildContext context) {
     final books = feed.items;

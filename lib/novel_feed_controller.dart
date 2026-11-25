@@ -122,6 +122,10 @@ class NovelFeedController extends ChangeNotifier {
   }
 
   bool refreshFailed = false;
+
+  /// 逐源搜索时先到、但所属字段组还没完成的条目。分组页把它们单独显示，
+  /// 否则四个字段组要等整轮 30 秒结束才出现，用户看到的就是“搜半天没反应”。
+  List<Novel> get liveItems => _partialItems;
   int _generation = 0;
   // 逐源结果如果每来一个源就 notify 一次，1000 个源会把长列表反复复制、
   // 反复重建，滑动时明显卡顿。这里按 80ms 合并成一批。
