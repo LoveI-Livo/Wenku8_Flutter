@@ -1887,6 +1887,19 @@ class RssBookClient extends DirectLinkBookClient {
   Future<CloudBookListing> search(String query, {int page = 1}) async {
     final value = query.trim();
     if (value.isEmpty) return const CloudBookListing([]);
+    // 旧判断只看非 Legado 地址，内置 1200 条几乎全是 Legado，导致第 2 页
+    // 永远直接返回空，用户看到“下一页”没反应。这里同时识别 Legado 的
+    // searchUrl 中是否带 page 占位符。
+    if (page > 1 &&
+        !_sourceObjects.any((source) {
+          final searchUrl = source.rules['searchUrl']?.toString() ?? '';
+          final url = source.isLegado ? searchUrl : source.url;
+          return url.contains('{{page}}') ||
+              url.contains('{page}') ||
+              RegExp(r'(?:^|[?&])page=').hasMatch(url);
+        })) {
+      return const CloudBookListing([]);
+    }
     final entries = <String, CloudBookEntry>{};
     final pattern = BookSearch(value);
     var attempted = 0;

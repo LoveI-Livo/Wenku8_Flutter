@@ -311,4 +311,47 @@ void main() {
     final summary = await LegadoReader.summary(payload);
     expect(summary, contains('详情简介'));
   });
+
+  test('RssBookClient 第2页不会因 Legado 源被提前判空', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((request) async {
+      final page = request.uri.queryParameters['page'] ?? '1';
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'data': [
+            {'name': page == '2' ? '第二页书' : '第一页书', 'url': '/book/$page'},
+          ],
+        }),
+      );
+      await request.response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final source = CloudBookSource(
+      url: base,
+      name: '分页测试',
+      rules: {
+        'searchUrl': '$base/search?key={{key}}&page={{page}}',
+        'ruleSearch': {
+          'bookList': r'$.data[*]',
+          'name': r'$.name',
+          'bookUrl': r'$.url',
+        },
+      },
+    );
+    final config = CloudSourceConfig(
+      kind: CloudSourceKind.rss,
+      connectionId: 'paging-test',
+      sources: [source],
+    );
+    final client = RssBookClient(config, sourceEntries: [source]);
+    try {
+      final second = await client.search('测试', page: 2);
+      expect(second.entries, hasLength(1));
+      expect(second.entries.single.name, '第二页书');
+    } finally {
+      client.close();
+    }
+  });
 }
