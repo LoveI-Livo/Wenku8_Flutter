@@ -128,7 +128,54 @@ class CloudCatalogSearch {
     return result;
   }
 
+  final Map<String, Future<List<Novel>>> _activeSearches = {};
+  final StreamController<CloudPartialResult> _partialController =
+      StreamController<CloudPartialResult>.broadcast();
+
+  /// 单个书源结束就推送一次，页面可以先展示已返回的结果。
+  Stream<CloudPartialResult> get partialResults => _partialController.stream;
+
+  void _emitPartial(String query, List<Novel> items) {
+    if (items.isEmpty || _partialController.isClosed) return;
+    _partialController.add(CloudPartialResult(query: query, items: items));
+  }
+
+  /// 同一批来源的并行搜索只真正跑一次。搜索页会按书名/作者/标签/ID
+  /// 分四组同时查询，不能让它们各自把 276 个来源重扫一遍。
   Future<List<Novel>> search(
+    String query, {
+    CloudSearchScope scope = CloudSearchScope.all,
+    String? sourceKey,
+    Set<String>? sourceKeys,
+    bool refresh = false,
+  }) {
+    final value = query.trim();
+    if (value.isEmpty) return Future.value(const []);
+    final keys = sourceKeys ?? {if (sourceKey != null) sourceKey};
+    final key = '$value|${scope.name}|${(keys.toList()..sort()).join('\n')}';
+    if (!refresh) {
+      final running = _activeSearches[key];
+      if (running != null) return running;
+    }
+    final future = _searchOnce(
+      value,
+      scope: scope,
+      sourceKey: sourceKey,
+      sourceKeys: sourceKeys,
+      refresh: refresh,
+    );
+    if (!refresh) {
+      _activeSearches[key] = future;
+      return future.whenComplete(() {
+        if (identical(_activeSearches[key], future)) {
+          _activeSearches.remove(key);
+        }
+      });
+    }
+    return future;
+  }
+
+  Future<List<Novel>> _searchOnce(
     String query, {
     CloudSearchScope scope = CloudSearchScope.all,
     String? sourceKey,
@@ -215,6 +262,7 @@ class CloudCatalogSearch {
           try {
             final selectedSources =
                 sourcePlan[config] ?? const <CloudBookSource>[];
+            final partial = <Novel>[];
             client = config.kind == CloudSourceKind.rss
                 ? RssBookClient(
                     config,
@@ -222,6 +270,22 @@ class CloudCatalogSearch {
                         ? null
                         : selectedSources,
                     onSourceDone: progress.advance,
+                    onSourceEntries: (entries) {
+                      final novels = <Novel>[];
+                      for (final entry in entries) {
+                        if (novels.length >= _maxResults) break;
+                        final novel = _novelFor(entry, config);
+                        if (_matches(value, novel)) novels.add(novel);
+                      }
+                      for (final novel in novels) {
+                        if (!results.any(
+                          (existing) => existing.id == novel.id,
+                        )) {
+                          results.add(novel);
+                        }
+                      }
+                      _emitPartial(value, novels);
+                    },
                   )
                 : CloudBookClient(config, settings: settings);
             final walk =
@@ -252,11 +316,13 @@ class CloudCatalogSearch {
                 final novel = _novelFor(entry, config);
                 if (!results.any((existing) => existing.id == novel.id)) {
                   results.add(novel);
+                  if (client is! RssBookClient) partial.add(novel);
                 }
               }
               return;
             }
 
+            if (partial.isNotEmpty) _emitPartial(value, partial);
             // 文件名、作者、RSS 简介都没有命中时，只对少量小文件做元数据识别。
             // 这样可以搜到 TXT/EPUB 内部写的书名、作者和简介，同时避免把整个
             // 网盘的大文件都拉一遍。
@@ -569,6 +635,12 @@ class _CloudSearchIndex {
   final Map<String, CloudBookEntry> entries;
   final DateTime at;
   final bool complete;
+}
+
+class CloudPartialResult {
+  const CloudPartialResult({required this.query, required this.items});
+  final String query;
+  final List<Novel> items;
 }
 
 class _CloudSearchWalk {

@@ -214,6 +214,30 @@ class CloudDocumentService {
   /// preventing the book from being added. When [cloudOnly] is true (search
   /// indexing), failure returns the original metadata instead of downloading
   /// the book to the phone.
+  /// 编辑器里简介为空时单独拉一次来源网页简介，不要求用户先打开详情。
+  Future<String> refreshSummary(Novel novel) async {
+    final url = novel.remoteUrl ?? _urls[novel.id];
+    if (url == null || url.trim().isEmpty) return '';
+    if (novel.remoteKind != CloudSourceKind.rss.name) return '';
+    try {
+      final page = await WebNovelReader.inspect(
+        url,
+        cookie: novel.remoteCookie ?? '',
+        authorization: novel.remoteAuthorization ?? '',
+        allowHttp: url.startsWith('http://'),
+      ).timeout(const Duration(seconds: 12));
+      final text = page.summary?.trim() ?? '';
+      if (text.isNotEmpty && !isPlaceholderSummary(text)) {
+        _urls[novel.id] = url;
+        _metadata[novel.id] = novel.withMetadata(summary: text);
+        return text;
+      }
+    } catch (_) {
+      // 网页结构不支持时保留空白，由界面给出“来源未提供简介”提示。
+    }
+    return '';
+  }
+
   Future<Novel> enrich(Novel novel, {bool cloudOnly = false}) async {
     final cached = _metadata[novel.id];
     if (cached != null && _enriched.contains(novel.id)) return cached;
@@ -479,6 +503,15 @@ class CloudDocumentService {
       for (var index = 0; index < document.chapters.length; index++)
         index + 1: document.chapters[index].url,
     };
+    // 用户在详情页看简介/目录时，后台把第一章备好；点进阅读直接命中。
+    if (chapters.isNotEmpty && initialBodies[chapters.first.id] == null) {
+      unawaited(
+        chapterContent(
+          novel.id,
+          chapters.first,
+        ).then<void>((_) {}, onError: (_) {}),
+      );
+    }
     _metadata[novel.id] = full;
     _enriched.add(novel.id);
     return full;
@@ -582,7 +615,20 @@ class CloudDocumentService {
     return (await detail(meta)).chapters;
   }
 
-  Future<String> chapterContent(int id, NovelChapter chapter) async {
+  final Map<String, Future<String>> _chapterLoads = {};
+
+  Future<String> chapterContent(int id, NovelChapter chapter) {
+    final key = '$id:${chapter.id}';
+    final pending = _chapterLoads[key];
+    if (pending != null) return pending;
+    final future = _loadChapterContent(id, chapter);
+    _chapterLoads[key] = future;
+    return future.whenComplete(() {
+      if (identical(_chapterLoads[key], future)) _chapterLoads.remove(key);
+    });
+  }
+
+  Future<String> _loadChapterContent(int id, NovelChapter chapter) async {
     final document = await _ensure(id);
     final cached = document.bodies[chapter.id];
     if (cached != null && cached.isNotEmpty) return cleanReadingText(cached);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -53,11 +54,38 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
   String _group = LocalLibraryPreferences.unfiled;
   bool _busy = false;
   String? _error;
+  String? _summaryPlaceholder;
 
   @override
   void initState() {
     super.initState();
+    if (CloudDocumentService.isPlaceholderSummary(widget.book.summary) &&
+        widget.book.remoteKind == 'rss') {
+      _summaryPlaceholder = '正在从来源读取简介…';
+    }
     _load();
+    unawaited(_loadSummary());
+  }
+
+  Future<void> _loadSummary() async {
+    if (!CloudDocumentService.isPlaceholderSummary(widget.book.summary)) return;
+    if (widget.book.remoteKind != 'rss') return;
+    try {
+      final text = (await CloudDocumentService.instance.refreshSummary(
+        widget.book,
+      )).trim();
+      if (!mounted || _summary.text.trim().isNotEmpty) return;
+      if (!CloudDocumentService.isPlaceholderSummary(text)) {
+        setState(() {
+          _summary.text = text;
+          _summaryPlaceholder = null;
+        });
+      } else if (mounted) {
+        setState(() => _summaryPlaceholder = '来源未提供简介，可手动补充');
+      }
+    } catch (_) {
+      // 简介读取失败不影响用户编辑其他字段，保存时也不会写入占位文案。
+    }
   }
 
   @override
@@ -449,6 +477,7 @@ class _OnlineBookEditorState extends State<OnlineBookEditor> {
         label: '简介',
         controller: _summary,
         inputKey: const ValueKey('online-edit-简介'),
+        placeholder: _summaryPlaceholder,
         enabled: !_busy,
         maxLength: 5000,
         minLines: 3,

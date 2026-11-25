@@ -36,6 +36,25 @@ void main() {
     expect(listing.entries.single.summary, '一本测试小说的简介');
   });
 
+  test('没有 meta description 时从“简介：”正文提取完整简介', () {
+    final listing = WebNovelReader.catalogFromHtml('''
+      <html><body>
+        <h1>无 Meta 小说</h1>
+        <div class="bookinfo">
+          <p>作者：李四</p>
+          <p>简介：这是一段没有 meta 标签的完整简介，包含第一卷的故事背景、
+          主要人物和冲突，不应因为页面没有 description 就留空。</p>
+          <p>最新章节：第一章</p>
+        </div>
+        <a href="/book/200/1.html">第一章</a>
+        <a href="/book/200/2.html">第二章</a>
+      </body></html>
+    ''', Uri.parse('https://example.com/book/200.html'));
+    final summary = listing.entries.single.summary;
+    expect(summary, contains('没有 meta 标签的完整简介'));
+    expect(summary, isNot(contains('最新章节')));
+  });
+
   test('搜索结果每页固定五十条', () {
     final items = [
       for (var index = 0; index < 120; index++)

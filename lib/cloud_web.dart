@@ -173,7 +173,7 @@ class WebNovelReader {
     final target = Uri.tryParse(url.trim());
     if (target == null) throw const CloudSourceFailure('书源网页地址无效');
     CloudHttp.validateUrl(target, allowHttp: allowHttp);
-    final client = CloudHttp();
+    final client = _sharedHttp;
     try {
       final refererUri = Uri.tryParse(referer.trim());
       final response = await client.request(
@@ -202,9 +202,11 @@ class WebNovelReader {
       final body = _decode(bytes, response.headers.contentType);
       return (body: body, uri: target);
     } finally {
-      client.close();
+      // 复用同一份 HttpClient，阅读下一章时省掉重复 TLS 握手。
     }
   }
+
+  static final CloudHttp _sharedHttp = CloudHttp();
 
   static String decodeBytes(Uint8List bytes, ContentType? contentType) =>
       _decode(bytes, contentType);
@@ -263,11 +265,16 @@ class WebNovelReader {
         _authorFromText(doc) ??
         firstText('.author,.book-author,.novel-author');
     final summary =
-        meta('description') ??
         meta('og:description') ??
+        meta('description') ??
         firstText(
-          '.intro,.summary,.description,.book-intro,.book-desc,.novel-intro,#intro,#summary',
-        );
+          '.bookintro,.book-intro,.book_intro,.intro,.summary,.description,'
+          '.desc,.book-desc,.book_desc,.book-summary,.book_summary,'
+          '.bookInfo,.book-info,.book-info-content,.novel-intro,.novel_summary,'
+          '.intro_txt,.intro-txt,[itemprop="description"],'
+          '#bookIntro,#bookSummary,#intro,#summary,.jj,.juqing',
+        ) ??
+        _summaryFromText(doc);
     final cover = meta('og:image');
     return _BookInfo(
       title: _cleanTitleText(title),
@@ -294,9 +301,35 @@ class WebNovelReader {
 
   static String? _cleanSummary(String? value) {
     if (value == null) return null;
-    final text = value.trim();
+    var text = value
+        .replaceAll('\u3000', ' ')
+        .replaceFirst(RegExp(r'^(?:内容简介|作品简介|书籍简介|简\s*介)\s*[：:]\s*'), '')
+        .replaceAll(RegExp(r'[ \t]+'), ' ')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
+    if (text.isEmpty) return null;
+    // 去掉详情页常见的“请记住本站/最新章节”尾巴，但保留正文段落。
+    text = text
+        .replaceFirst(RegExp(r'\s*(?:请记住本站|记住本站|最新章节|笔趣阁|手机阅读|本章未完).*$'), '')
+        .trim();
     if (text.isEmpty) return null;
     return text.length <= 1200 ? text : '${text.substring(0, 1200)}…';
+  }
+
+  /// 很多中文书源没有 meta description，简介放在“简介：……”这段正文里。
+  /// 只截到下一个明显的字段标题，避免把整页导航和推荐一起塞进简介。
+  static String? _summaryFromText(Document doc) {
+    final root = doc.body ?? doc.documentElement;
+    if (root == null) return null;
+    final text = _text(
+      root,
+    ).replaceAll('\u3000', ' ').replaceAll(RegExp(r'[ \t]+'), ' ');
+    final match = RegExp(
+      r'(?:内容简介|作品简介|书籍简介|简\s*介)\s*[：:]\s*([\s\S]{2,1200}?)'
+      r'(?=\s*(?:作\s*者|最后更新|更新时间|最新章节|章节目录|目录|开始阅读|加入书架|推荐|猜你喜欢|$))',
+    ).firstMatch(text);
+    final value = match?.group(1)?.trim();
+    return value == null || value.isEmpty ? null : value;
   }
 
   static String _cleanTitle(Document doc, Uri base) {

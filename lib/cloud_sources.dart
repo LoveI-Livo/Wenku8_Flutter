@@ -1692,6 +1692,7 @@ class RssBookClient extends DirectLinkBookClient {
     List<String>? sources,
     List<CloudBookSource>? sourceEntries,
     this.onSourceDone,
+    this.onSourceEntries,
   }) : _override = sources,
        _entriesOverride = sourceEntries;
 
@@ -1700,6 +1701,9 @@ class RssBookClient extends DirectLinkBookClient {
   final List<String>? _override;
   final List<CloudBookSource>? _entriesOverride;
   final void Function()? onSourceDone;
+
+  /// 每个书源结束就把它自己的命中交给页面，支持边搜边出结果。
+  final void Function(List<CloudBookEntry>)? onSourceEntries;
   final Completer<void> _sourcesDone = Completer<void>();
 
   /// 搜索提前返回首批结果时，进度条仍要等所有书源完成/超时后再收起。
@@ -1873,6 +1877,13 @@ class RssBookClient extends DirectLinkBookClient {
           (source) async {
             if (stopped) return;
             attempted++;
+            final sourceEntries = <CloudBookEntry>[];
+            void reportSource() {
+              if (sourceEntries.isNotEmpty) {
+                onSourceEntries?.call(List<CloudBookEntry>.of(sourceEntries));
+              }
+            }
+
             if (LegadoReader.supports(source)) {
               try {
                 final listing = await LegadoReader.search(
@@ -1888,13 +1899,15 @@ class RssBookClient extends DirectLinkBookClient {
                 ).timeout(const Duration(seconds: 6));
                 for (final entry in listing.entries) {
                   if (stopped) return;
-                  entries.putIfAbsent(entry.id, () => entry);
+                  final inserted = entries.putIfAbsent(entry.id, () => entry);
+                  sourceEntries.add(inserted);
                   if (entries.length >= _maxEntries) return;
                 }
               } catch (error) {
                 firstFailure ??= error;
                 // 一个 Legado 书源规则失效不影响其它书源。
               }
+              reportSource();
               return;
             }
             final sourceUrl = source.url;
@@ -1919,13 +1932,15 @@ class RssBookClient extends DirectLinkBookClient {
                         id: entry.id,
                       );
                 if (!matches) continue;
-                entries.putIfAbsent(entry.id, () => entry);
+                final inserted = entries.putIfAbsent(entry.id, () => entry);
+                sourceEntries.add(inserted);
                 if (entries.length >= _maxEntries) return;
               }
             } catch (error) {
               firstFailure ??= error;
               // 一个书源失效不影响其他书源。
             }
+            reportSource();
           },
           workers: 32,
           onDone: onSourceDone,

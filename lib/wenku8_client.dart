@@ -228,6 +228,16 @@ class Wenku8Client {
         );
         code = body.trim();
       }
+      if (code != '1' && code != '2' && code != '3' && code != '4') {
+        // 主接口偶发被 Cloudflare 拦截时，另一个官方入口仍可能正常登录。
+        body = await apiRaw(
+          action,
+          allowNumeric: true,
+          alternate: true,
+          timeout: const Duration(seconds: 12),
+        );
+        code = body.trim();
+      }
       if (code == '1' && hasSession) return;
       if (code == '2') {
         credentialFailure = FormatException(emailLogin ? '邮箱不存在' : '用户名不存在');

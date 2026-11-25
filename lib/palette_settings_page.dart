@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'app_palette.dart';
@@ -201,6 +202,29 @@ class _PaletteSettingsPageState extends State<PaletteSettingsPage>
                   ),
                 const SizedBox(height: 20),
                 _PalettePreview(scheme: scheme),
+                const SizedBox(height: 28),
+                const ArchiveSection(
+                  title: '调色盘',
+                  code: '02 / COLOR WHEEL',
+                  subtitle: '拖动圆盘直接选色相和饱和度，松手立即保存。',
+                ),
+                const SizedBox(height: 14),
+                Center(
+                  child: SizedBox(
+                    width: 238,
+                    height: 238,
+                    child: _InlinePaletteWheel(
+                      key: ValueKey('inline-palette-${prefs.seed}'),
+                      color: prefs.color,
+                      onChanged: (color) => _save(
+                        prefs.copyWith(
+                          source: AppPaletteSource.custom,
+                          seed: color.toARGB32(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 AnimatedOptionSection(
                   expanded: prefs.source == AppPaletteSource.custom,
                   child: Column(
@@ -424,6 +448,134 @@ class _PaletteSwatch extends StatelessWidget {
       ),
     );
   }
+}
+
+class _InlinePaletteWheel extends StatefulWidget {
+  const _InlinePaletteWheel({
+    super.key,
+    required this.color,
+    required this.onChanged,
+  });
+
+  final Color color;
+  final ValueChanged<Color> onChanged;
+
+  @override
+  State<_InlinePaletteWheel> createState() => _InlinePaletteWheelState();
+}
+
+class _InlinePaletteWheelState extends State<_InlinePaletteWheel> {
+  late HSVColor _color = HSVColor.fromColor(widget.color);
+
+  @override
+  void didUpdateWidget(covariant _InlinePaletteWheel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.color != widget.color) {
+      _color = HSVColor.fromColor(widget.color);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _ColorWheel(
+    color: _color,
+    onChanged: (value) => setState(() => _color = value),
+    onEnd: () => widget.onChanged(_color.toColor()),
+  );
+}
+
+class _ColorWheel extends StatelessWidget {
+  const _ColorWheel({
+    super.key,
+    required this.color,
+    required this.onChanged,
+    this.onEnd,
+  });
+
+  final HSVColor color;
+  final ValueChanged<HSVColor> onChanged;
+  final VoidCallback? onEnd;
+
+  void _pick(Offset local, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = math.min(size.width, size.height) / 2;
+    final delta = local - center;
+    final distance = delta.distance;
+    final saturation = radius == 0 ? 0.0 : (distance / radius).clamp(0.0, 1.0);
+    final hue = ((math.atan2(delta.dy, delta.dx) * 180 / math.pi) + 360) % 360;
+    onChanged(HSVColor.fromAHSV(1, hue, saturation, color.value));
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final size = Size(constraints.maxWidth, constraints.maxHeight);
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanDown: (details) => _pick(details.localPosition, size),
+        onPanUpdate: (details) => _pick(details.localPosition, size),
+        onPanEnd: (_) => onEnd?.call(),
+        onTapDown: (details) => _pick(details.localPosition, size),
+        onTapUp: (_) => onEnd?.call(),
+        child: CustomPaint(painter: _ColorWheelPainter(color), size: size),
+      );
+    },
+  );
+}
+
+class _ColorWheelPainter extends CustomPainter {
+  const _ColorWheelPainter(this.color);
+  final HSVColor color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = math.min(size.width, size.height) / 2;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    final hue = Paint()
+      ..shader = SweepGradient(
+        colors: [
+          for (var i = 0; i <= 6; i++)
+            HSVColor.fromAHSV(1, i * 60 % 360, 1, 1).toColor(),
+        ],
+      ).createShader(rect);
+    canvas.drawCircle(center, radius, hue);
+    final saturation = Paint()
+      ..shader = RadialGradient(
+        colors: [Colors.white, Colors.white.withValues(alpha: 0)],
+      ).createShader(rect);
+    canvas.drawCircle(center, radius, saturation);
+    if (color.value < 1) {
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = Colors.black.withValues(alpha: 1 - color.value),
+      );
+    }
+    final angle = color.hue * math.pi / 180;
+    final point =
+        center +
+        Offset(math.cos(angle), math.sin(angle)) * (color.saturation * radius);
+    canvas.drawCircle(
+      point,
+      9,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = Colors.white,
+    );
+    canvas.drawCircle(
+      point,
+      10,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = Colors.black.withValues(alpha: 0.45),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ColorWheelPainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _SeedEditor extends StatefulWidget {

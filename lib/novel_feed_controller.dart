@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
 
 import 'catalog.dart';
+import 'cloud_catalog_search.dart';
 import 'book_tag_catalog.dart';
 import 'book_search.dart';
 import 'tag_catalogue.dart';
@@ -523,8 +524,34 @@ class NovelFeedController extends ChangeNotifier {
     ];
     _acceptGroupChanges = true;
     _searchGroupChanged();
-    await Future.wait(work);
-    if (!_disposed && generation == _generation) _searchGroupChanged();
+    final requestedQuery = query;
+    final partialSubscription = CloudCatalogSearch.instance.partialResults
+        .listen((event) {
+          if (event.query == requestedQuery) _appendPartial(event.items);
+        });
+    try {
+      await Future.wait(work);
+    } finally {
+      await partialSubscription.cancel();
+      if (!_disposed && generation == _generation) {
+        _acceptGroupChanges = true;
+        _searchGroupChanged();
+      }
+    }
+  }
+
+  void _appendPartial(List<Novel> incoming) {
+    if (_disposed || !_acceptGroupChanges || !_usesSearchGroups) return;
+    final ids = {for (final item in _items) item.id};
+    final fresh = <Novel>[];
+    for (final item in incoming) {
+      if (ids.add(item.id)) fresh.add(item);
+    }
+    if (fresh.isEmpty) return;
+    _items = List.unmodifiable([..._items, ...fresh]);
+    _visibleItems = null;
+    _resultRevision++;
+    notifyListeners();
   }
 
   void _searchGroupChanged() {

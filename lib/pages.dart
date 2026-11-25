@@ -5604,20 +5604,56 @@ class _DetailPageState extends State<DetailPage> with TickerProviderStateMixin {
                 label: '正在加载章节信息',
               )
             else
-              _cacheReactive(
-                () => AppText(
-                  loadError != null
-                      ? '目录暂未载入'
-                      : '${novel.isComplete ? '已完结' : '连载中'} · ${bookshelfSource(novel.id, repository is OfflineNovelRepository ? repository as OfflineNovelRepository : null, book: novel)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 13,
-                    height: 1.55,
-                  ),
-                ),
-              ),
+              _cacheReactive(() {
+                if (loadError != null) {
+                  return AppText(
+                    '目录暂未载入',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13,
+                      height: 1.55,
+                    ),
+                  );
+                }
+                final status = novel.isComplete ? '已完结' : '连载中';
+                final source = bookshelfSource(
+                  novel.id,
+                  repository is OfflineNovelRepository
+                      ? repository as OfflineNovelRepository
+                      : null,
+                  book: novel,
+                );
+                final parts = source.split(' · ');
+                final first = parts.isEmpty ? source : parts.first;
+                final rest = parts.length <= 1
+                    ? (novel.remoteKind == CloudSourceKind.rss.name
+                          ? 'RSS / Atom / JSON / 网页'
+                          : '')
+                    : parts.skip(1).join(' · ');
+                final style = TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                  height: 1.55,
+                );
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppText(
+                      '$status · $first',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: style,
+                    ),
+                    if (rest.isNotEmpty)
+                      AppText(
+                        rest,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: style.copyWith(height: 1.35),
+                      ),
+                  ],
+                );
+              }),
             if (!isLoading && loadError == null && _updateLabel != null) ...[
               const SizedBox(height: 4),
               AppText(

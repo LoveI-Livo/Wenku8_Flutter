@@ -363,12 +363,10 @@ class WenkuAccount extends ChangeNotifier {
   }
 
   Future<void> refreshProfile({bool notify = true}) async {
-    WenkuProfile value;
-    try {
-      value = await _apiProfile();
-    } on OnlineAuthenticationRequired {
-      value = await _webProfile();
-    }
+    // www.wenku8.net / .cn 的网页资料页被 Cloudflare 固定 403，不能再把
+    // 它当成“会话失效”的证据。App 接口能确认就确认；确认不了交给保险箱
+    // 自动重登，避免每次覆盖安装都弹回登录页。
+    final value = await _apiProfile();
     _applyProfile(value, notify);
   }
 

@@ -10,8 +10,8 @@ library;
 const modEditionName = '轻小说文库';
 
 /// 版本号与构建号：需要和 pubspec.yaml、lib/updates/app_updates.dart 保持一致。
-const modEditionVersion = '0.8.9';
-const modEditionBuild = 3031;
+const modEditionVersion = '0.9.0';
+const modEditionBuild = 3032;
 
 /// 改版作者。
 const modAuthorName = 'LoveI-Livo';
@@ -57,6 +57,10 @@ class ModChange {
 
 /// 改动清单，显示在「关于 → 改版说明」。
 const modEditionChanges = <ModChange>[
+  ModChange(
+    '逐源出结果与调色盘',
+    '书源搜索每完成一个来源就先展示命中，后续来源继续追加；主题配色新增可拖动的圆形调色盘，简介从来源正文细致提取。',
+  ),
   ModChange(
     '账号保险箱与自动登录',
     '账号密码保存在 AndroidKeyStore / iOS Keychain 加密保险箱；覆盖安装、重启或官网会话过期后自动静默重登，只有主动退出账号才清除。',

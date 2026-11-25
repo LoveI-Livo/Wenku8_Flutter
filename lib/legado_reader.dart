@@ -469,7 +469,7 @@ final class LegadoReader {
     Map<String, String> extraHeaders = const {},
   }) async {
     CloudHttp.validateUrl(uri, allowHttp: allowHttp);
-    final http = CloudHttp();
+    final http = _sharedHttp;
     final upper = method.toUpperCase();
     try {
       final response = await http.request(
@@ -499,9 +499,11 @@ final class LegadoReader {
       final bytes = await http.bytes(response, limit: 12 * 1024 * 1024);
       return WebNovelReader.decodeBytes(bytes, response.headers.contentType);
     } finally {
-      http.close();
+      // 复用连接，连续阅读/搜索多个书源时不再反复建立 TLS。
     }
   }
+
+  static final CloudHttp _sharedHttp = CloudHttp();
 
   static _LegadoRequest _searchRequest(
     CloudBookSource source,
