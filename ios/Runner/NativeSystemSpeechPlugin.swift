@@ -148,6 +148,27 @@ final class SystemSpeechFile {
     }
   }
 
+  private static func amplify(_ buffer: AVAudioPCMBuffer, gain: Float) {
+    let frames = Int(buffer.frameLength)
+    let channels = Int(buffer.format.channelCount)
+    if !buffer.format.isInterleaved, let data = buffer.floatChannelData {
+      for channel in 0..<channels {
+        let samples = data[channel]
+        for frame in 0..<frames {
+          samples[frame] = min(1, max(-1, samples[frame] * gain))
+        }
+      }
+    } else if !buffer.format.isInterleaved, let data = buffer.int16ChannelData {
+      for channel in 0..<channels {
+        let samples = data[channel]
+        for frame in 0..<frames {
+          let boosted = Int(samples[frame]) * Int(gain * 100) / 100
+          samples[frame] = Int16(min(32767, max(-32768, boosted)))
+        }
+      }
+    }
+  }
+
   func close(keepingOutput: Bool, completion: @escaping () -> Void) {
     queue.async {
       self.terminal = true
@@ -322,27 +343,6 @@ final class NativeSystemSpeechPlugin: NSObject, FlutterPlugin, AVSpeechSynthesiz
 
   func detachFromEngine(for registrar: FlutterPluginRegistrar) {
     if let job = current { finish(job, .failure(SpeechHostFailure(code: "TTS_CANCELLED", message: "语音引擎已关闭"))) }
-  }
-
-  private static func amplify(_ buffer: AVAudioPCMBuffer, gain: Float) {
-    let frames = Int(buffer.frameLength)
-    let channels = Int(buffer.format.channelCount)
-    if !buffer.format.isInterleaved, let data = buffer.floatChannelData {
-      for channel in 0..<channels {
-        let samples = data[channel]
-        for frame in 0..<frames {
-          samples[frame] = min(1, max(-1, samples[frame] * gain))
-        }
-      }
-    } else if !buffer.format.isInterleaved, let data = buffer.int16ChannelData {
-      for channel in 0..<channels {
-        let samples = data[channel]
-        for frame in 0..<frames {
-          let boosted = Int(samples[frame]) * Int(gain * 100) / 100
-          samples[frame] = Int16(min(32767, max(-32768, boosted)))
-        }
-      }
-    }
   }
 
   private func flutterError(_ error: Error) -> FlutterError {
