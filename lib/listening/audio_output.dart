@@ -14,12 +14,17 @@ import 'models.dart';
 /// Both online MP3 and system-generated WAV use the same hardware audio player.
 /// No TTS speak()/stop() simulation: pause and seek preserve the exact audio position.
 class NativeListeningOutput implements ListeningAudioOutput {
-  NativeListeningOutput(this.controller);
+  NativeListeningOutput(this.controller) {
+    _loudness = AndroidLoudnessEnhancer();
+    _player = AudioPlayer(
+      handleInterruptions: false,
+      handleAudioSessionActivation: false,
+      audioPipeline: AudioPipeline(androidAudioEffects: [_loudness]),
+    );
+  }
   final ListeningController controller;
-  final _player = AudioPlayer(
-    handleInterruptions: false,
-    handleAudioSessionActivation: false,
-  );
+  late final AndroidLoudnessEnhancer _loudness;
+  late final AudioPlayer _player;
   final _completed = StreamController<void>.broadcast();
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   AudioSession? _session;
@@ -128,12 +133,27 @@ class NativeListeningOutput implements ListeningAudioOutput {
   @override
   Future<void> setSpeed(double speed) => _player.setSpeed(speed);
   @override
+  Future<void> setGain(double gainDb) async {
+    if (!LocalPlatform.android) return;
+    final gain = gainDb.clamp(0, 6.5).toDouble();
+    try {
+      await _loudness.setTargetGain(gain);
+      await _loudness.setEnabled(gain > .1);
+    } catch (_) {
+      /* Some vendor decoders reject the effect; normal playback still works. */
+    }
+  }
+
+  @override
   Future<void> dispose() async {
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
     if (LocalPlatform.android) {
       await controller.enhancement.configure(controller.enhancement.preference);
+      try {
+        await _loudness.setEnabled(false);
+      } catch (_) {}
     }
     await _player.dispose();
     await _completed.close();

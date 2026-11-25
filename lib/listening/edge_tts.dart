@@ -167,14 +167,22 @@ class EdgeSpeechClient {
   Future<Uint8List> synthesize(
     String text,
     SpeechVoice voice,
-    SpeechCancellation cancellation,
-  ) => _synthesize(text, voice, cancellation, retryClock: true);
+    SpeechCancellation cancellation, {
+    int volumePercent = 100,
+  }) => _synthesize(
+    text,
+    voice,
+    cancellation,
+    retryClock: true,
+    volumePercent: volumePercent,
+  );
 
   Future<Uint8List> _synthesize(
     String text,
     SpeechVoice voice,
     SpeechCancellation cancellation, {
     required bool retryClock,
+    int volumePercent = 100,
   }) async {
     text = speechText(text);
     if (!validVoice(voice.id, voice.locale)) {
@@ -219,9 +227,10 @@ class EdgeSpeechClient {
         '{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"true","wordBoundaryEnabled":"false"},'
         '"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}\r\n',
       );
+      final boost = (volumePercent.clamp(100, 200) - 100);
       final ssml =
           '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${voice.locale}">'
-          '<voice name="${voice.id}"><prosody pitch="+0Hz" rate="+0%" volume="+0%">${escapeXml(text)}</prosody></voice></speak>';
+          '<voice name="${voice.id}"><prosody pitch="+0Hz" rate="+0%" volume="+$boost%">${escapeXml(text)}</prosody></voice></speak>';
       socket.add(
         'X-RequestId:${connectionId()}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp(now)}Z\r\nPath:ssml\r\n\r\n$ssml',
       );
@@ -269,7 +278,13 @@ class EdgeSpeechClient {
           cancellation.check();
         }
         cancellation.check();
-        return _synthesize(text, voice, cancellation, retryClock: false);
+        return _synthesize(
+          text,
+          voice,
+          cancellation,
+          retryClock: false,
+          volumePercent: volumePercent,
+        );
       }
       throw const SpeechFailure('在线音源连接失败，请检查网络后重试，或换一个在线音色');
     } catch (error) {

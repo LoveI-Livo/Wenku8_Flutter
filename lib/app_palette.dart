@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
+import 'app_backdrop.dart';
 import 'archive_design.dart';
 
 enum AppPaletteSource { original, system, custom }
@@ -11,10 +12,12 @@ class AppPalettePreferences {
     this.source = AppPaletteSource.original,
     this.seed = 0xff607d71,
     this.themedIcon = true,
+    this.backdrop = AppBackdrop.paper,
   });
   static const key = 'appPalette';
   final AppPaletteSource source;
   final int seed;
+  final AppBackdrop backdrop;
   // Existing Android 13 icons already expose a monochrome layer. Keep that
   // behavior until the user explicitly opts out.
   final bool themedIcon;
@@ -23,15 +26,18 @@ class AppPalettePreferences {
     AppPaletteSource? source,
     int? seed,
     bool? themedIcon,
+    AppBackdrop? backdrop,
   }) => AppPalettePreferences(
     source: source ?? this.source,
     seed: seed ?? this.seed,
     themedIcon: themedIcon ?? this.themedIcon,
+    backdrop: backdrop ?? this.backdrop,
   );
   Map<String, Object> toJson() => {
     'source': source.name,
     'seed': seed,
     'themedIcon': themedIcon,
+    'backdrop': backdrop.name,
   };
   String encode() => jsonEncode(toJson());
   static AppPalettePreferences decode(Object? record) {
@@ -53,6 +59,9 @@ class AppPalettePreferences {
       source: AppPaletteSource.values.byName(raw['source']),
       seed: raw['seed'],
       themedIcon: raw['themedIcon'],
+      backdrop: raw['backdrop'] is String
+          ? AppBackdrop.parse(raw['backdrop'])
+          : AppBackdrop.paper,
     );
   }
 
@@ -61,9 +70,10 @@ class AppPalettePreferences {
       other is AppPalettePreferences &&
       other.source == source &&
       other.seed == seed &&
-      other.themedIcon == themedIcon;
+      other.themedIcon == themedIcon &&
+      other.backdrop == backdrop;
   @override
-  int get hashCode => Object.hash(source, seed, themedIcon);
+  int get hashCode => Object.hash(source, seed, themedIcon, backdrop);
 }
 
 /// The five Android tonal palettes, ordered by tone rather than resource suffix.

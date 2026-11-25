@@ -39,6 +39,15 @@ class ListeningStore {
     listeningMaximumSpeed,
   );
   bool get follow => preferences.getBool('listening.follow.v1') ?? true;
+
+  /// Narrator and quoted dialogue use opposite Edge voices by default. A user
+  /// who prefers one voice can switch it off without losing the preference.
+  bool get multiRole => preferences.getBool('listening.multiRole.v1') ?? true;
+
+  Future<void> saveMultiRole(bool value) => _write(
+    () => preferences.setBool('listening.multiRole.v1', value),
+    '分角色朗读设置保存失败',
+  );
   int get paragraphGapMs => normalizeListeningParagraphGap(
     preferences.getInt('listening.paragraphGapMs.v1') ?? 0,
   );

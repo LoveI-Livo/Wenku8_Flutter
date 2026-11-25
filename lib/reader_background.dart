@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'app_backdrop.dart';
 import 'app_ui.dart';
 import 'personal_images.dart';
 import 'reader_preferences.dart';
@@ -47,58 +48,66 @@ class _ReaderBackgroundState extends State<ReaderBackground> {
   }
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: widget.paper,
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        Positioned.fill(
-          child: IgnorePointer(
-            child: ExcludeSemantics(
-              child: RepaintBoundary(
-                key: const ValueKey('reader-background-layer'),
-                child: FutureBuilder<File?>(
-                  future: _file,
-                  initialData: widget.store.resolvedFile(
-                    widget.preferences.backgroundImage,
-                  ),
-                  builder: (context, snapshot) => AnimatedSwitcher(
-                    duration: widget.reduceMotion
-                        ? Duration.zero
-                        : NovelMotion.enter,
-                    switchInCurve: NovelMotion.ease,
-                    switchOutCurve: NovelMotion.retract,
-                    child: snapshot.data == null
-                        ? const SizedBox.expand()
-                        : Image.file(
-                            snapshot.data!,
-                            key: ValueKey(snapshot.data!.path),
-                            width: double.infinity,
-                            height: double.infinity,
-                            fit: widget.preferences.backgroundFit,
-                            color: widget.paper.withValues(
-                              alpha:
-                                  widget.preferences.darkPaper(
-                                    Theme.of(context).brightness ==
-                                        Brightness.dark,
-                                  )
-                                  ? (1 - widget.preferences.backgroundOpacity)
-                                        .clamp(.55, 1.0)
-                                  : 1 - widget.preferences.backgroundOpacity,
+  Widget build(BuildContext context) {
+    final backdrop = Theme.of(context).extension<AppBackdropStyle>();
+    return ColoredBox(
+      color: widget.paper,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (backdrop != null)
+            Positioned.fill(
+              child: AppBackdropLayer(style: backdrop, strength: .55),
+            ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ExcludeSemantics(
+                child: RepaintBoundary(
+                  key: const ValueKey('reader-background-layer'),
+                  child: FutureBuilder<File?>(
+                    future: _file,
+                    initialData: widget.store.resolvedFile(
+                      widget.preferences.backgroundImage,
+                    ),
+                    builder: (context, snapshot) => AnimatedSwitcher(
+                      duration: widget.reduceMotion
+                          ? Duration.zero
+                          : NovelMotion.enter,
+                      switchInCurve: NovelMotion.ease,
+                      switchOutCurve: NovelMotion.retract,
+                      child: snapshot.data == null
+                          ? const SizedBox.expand()
+                          : Image.file(
+                              snapshot.data!,
+                              key: ValueKey(snapshot.data!.path),
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: widget.preferences.backgroundFit,
+                              color: widget.paper.withValues(
+                                alpha:
+                                    widget.preferences.darkPaper(
+                                      Theme.of(context).brightness ==
+                                          Brightness.dark,
+                                    )
+                                    ? (1 - widget.preferences.backgroundOpacity)
+                                          .clamp(.55, 1.0)
+                                    : 1 - widget.preferences.backgroundOpacity,
+                              ),
+                              colorBlendMode: BlendMode.srcOver,
+                              filterQuality: FilterQuality.low,
+                              gaplessPlayback: true,
+                              errorBuilder: (_, _, _) =>
+                                  const SizedBox.expand(),
                             ),
-                            colorBlendMode: BlendMode.srcOver,
-                            filterQuality: FilterQuality.low,
-                            gaplessPlayback: true,
-                            errorBuilder: (_, _, _) => const SizedBox.expand(),
-                          ),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        widget.child,
-      ],
-    ),
-  );
+          widget.child,
+        ],
+      ),
+    );
+  }
 }

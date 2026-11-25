@@ -51,8 +51,66 @@ List<SpeechSegment> speechWithLanguages(
             preferred.locale,
           ),
         ),
+        role: part.role,
       ),
   ]);
+}
+
+const _femaleEdgeVoices = {
+  'zh-CN-XiaoxiaoNeural',
+  'zh-CN-XiaoyiNeural',
+  'zh-CN-liaoning-XiaobeiNeural',
+  'zh-CN-shaanxi-XiaoniNeural',
+  'zh-HK-HiuGaaiNeural',
+  'zh-HK-HiuMaanNeural',
+  'zh-TW-HsiaoChenNeural',
+  'zh-TW-HsiaoYuNeural',
+};
+
+const _maleEdgeVoices = {
+  'zh-CN-YunxiNeural',
+  'zh-CN-YunjianNeural',
+  'zh-CN-YunxiaNeural',
+  'zh-CN-YunyangNeural',
+  'zh-HK-WanLungNeural',
+  'zh-TW-YunJheNeural',
+};
+
+/// A dialogue voice in the same provider, engine and language. Online Edge
+/// voices prefer the opposite gender; installed engines keep the narrator
+/// rather than pretending a second model exists.
+SpeechVoice? speechDialogueVoiceForLanguage(
+  String language,
+  SpeechVoice preferred,
+  List<SpeechVoice> available,
+) {
+  final code = speechLanguageCode(language);
+  if (code.isEmpty || preferred.source != ListeningSource.edge) return null;
+  final female = _femaleEdgeVoices.contains(preferred.id);
+  final male = _maleEdgeVoices.contains(preferred.id);
+  final matches = available
+      .where(
+        (voice) =>
+            voice.availableForListening &&
+            voice.id != preferred.id &&
+            voice.source == preferred.source &&
+            voice.engine == preferred.engine &&
+            speechLanguageCode(voice.locale) == code,
+      )
+      .toList();
+  if (matches.isEmpty) return null;
+  bool opposite(SpeechVoice voice) =>
+      (female && _maleEdgeVoices.contains(voice.id)) ||
+      (male && _femaleEdgeVoices.contains(voice.id));
+  matches.sort((a, b) {
+    final aOpposite = opposite(a), bOpposite = opposite(b);
+    if (aOpposite != bOpposite) return aOpposite ? -1 : 1;
+    final aPreferred = a.id == defaultEdgeVoice.id;
+    final bPreferred = b.id == defaultEdgeVoice.id;
+    if (aPreferred != bPreferred) return aPreferred ? -1 : 1;
+    return a.id.compareTo(b.id);
+  });
+  return matches.first;
 }
 
 /// A language is never routed to another provider/engine or a different language.

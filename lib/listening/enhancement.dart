@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 /// The optional "listening enhancement" only shapes playback. It never changes
@@ -19,6 +21,8 @@ enum ListeningEnhancementMode {
 }
 
 const listeningEnhancementMaximumGain = 12.0;
+const listeningMinimumVolumePercent = 100;
+const listeningMaximumVolumePercent = 200;
 
 double _gain(Object? value) {
   final number = value is num
@@ -30,6 +34,26 @@ double _gain(Object? value) {
   return number.clamp(0, listeningEnhancementMaximumGain).toDouble();
 }
 
+int _volumePercent(Object? value, {double? legacyGain}) {
+  final number = value is num
+      ? value.toInt()
+      : value is String
+      ? int.tryParse(value.trim()) ?? 0
+      : 0;
+  if (number >= listeningMinimumVolumePercent &&
+      number <= listeningMaximumVolumePercent) {
+    return number;
+  }
+  if (legacyGain != null && legacyGain > 0) {
+    final percent = 100 * math.pow(10, legacyGain / 20);
+    return percent.round().clamp(
+      listeningMinimumVolumePercent,
+      listeningMaximumVolumePercent,
+    );
+  }
+  return listeningMinimumVolumePercent;
+}
+
 /// A small, immutable record so a damaged preference cannot break playback.
 @immutable
 class ListeningEnhancementPreference {
@@ -37,6 +61,7 @@ class ListeningEnhancementPreference {
     this.mode = ListeningEnhancementMode.off,
     this.gain = 0,
     this.normalize = false,
+    this.volumePercent = listeningMinimumVolumePercent,
   });
 
   static const none = ListeningEnhancementPreference();
@@ -49,13 +74,23 @@ class ListeningEnhancementPreference {
   /// Even out quiet and loud passages instead of adding gain.
   final bool normalize;
 
+  /// Playback loudness, 100 – 200 %. 200 % is a real +6 dB boost rather than
+  /// a cosmetic slider label.
+  final int volumePercent;
+
   bool get enabled =>
-      mode != ListeningEnhancementMode.off || normalize || gain > 0;
+      mode != ListeningEnhancementMode.off ||
+      normalize ||
+      gain > 0 ||
+      volumePercent > listeningMinimumVolumePercent;
+
+  double get volumeGainDb => 20 * math.log(volumePercent / 100) / math.ln10;
 
   String get summary {
     if (!enabled) return '未启用';
     return [
       if (mode != ListeningEnhancementMode.off) mode.label,
+      if (volumePercent > listeningMinimumVolumePercent) '音量 $volumePercent%',
       if (gain > 0) '+${gain.toStringAsFixed(0)} dB',
       if (normalize) '音量均衡',
     ].join(' · ');
@@ -65,23 +100,34 @@ class ListeningEnhancementPreference {
     'mode': mode.name,
     'gain': gain,
     'normalize': normalize,
+    'volumePercent': volumePercent,
   };
 
-  factory ListeningEnhancementPreference.fromJson(Map<dynamic, dynamic> json) =>
-      ListeningEnhancementPreference(
-        mode: ListeningEnhancementMode.parse(json['mode']),
-        gain: _gain(json['gain']),
-        normalize: json['normalize'] == true,
-      );
+  factory ListeningEnhancementPreference.fromJson(Map<dynamic, dynamic> json) {
+    final legacyGain = _gain(json['gain']);
+    return ListeningEnhancementPreference(
+      mode: ListeningEnhancementMode.parse(json['mode']),
+      gain: legacyGain,
+      normalize: json['normalize'] == true,
+      volumePercent: _volumePercent(
+        json['volumePercent'],
+        legacyGain: legacyGain,
+      ),
+    );
+  }
 
   ListeningEnhancementPreference copyWith({
     ListeningEnhancementMode? mode,
     double? gain,
     bool? normalize,
+    int? volumePercent,
   }) => ListeningEnhancementPreference(
     mode: mode ?? this.mode,
     gain: gain == null ? this.gain : _gain(gain),
     normalize: normalize ?? this.normalize,
+    volumePercent: volumePercent == null
+        ? this.volumePercent
+        : _volumePercent(volumePercent),
   );
 
   @override
@@ -89,15 +135,16 @@ class ListeningEnhancementPreference {
       other is ListeningEnhancementPreference &&
       other.mode == mode &&
       other.gain == gain &&
-      other.normalize == normalize;
+      other.normalize == normalize &&
+      other.volumePercent == volumePercent;
 
   @override
-  int get hashCode => Object.hash(mode, gain, normalize);
+  int get hashCode => Object.hash(mode, gain, normalize, volumePercent);
 
   @override
   String toString() =>
       'ListeningEnhancementPreference(${mode.name}, +$gain dB, '
-      'normalize: $normalize)';
+      '${volumePercent}%, normalize: $normalize)';
 }
 
 /// Holds the current enhancement preference and notifies the listening panel.
@@ -125,8 +172,12 @@ class ListeningEnhancement implements Listenable {
   bool get enabled => _preference.enabled;
 
   /// Gain that playback should apply, already neutralised when switched off.
-  double get effectiveGain =>
-      _preference.mode == ListeningEnhancementMode.off ? 0 : _preference.gain;
+  /// [ListeningEnhancementPreference.volumePercent] is independent of the
+  /// optional tone mode: selecting 200 % must still produce a louder signal.
+  double get effectiveGain => math.max(
+    _preference.mode == ListeningEnhancementMode.off ? 0 : _preference.gain,
+    _preference.volumeGainDb,
+  );
 
   @override
   void addListener(VoidCallback listener) {

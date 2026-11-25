@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'edge_tts.dart';
@@ -12,8 +13,9 @@ abstract interface class SpeechAudioSource {
   Future<File> prepare(
     SpeechSegment segment,
     SpeechVoice voice,
-    SpeechCancellation cancellation,
-  );
+    SpeechCancellation cancellation, {
+    int volumePercent = 100,
+  });
   Future<List<SpeechVoice>> offlineVoices();
   Future<List<SpeechVoice>> onlineVoices();
   void protect(File file);
@@ -202,8 +204,9 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
   Future<File> prepare(
     SpeechSegment segment,
     SpeechVoice voice,
-    SpeechCancellation cancellation,
-  ) async {
+    SpeechCancellation cancellation, {
+    int volumePercent = 100,
+  }) async {
     cancellation.check();
     if (!voice.supported) {
       throw const SpeechFailure('该音色已不再支持，请重新选择听书音色');
@@ -222,7 +225,9 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
             customSpeech?.config?.locale != voice.locale)) {
       throw const SpeechFailure('请重新选择或配置自定义语音接口');
     }
-    final key = segment.key(voice);
+    final gainDb =
+        20 * math.log(volumePercent.clamp(100, 200) / 100) / math.ln10;
+    final key = segment.key(voice, gainDb: volumePercent <= 100 ? 0 : gainDb);
     final pending = _pending[key];
     if (pending != null) {
       try {
@@ -235,7 +240,7 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
         // A new seek/source switch must not inherit an old cancelled request.
       }
     }
-    final future = _prepare(segment, voice, cancellation, key);
+    final future = _prepare(segment, voice, cancellation, key, volumePercent);
     _pending[key] = (token: cancellation, future: future);
     try {
       return await future;
@@ -249,6 +254,7 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
     SpeechVoice voice,
     SpeechCancellation cancellation,
     String key,
+    int volumePercent,
   ) async {
     try {
       final text = speechText(segment.text);
@@ -272,7 +278,12 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
       final temporary = File('${file.path}.part');
       try {
         if (voice.source == ListeningSource.edge) {
-          final data = await edge.synthesize(text, voice, cancellation);
+          final data = await edge.synthesize(
+            text,
+            voice,
+            cancellation,
+            volumePercent: volumePercent,
+          );
           cancellation.check();
           await temporary.writeAsBytes(data, flush: true);
         } else if (voice.source == ListeningSource.custom) {
@@ -287,6 +298,7 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
             text,
             config,
             cancellation,
+            volumePercent: volumePercent,
           );
           cancellation.check();
           await temporary.writeAsBytes(data, flush: true);
@@ -313,6 +325,7 @@ class SpeechAudioCache implements SpeechAudioSource, SpeechLanguageVoiceSource {
                     if (segment.language.isNotEmpty) 'locale': voice.locale,
                     'path': temporary.path,
                     'requestId': requestId,
+                    'volumePercent': volumePercent,
                   })
                   .timeout(
                     const Duration(seconds: 35),

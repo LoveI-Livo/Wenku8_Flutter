@@ -572,6 +572,8 @@ class _ListeningPanelState extends State<ListeningPanel> {
           String? spokenLanguage,
           Set<String> languages,
           Map<String, SpeechVoice> voiceOverrides,
+          bool multiRole,
+          SpeechVoice? dialogueVoice,
         })
       >(
         listenable: widget.controller.snapshot,
@@ -588,6 +590,8 @@ class _ListeningPanelState extends State<ListeningPanel> {
               ? state.languages
               : const {},
           voiceOverrides: state.voiceOverrides,
+          multiRole: state.multiRole,
+          dialogueVoice: state.dialogueVoice,
         ),
         builder: (context, state, _) {
           final source = state.voice.source;
@@ -666,6 +670,31 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 onCommitted: (value) => _act(
                   () =>
                       widget.controller.setParagraphGap((value * 1000).round()),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Expanded(child: AppText('旁白 / 对话分声线')),
+                  AppControls.toggle(
+                    context,
+                    key: const ValueKey('listening-multi-role'),
+                    value: state.multiRole,
+                    onChanged: (value) =>
+                        _act(() => widget.controller.setMultiRole(value)),
+                  ),
+                ],
+              ),
+              AppText(
+                state.multiRole
+                    ? state.dialogueVoice == null
+                          ? '当前音源没有第二个同语言音色，暂由旁白音色代读对话；选择在线 Edge 音色即可自动配对。'
+                          : '旁白 ${state.voice.label} · 对话 ${state.dialogueVoice!.label}。引号内的对白自动换声线。'
+                    : '已关闭分角色，旁白和引号对白都使用 ${state.voice.label}。',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 12),

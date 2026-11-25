@@ -176,6 +176,8 @@ String? chineseSpeechLocale(String value) {
   ].join('-');
 }
 
+enum SpeechRole { narration, dialogue }
+
 class SpeechSegment {
   const SpeechSegment(
     this.paragraph,
@@ -183,14 +185,17 @@ class SpeechSegment {
     this.end,
     this.text, {
     this.language = '',
+    this.role = SpeechRole.narration,
   });
   final int paragraph, start, end;
   final String text, language;
-  String key(SpeechVoice voice) => sha256
+  final SpeechRole role;
+  String key(SpeechVoice voice, {double gainDb = 0}) => sha256
       .convert(
         utf8.encode(
-          'speech-v1|${voice.source.name}|${voice.engine}|${voice.id}'
-          '${voice.id == '@default' || voice.source == ListeningSource.custom ? '|${voice.locale}' : ''}|$text',
+          'speech-v2|${voice.source.name}|${voice.engine}|${voice.id}'
+          '${voice.id == '@default' || voice.source == ListeningSource.custom ? '|${voice.locale}' : ''}'
+          '|${gainDb.toStringAsFixed(1)}|$text',
         ),
       )
       .toString();
@@ -235,21 +240,66 @@ bool hasSpeechText(String text) => _speechLetters.hasMatch(speechText(text));
 List<SpeechSegment> speechRecoverySegments(SpeechSegment segment) {
   if (segment.text.length <= 100) return [segment];
   return [
-    for (final part in speechSegments([segment.text], maximum: 80))
+    for (final part in speechSegments(
+      [segment.text],
+      maximum: 80,
+      forceRole: segment.role,
+    ))
       SpeechSegment(
         segment.paragraph,
         segment.start + part.start,
         segment.start + part.end,
         part.text,
         language: segment.language,
+        role: part.role,
       ),
   ];
+}
+
+class _SpeechRange {
+  const _SpeechRange(this.start, this.end, this.role);
+  final int start, end;
+  final SpeechRole role;
+}
+
+/// Split quoted speech away from narration without moving UTF-16 offsets.
+/// Narrator and dialogue can then use different voices while tapping a line
+/// still maps back to the same paragraph position.
+List<_SpeechRange> _speechRanges(String text) {
+  const pairs = {'“': '”', '「': '」', '『': '』', '"': '"'};
+  final ranges = <_SpeechRange>[];
+  var cursor = 0, index = 0;
+  while (index < text.length) {
+    final close = pairs[text[index]];
+    if (close == null) {
+      index++;
+      continue;
+    }
+    final end = text.indexOf(close, index + 1);
+    if (end <= index + 1) {
+      index++;
+      continue;
+    }
+    if (index > cursor) {
+      ranges.add(_SpeechRange(cursor, index, SpeechRole.narration));
+    }
+    ranges.add(_SpeechRange(index + 1, end, SpeechRole.dialogue));
+    cursor = end + 1;
+    index = end + 1;
+  }
+  if (cursor < text.length) {
+    ranges.add(_SpeechRange(cursor, text.length, SpeechRole.narration));
+  }
+  return ranges.isEmpty
+      ? [_SpeechRange(0, text.length, SpeechRole.narration)]
+      : ranges;
 }
 
 /// Original UTF-16 offsets remain valid for selection; paired illustration markers are never spoken.
 List<SpeechSegment> speechSegments(
   List<String> paragraphs, {
   int maximum = 240,
+  SpeechRole? forceRole,
 }) {
   if (maximum < 20 || maximum > 1000) {
     throw ArgumentError.value(maximum, 'maximum');
@@ -265,54 +315,76 @@ List<SpeechSegment> speechSegments(
             trimmed.endsWith('<!--image-->'))) {
       continue;
     }
-    var offset = 0;
-    while (offset < text.length) {
-      while (offset < text.length && text[offset].trim().isEmpty) {
-        offset++;
-      }
-      if (offset >= text.length) break;
-      var end = (offset + maximum).clamp(0, text.length);
-      if (end < text.length) {
-        // Keep surrogate pairs intact and prefer a complete clause over a chopped phrase.
-        if (end > offset &&
-            text.codeUnitAt(end - 1) >= 0xD800 &&
-            text.codeUnitAt(end - 1) <= 0xDBFF) {
-          end--;
-        }
-        final window = text.substring(offset, end);
-        final breaks = RegExp(r'[。！？!?；;\n]').allMatches(window).toList();
-        if (breaks.isNotEmpty && breaks.last.end >= maximum ~/ 3) {
-          end = offset + breaks.last.end;
-        } else {
-          // A long sentence should pause at a clause or word boundary instead
-          // of restarting the voice in the middle of a phrase, number or name.
-          final clauses = RegExp(r'[，,：:、\s]').allMatches(window).where((m) {
-            if (m.end < maximum ~/ 2) return false;
-            final at = offset + m.start;
-            final comma = text[at] == ',' || text[at] == '，';
-            bool digit(int index) =>
-                index >= 0 &&
-                index < text.length &&
-                text.codeUnitAt(index) >= 48 &&
-                text.codeUnitAt(index) <= 57;
-            return !comma || !(digit(at - 1) && digit(at + 1));
-          }).toList();
-          if (clauses.isNotEmpty) end = offset + clauses.last.end;
-        }
-        while (end < text.length &&
-            end < offset + maximum + 4 &&
-            '」』”’'.contains(text[end])) {
-          end++;
-        }
-      }
-      final fragment = speechText(text.substring(offset, end));
-      if (_speechLetters.hasMatch(fragment)) {
-        result.add(SpeechSegment(index, offset, end, fragment));
-      }
-      offset = end;
+    for (final range in _speechRanges(text)) {
+      _appendSpeechRange(
+        result,
+        index,
+        text,
+        range.start,
+        range.end,
+        forceRole ?? range.role,
+        maximum,
+      );
     }
   }
   return List.unmodifiable(result);
+}
+
+void _appendSpeechRange(
+  List<SpeechSegment> result,
+  int paragraph,
+  String text,
+  int rangeStart,
+  int rangeEnd,
+  SpeechRole role,
+  int maximum,
+) {
+  var offset = rangeStart;
+  while (offset < rangeEnd && text[offset].trim().isEmpty) {
+    offset++;
+  }
+  var end = rangeEnd;
+  while (end > offset && text[end - 1].trim().isEmpty) {
+    end--;
+  }
+  while (offset < end) {
+    var chunkEnd = (offset + maximum).clamp(0, end);
+    if (chunkEnd < end) {
+      // Keep surrogate pairs intact and prefer a complete clause over a chopped phrase.
+      if (chunkEnd > offset &&
+          text.codeUnitAt(chunkEnd - 1) >= 0xD800 &&
+          text.codeUnitAt(chunkEnd - 1) <= 0xDBFF) {
+        chunkEnd--;
+      }
+      final window = text.substring(offset, chunkEnd);
+      final breaks = RegExp(r'[。！？!?；;\n]').allMatches(window).toList();
+      if (breaks.isNotEmpty && breaks.last.end >= maximum ~/ 3) {
+        chunkEnd = offset + breaks.last.end;
+      } else {
+        // A long sentence should pause at a clause or word boundary instead
+        // of restarting the voice in the middle of a phrase, number or name.
+        final clauses = RegExp(r'[，,：:、\s]').allMatches(window).where((m) {
+          if (m.end < maximum ~/ 2) return false;
+          final at = offset + m.start;
+          final comma = text[at] == ',' || text[at] == '，';
+          bool digit(int index) =>
+              index >= 0 &&
+              index < text.length &&
+              text.codeUnitAt(index) >= 48 &&
+              text.codeUnitAt(index) <= 57;
+          return !comma || !(digit(at - 1) && digit(at + 1));
+        }).toList();
+        if (clauses.isNotEmpty) chunkEnd = offset + clauses.last.end;
+      }
+    }
+    final fragment = speechText(text.substring(offset, chunkEnd));
+    if (_speechLetters.hasMatch(fragment)) {
+      result.add(
+        SpeechSegment(paragraph, offset, chunkEnd, fragment, role: role),
+      );
+    }
+    offset = chunkEnd;
+  }
 }
 
 class SpeechCancelled implements Exception {

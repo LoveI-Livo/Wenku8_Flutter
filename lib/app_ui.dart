@@ -23,6 +23,7 @@ import 'local_book_import_warning.dart';
 import 'cover_arrival.dart';
 import 'glass_optics.dart';
 import 'glass_palette.dart';
+import 'app_backdrop.dart';
 import 'app_palette.dart';
 import 'glass_controls.dart';
 import 'app_language.dart';
@@ -149,7 +150,16 @@ ThemeData novelTheme(
     scaffoldBackgroundColor: original
         ? (dark ? ArchiveDesign.darkBackground : canvas)
         : scheme.surface,
-    extensions: [AppTonalColors.forScheme(scheme, original: original)],
+    extensions: [
+      AppTonalColors.forScheme(scheme, original: original),
+      AppBackdropStyle(
+        backdrop: palette.backdrop,
+        ink: scheme.onSurface,
+        accent: scheme.primary,
+        secondary: scheme.tertiary,
+        dark: dark,
+      ),
+    ],
     cupertinoOverrideTheme: CupertinoThemeData(
       brightness: brightness,
       primaryColor: scheme.primary,
@@ -379,19 +389,21 @@ class Atmosphere extends StatelessWidget {
               child,
             ],
           );
-    final background = archiveBackdrop
-        ? Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned.fill(
-                child: ArchiveBackdrop(
-                  filmColor: tonal?.milk ?? theme.colorScheme.surface,
-                ),
-              ),
-              content,
-            ],
-          )
-        : content;
+    final backdrop = theme.extension<AppBackdropStyle>();
+    final background = Stack(
+      fit: StackFit.expand,
+      children: [
+        if (backdrop != null && backdrop.backdrop != AppBackdrop.none)
+          Positioned.fill(child: AppBackdropLayer(style: backdrop)),
+        if (archiveBackdrop)
+          Positioned.fill(
+            child: ArchiveBackdrop(
+              filmColor: tonal?.milk ?? theme.colorScheme.surface,
+            ),
+          ),
+        content,
+      ],
+    );
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(

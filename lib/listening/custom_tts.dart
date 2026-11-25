@@ -345,13 +345,14 @@ String _escapeXml(String source) => source
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;');
 
-String _ssml(String spoken, CustomSpeechConfig config) {
+String _ssml(String spoken, CustomSpeechConfig config, int volumePercent) {
   final rate = config.rate;
   final rateText = rate == 0 ? '+0%' : '${rate > 0 ? '+' : ''}$rate%';
+  final volume = (volumePercent.clamp(100, 200) - 100);
   return '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
       'xml:lang="${_escapeXml(config.locale)}">'
       '<voice name="${_escapeXml(config.voiceId)}">'
-      '<prosody pitch="+0Hz" rate="$rateText" volume="+0%">'
+      '<prosody pitch="+0Hz" rate="$rateText" volume="+$volume%">'
       '${_escapeXml(spoken)}'
       '</prosody></voice></speak>';
 }
@@ -369,8 +370,9 @@ class CustomSpeechClient {
   Future<Uint8List> synthesize(
     String text,
     CustomSpeechConfig config,
-    SpeechCancellation cancellation,
-  ) async {
+    SpeechCancellation cancellation, {
+    int volumePercent = 100,
+  }) async {
     final spoken = speechText(text);
     if (!hasSpeechText(spoken)) {
       throw const SpeechFailure('这一段没有可朗读的文本', kind: SpeechFailureKind.content);
@@ -388,7 +390,7 @@ class CustomSpeechClient {
     );
     try {
       final request = await client.postUrl(endpoint).timeout(requestTimeout);
-      final body = utf8.encode(_ssml(spoken, config));
+      final body = utf8.encode(_ssml(spoken, config, volumePercent));
       request.headers.set(
         HttpHeaders.contentTypeHeader,
         'application/ssml+xml; charset=utf-8',

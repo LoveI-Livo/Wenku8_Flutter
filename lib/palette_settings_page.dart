@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'app_backdrop.dart';
 import 'app_palette.dart';
 import 'app_interactions.dart';
 import 'app_ui.dart';
@@ -288,7 +289,33 @@ class _PaletteSettingsPageState extends State<PaletteSettingsPage>
                   ),
                 ),
                 const SizedBox(height: 28),
-                const ArchiveSection(title: '桌面图标', code: '03 / APP ICON'),
+                const ArchiveSection(title: '页面背景', code: '03 / BACKDROP'),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final backdrop in AppBackdrop.values)
+                      ChoiceChip(
+                        key: ValueKey('palette-backdrop-${backdrop.name}'),
+                        label: Text(backdrop.label),
+                        selected: prefs.backdrop == backdrop,
+                        onSelected: (selected) {
+                          if (!selected || _busy) return;
+                          _save(prefs.copyWith(backdrop: backdrop));
+                        },
+                      ),
+                  ],
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: AppText(
+                    '背景图案铺满书架、搜索、设置和阅读页，只做低对比元素，不压正文。',
+                    style: TextStyle(fontSize: 12, height: 1.7),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                const ArchiveSection(title: '桌面图标', code: '04 / APP ICON'),
                 const SizedBox(height: 12),
                 Row(
                   children: [

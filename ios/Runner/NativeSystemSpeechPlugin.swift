@@ -39,6 +39,7 @@ struct SystemSpeechRequest {
   let voice: String
   let locale: String?
   let output: URL
+  let volumePercent: Int
 
   init(_ args: [String: Any], root: URL) throws {
     guard let id = args["requestId"] as? String, id.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil,
@@ -56,6 +57,8 @@ struct SystemSpeechRequest {
     self.id = id
     self.text = text
     self.voice = voice
+    let requestedVolume = args["volumePercent"] as? Int ?? 100
+    self.volumePercent = min(200, max(100, requestedVolume))
     if let raw = args["locale"], !(raw is NSNull) {
       guard let tag = raw as? String, let normalized = SystemSpeechLocale.normalized(tag) else {
         throw SpeechHostFailure(code: "TTS_INPUT", message: "朗读语言无效")
@@ -99,7 +102,7 @@ final class SystemSpeechFile {
     work = root.appendingPathComponent(".speech-\(UUID().uuidString).wav")
   }
 
-  func consume(_ buffer: AVAudioPCMBuffer) throws -> String? {
+  func consume(_ buffer: AVAudioPCMBuffer, gain: Float = 1) throws -> String? {
     try queue.sync {
       if terminal { return nil }
       if buffer.frameLength == 0 {
@@ -124,6 +127,7 @@ final class SystemSpeechFile {
             format.channelCount > 0, format.channelCount <= 2 else {
         throw SpeechHostFailure(code: "TTS_CONTENT", message: "系统音色返回了不支持的音频格式")
       }
+      if gain > 1 { Self.amplify(buffer, gain: gain) }
       let bytes = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
         .reduce(0) { $0 + Int($1.mDataByteSize) }
       byteCount += bytes
@@ -255,7 +259,9 @@ final class NativeSystemSpeechPlugin: NSObject, FlutterPlugin, AVSpeechSynthesiz
         guard let pcm = buffer as? AVAudioPCMBuffer else {
           throw SpeechHostFailure(code: "TTS_CONTENT", message: "系统音色返回了无效的语音数据")
         }
-        if let path = try job.writer.consume(pcm) {
+        if let path = try job.writer.consume(
+          pcm, gain: Float(job.request.volumePercent) / 100
+        ) {
           DispatchQueue.main.async { self.finish(job, .success(path)) }
         }
       } catch {
@@ -316,6 +322,27 @@ final class NativeSystemSpeechPlugin: NSObject, FlutterPlugin, AVSpeechSynthesiz
 
   func detachFromEngine(for registrar: FlutterPluginRegistrar) {
     if let job = current { finish(job, .failure(SpeechHostFailure(code: "TTS_CANCELLED", message: "语音引擎已关闭"))) }
+  }
+
+  private static func amplify(_ buffer: AVAudioPCMBuffer, gain: Float) {
+    let frames = Int(buffer.frameLength)
+    let channels = Int(buffer.format.channelCount)
+    if let data = buffer.floatChannelData {
+      for channel in 0..<channels {
+        let samples = data[channel]
+        for frame in 0..<frames {
+          samples[frame] = min(1, max(-1, samples[frame] * gain))
+        }
+      }
+    } else if let data = buffer.int16ChannelData {
+      for channel in 0..<channels {
+        let samples = data[channel]
+        for frame in 0..<frames {
+          let boosted = Int(samples[frame]) * Int(gain * 100) / 100
+          samples[frame] = Int16(min(32767, max(-32768, boosted)))
+        }
+      }
+    }
   }
 
   private func flutterError(_ error: Error) -> FlutterError {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -25,6 +26,7 @@ abstract interface class ListeningAudioOutput {
   Future<void> stop();
   Future<void> seek(Duration position);
   Future<void> setSpeed(double speed);
+  Future<void> setGain(double gainDb);
   Future<void> dispose();
 }
 
@@ -64,6 +66,8 @@ class ListeningSnapshot {
     this.voice = defaultEdgeVoice,
     this.currentVoice,
     this.voiceOverrides = const {},
+    this.dialogueVoice,
+    this.multiRole = true,
     this.spokenLanguage,
     this.languages = const {},
     this.missingLanguages = const {},
@@ -85,6 +89,8 @@ class ListeningSnapshot {
   final SpeechVoice voice;
   final SpeechVoice? currentVoice;
   final Map<String, SpeechVoice> voiceOverrides;
+  final SpeechVoice? dialogueVoice;
+  final bool multiRole;
   SpeechVoice get outputVoice => currentVoice ?? voice;
   final String? spokenLanguage;
   final Set<String> languages, missingLanguages;
@@ -135,10 +141,12 @@ class ListeningController {
     this.decoderTimeout = const Duration(seconds: 10),
     ListeningEnhancement? enhancement,
   }) : enhancement = enhancement ?? ListeningEnhancement() {
+    _multiRole = store.multiRole;
     _voiceOverrides = store.languageVoices(store.voice);
     snapshot.value = ListeningSnapshot(
       voice: store.voice,
       voiceOverrides: _voiceOverrides,
+      multiRole: store.multiRole,
       speed: store.speed,
       paragraphGapMs: store.paragraphGapMs,
       follow: store.follow,
@@ -170,13 +178,15 @@ class ListeningController {
   Future<void>? _disposing;
   File? _currentFile;
   final _preparedAhead =
-      <(SpeechSegment, ListeningSource, String?, String, String), File>{};
+      <(SpeechSegment, ListeningSource, String?, String, String, int), File>{};
   Object? _prefetchRun;
   static const _lookAhead = 3;
   ReaderContent _chapterContent = const ReaderContent([]);
   List<SpeechSegment> _rawSegments = const [];
   Map<String, SpeechVoice> _languageVoices = const {};
+  Map<String, SpeechVoice> _dialogueVoices = const {};
   Map<String, SpeechVoice> _voiceOverrides = const {};
+  bool _multiRole = true;
   (ListeningSource, String?, String, String)? _inventoryKey;
   Future<List<SpeechVoice>>? _inventory;
   final _loadingFiles = <String, int>{};
@@ -204,10 +214,31 @@ class ListeningController {
             state.phase == ListeningPhase.paused);
   }
 
-  (SpeechSegment, ListeningSource, String?, String, String) _audioIdentity(
+  (SpeechSegment, ListeningSource, String?, String, String, int) _audioIdentity(
     SpeechSegment segment,
     SpeechVoice voice,
-  ) => (segment, voice.source, voice.engine, voice.id, voice.locale);
+  ) => (
+    segment,
+    voice.source,
+    voice.engine,
+    voice.id,
+    voice.locale,
+    _volumePercent,
+  );
+
+  int get _volumePercent =>
+      enhancement.preference.volumePercent.clamp(100, 200);
+
+  double get _volumeGainDb => 20 * math.log(_volumePercent / 100) / math.ln10;
+
+  String _speechKey(SpeechSegment segment, SpeechVoice voice) =>
+      segment.key(voice, gainDb: _volumeGainDb);
+
+  SpeechVoice? _voiceFor(SpeechSegment segment) {
+    final narration = _languageVoices[segment.language];
+    if (!_multiRole || segment.role != SpeechRole.dialogue) return narration;
+    return _dialogueVoices[segment.language] ?? narration;
+  }
 
   void _releaseFile(File? file) {
     if (file != null &&
@@ -246,14 +277,14 @@ class ListeningController {
   void _prunePrefetch() {
     final state = snapshot.value;
     final wanted =
-        <(SpeechSegment, ListeningSource, String?, String, String)>{};
+        <(SpeechSegment, ListeningSource, String?, String, String, int)>{};
     for (
       var i = state.segment + 1;
       i < state.segments.length && i <= state.segment + _lookAhead;
       i++
     ) {
       final segment = state.segments[i];
-      final voice = _languageVoices[segment.language];
+      final voice = _voiceFor(segment);
       if (voice != null) wanted.add(_audioIdentity(segment, voice));
     }
     for (final key
@@ -328,7 +359,10 @@ class ListeningController {
     ListeningPhase? phase,
     SpeechVoice? voice,
     SpeechVoice? currentVoice,
+    SpeechVoice? dialogueVoice,
     bool clearCurrentVoice = false,
+    bool clearDialogueVoice = false,
+    bool? multiRole,
     Set<String>? languages,
     Set<String>? missingLanguages,
     int? skippedLanguageSegments,
@@ -353,6 +387,9 @@ class ListeningController {
       currentVoice:
           currentVoice ?? (clearCurrentVoice ? null : old.currentVoice),
       voiceOverrides: _voiceOverrides,
+      dialogueVoice:
+          dialogueVoice ?? (clearDialogueVoice ? null : old.dialogueVoice),
+      multiRole: multiRole ?? old.multiRole,
       spokenLanguage: store.spokenLanguage((novel ?? old.novel)?.id ?? 0),
       languages: languages ?? old.languages,
       missingLanguages: missingLanguages ?? old.missingLanguages,
@@ -690,6 +727,7 @@ class ListeningController {
 
   Future<bool> _planChapter(int generation) async {
     final state = snapshot.value;
+    _dialogueVoices = const {};
     final all = speechWithLanguages(_rawSegments, _chapterContent, state.voice);
     final selection = spokenLanguage(state.novel!.id);
     final candidates = all
@@ -720,6 +758,12 @@ class ListeningController {
       if (voice != null) matched[language] = voice;
     }
     _languageVoices = matched;
+    _dialogueVoices = Map.unmodifiable({
+      for (final entry in matched.entries)
+        if (speechDialogueVoiceForLanguage(entry.key, entry.value, available)
+            case final dialogue?)
+          entry.key: dialogue,
+    });
     final missing = Set<String>.unmodifiable(
       needed.difference(_languageVoices.keys.toSet()),
     );
@@ -732,6 +776,9 @@ class ListeningController {
       languages: languages,
       missingLanguages: missing,
       skippedLanguageSegments: candidates.length - segments.length,
+      dialogueVoice: _multiRole && segments.isNotEmpty
+          ? _dialogueVoices[segments.first.language]
+          : null,
       clearCurrentVoice: true,
     );
     if (segments.isEmpty) throw SpeechFailure(_missingModelMessage(missing));
@@ -761,13 +808,13 @@ class ListeningController {
     );
     if (selected < 0) selected = segments.length - 1;
     if (cursor != null &&
-        segments[selected].key(_languageVoices[segments[selected].language]!) !=
+        _speechKey(segments[selected], _voiceFor(segments[selected])!) !=
             cursor.segmentHash) {
       final parts = speechRecoverySegments(segments[selected]);
       final recovered = parts.indexWhere(
         (part) =>
             part.start == cursor.start &&
-            part.key(_languageVoices[part.language]!) == cursor.segmentHash,
+            _speechKey(part, _voiceFor(part)!) == cursor.segmentHash,
       );
       if (parts.length > 1 && recovered >= 0) {
         segments = List.unmodifiable([
@@ -781,9 +828,7 @@ class ListeningController {
     _emit(segments: segments, segment: selected);
     final restore =
         cursor != null &&
-            segments[selected].key(
-                  _languageVoices[segments[selected].language]!,
-                ) ==
+            _speechKey(segments[selected], _voiceFor(segments[selected])!) ==
                 cursor.segmentHash
         ? Duration(milliseconds: cursor.positionMs)
         : Duration.zero;
@@ -806,7 +851,7 @@ class ListeningController {
         return;
       }
       final segment = state.segments[index];
-      final voice = _languageVoices[segment.language];
+      final voice = _voiceFor(segment);
       if (voice == null) {
         index++;
         restore = Duration.zero;
@@ -877,6 +922,12 @@ class ListeningController {
             await output.seek(restore);
           }
           await output.setSpeed(snapshot.value.speed);
+          await output.setGain(
+            voice.source == ListeningSource.edge ||
+                    voice.source == ListeningSource.custom
+                ? 0
+                : enhancement.effectiveGain,
+          );
         });
         if (!_valid(generation)) return;
         final previous = _currentFile;
@@ -1004,7 +1055,14 @@ class ListeningController {
     try {
       attempt.check();
       return await attempt
-          .wait(audio.prepare(segment, voice, attempt))
+          .wait(
+            audio.prepare(
+              segment,
+              voice,
+              attempt,
+              volumePercent: _volumePercent,
+            ),
+          )
           .timeout(
             preparationTimeout,
             onTimeout: () {
@@ -1046,7 +1104,7 @@ class ListeningController {
           i++
         ) {
           final candidate = state.segments[i];
-          final matched = _languageVoices[candidate.language];
+          final matched = _voiceFor(candidate);
           if (matched != null &&
               !_preparedAhead.containsKey(_audioIdentity(candidate, matched))) {
             segment = candidate;
@@ -1324,7 +1382,7 @@ class ListeningController {
     Future<File> fileFor(int index) async {
       if (files[index] case final ready?) return ready;
       final segment = state.segments[index];
-      final voice = _languageVoices[segment.language];
+      final voice = _voiceFor(segment);
       if (voice == null) {
         throw const SpeechFailure('跳转位置没有对应语言的可用音色');
       }
@@ -1395,7 +1453,7 @@ class ListeningController {
       _relativeSeekGeneration = null;
       _emit(
         segment: index,
-        currentVoice: _languageVoices[state.segments[index].language],
+        currentVoice: _voiceFor(state.segments[index]),
         phase: _desiredPlaying ? ListeningPhase.playing : ListeningPhase.paused,
       );
       _releaseFile(original);
@@ -1653,7 +1711,7 @@ class ListeningController {
             paragraph: previous.current!.paragraph,
             start: previous.current!.start,
             positionMs: progress.value.position.inMilliseconds,
-            segmentHash: previous.current!.key(previous.outputVoice),
+            segmentHash: _speechKey(previous.current!, previous.outputVoice),
           );
     _cancelParagraphGap();
     _cancel.cancel();
@@ -1708,8 +1766,43 @@ class ListeningController {
   /// Save optional gain separately; it never enters the playback command queue.
   Future<void> setEnhancement(ListeningEnhancementPreference value) async {
     if (_disposed) return;
+    final before = enhancement.preference;
     await store.saveEnhancement(value);
-    if (!_disposed) await enhancement.setPreference(value);
+    if (_disposed) return;
+    await enhancement.setPreference(value);
+    final state = snapshot.value;
+    if (!state.active || _rawSegments.isEmpty) return;
+    if (before.volumePercent != value.volumePercent) {
+      await _replanCurrent(state);
+    } else {
+      final voice = state.current == null ? state.voice : state.outputVoice;
+      await _output?.setGain(
+        voice.source == ListeningSource.edge ||
+                voice.source == ListeningSource.custom
+            ? 0
+            : enhancement.effectiveGain,
+      );
+    }
+  }
+
+  /// Narrator and quoted dialogue voices. Switching this off immediately
+  /// returns the current chapter to the single selected voice.
+  Future<void> setMultiRole(bool value) async {
+    if (_disposed || _multiRole == value) return;
+    await store.saveMultiRole(value);
+    if (_disposed) return;
+    _multiRole = value;
+    final state = snapshot.value;
+    _emit(
+      multiRole: value,
+      dialogueVoice: value && state.current != null
+          ? _dialogueVoices[state.current!.language]
+          : null,
+      clearDialogueVoice: !value,
+    );
+    if (state.active && _rawSegments.isNotEmpty) {
+      await _replanCurrent(snapshot.value);
+    }
   }
 
   void setSleep({Duration? duration, bool afterChapter = false}) {
@@ -1793,7 +1886,7 @@ class ListeningController {
           paragraph: current.paragraph,
           start: current.start,
           positionMs: progress.value.position.inMilliseconds,
-          segmentHash: current.key(state.outputVoice),
+          segmentHash: _speechKey(current, state.outputVoice),
         ),
       );
     } catch (_) {

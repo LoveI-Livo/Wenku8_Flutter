@@ -82,6 +82,8 @@ class HarmonyListeningOutput implements ListeningAudioOutput {
   Future<void> setSpeed(double speed) =>
       channel.invokeMethod<void>('setSpeed', {'speed': speed});
   @override
+  Future<void> setGain(double gainDb) async {}
+  @override
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;

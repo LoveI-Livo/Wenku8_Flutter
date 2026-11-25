@@ -53,12 +53,6 @@ class _ListeningEnhancementSettingsState
     setState(() => _preference = current);
   }
 
-  /// Drag feedback stays local so the controller only saves once per commit.
-  void _preview(ListeningEnhancementPreference value) {
-    if (value == _preference) return;
-    setState(() => _preference = value);
-  }
-
   void _commit(ListeningEnhancementPreference value) {
     setState(() => _preference = value);
     widget.onChanged(value);
@@ -69,7 +63,6 @@ class _ListeningEnhancementSettingsState
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final preference = _preference;
-    final active = preference.mode != ListeningEnhancementMode.off;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -88,6 +81,44 @@ class _ListeningEnhancementSettingsState
                 style: theme.textTheme.bodySmall?.copyWith(color: muted),
               ),
             ],
+          ),
+        ),
+        Row(
+          children: [
+            const Expanded(child: Text('音量倍率')),
+            Text(
+              '${preference.volumePercent}%',
+              style: theme.textTheme.bodySmall?.copyWith(color: muted),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final percent in const [100, 150, 200])
+              ChoiceChip(
+                key: ValueKey('listening-volume-$percent'),
+                label: Text('$percent%'),
+                selected: preference.volumePercent == percent,
+                onSelected: (selected) {
+                  if (!selected) return;
+                  _commit(preference.copyWith(volumePercent: percent));
+                },
+              ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 10),
+          child: Text(
+            preference.volumePercent > 100
+                ? '200% 为真实 +6 dB 增益：在线音色在合成端提升，系统音色在播放端提升。'
+                : '100% 为原始音量。最高 200%，不是只改界面数字。',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: muted,
+              height: 1.5,
+            ),
           ),
         ),
         Wrap(
@@ -111,32 +142,6 @@ class _ListeningEnhancementSettingsState
           preference.mode.description,
           style: theme.textTheme.bodySmall?.copyWith(color: muted, height: 1.5),
         ),
-        if (active) ...[
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              const Expanded(child: Text('音量提升')),
-              Text(
-                preference.gain <= 0
-                    ? '不额外提升'
-                    : '+${preference.gain.toStringAsFixed(0)} dB',
-                style: theme.textTheme.bodySmall?.copyWith(color: muted),
-              ),
-            ],
-          ),
-          Slider(
-            key: const ValueKey('listening-enhancement-gain'),
-            value: preference.gain
-                .clamp(0.0, listeningEnhancementMaximumGain)
-                .toDouble(),
-            min: 0,
-            max: listeningEnhancementMaximumGain,
-            divisions: listeningEnhancementMaximumGain.round(),
-            label: '+${preference.gain.toStringAsFixed(0)} dB',
-            onChanged: (value) => _preview(preference.copyWith(gain: value)),
-            onChangeEnd: (value) => _commit(preference.copyWith(gain: value)),
-          ),
-        ],
         SwitchListTile.adaptive(
           key: const ValueKey('listening-enhancement-normalize'),
           contentPadding: EdgeInsets.zero,
