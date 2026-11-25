@@ -159,6 +159,50 @@ class ListeningStore {
     );
   }
 
+  String _characterScope(int novelId, SpeechVoice voice) =>
+      'listening.characterVoices.v1.$novelId.${voice.source.name}.${Uri.encodeComponent(voice.engine ?? '')}';
+
+  /// Character-to-voice assignments are per book, so the same name keeps the
+  /// same voice after changing chapters or restarting the app.
+  Map<String, SpeechVoice> characterVoices(int novelId, SpeechVoice preferred) {
+    final found = <String, SpeechVoice>{};
+    try {
+      final raw = preferences.getString(_characterScope(novelId, preferred));
+      final values = raw == null ? null : jsonDecode(raw);
+      if (values is Map) {
+        for (final entry in values.entries) {
+          if (entry.key is! String || entry.value is! Map) continue;
+          final voice = SpeechVoice.fromJson(
+            Map<String, dynamic>.from(entry.value),
+          );
+          if (voice.availableForListening &&
+              voice.id != '@default' &&
+              voice.source == preferred.source &&
+              voice.engine == preferred.engine) {
+            found[entry.key as String] = voice;
+          }
+        }
+      }
+    } catch (_) {
+      /* A damaged mapping must not stop automatic voice assignment. */
+    }
+    return Map.unmodifiable(found);
+  }
+
+  Future<void> saveCharacterVoices(
+    int novelId,
+    SpeechVoice preferred,
+    Map<String, SpeechVoice> values,
+  ) => _write(
+    () => preferences.setString(
+      _characterScope(novelId, preferred),
+      jsonEncode({
+        for (final entry in values.entries) entry.key: entry.value.toJson(),
+      }),
+    ),
+    '角色音色保存失败',
+  );
+
   Future<void> saveSpeed(double value) => _write(
     () => preferences.setDouble(
       'listening.speed.v1',

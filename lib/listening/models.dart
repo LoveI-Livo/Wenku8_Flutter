@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import '../reader_content.dart';
 
@@ -22,12 +23,18 @@ class SpeechVoice {
     this.engine,
     this.offline = false,
     this.quality = 0,
+    this.multilingual = false,
   });
   final String id, label, locale;
   final ListeningSource source;
   final String? engine;
   final bool offline;
   final int quality;
+
+  /// Multilingual neural voices can read Chinese even though their native
+  /// locale is not Chinese. They are exposed with a Chinese locale so the
+  /// narrator/character matching code can use them like any other voice.
+  final bool multilingual;
   bool get supported =>
       source != ListeningSource.system || supportedSystemSpeechEngine(engine);
   bool get availableForListening => supported;
@@ -39,6 +46,7 @@ class SpeechVoice {
     'engine': engine,
     'offline': offline,
     'quality': quality,
+    'multilingual': multilingual,
     if (source == ListeningSource.system) 'systemApi': 1,
   };
   factory SpeechVoice.fromJson(Map<String, dynamic> json) => SpeechVoice(
@@ -53,6 +61,7 @@ class SpeechVoice {
     engine: json['engine'] as String?,
     offline: json['offline'] == true,
     quality: json['quality'] is int ? json['quality'] : 0,
+    multilingual: json['multilingual'] == true,
   );
 }
 
@@ -141,6 +150,63 @@ const builtinEdgeVoices = <SpeechVoice>[
     source: ListeningSource.edge,
     locale: 'zh-TW',
   ),
+  // Microsoft multilingual neural voices. They are real Edge voices and have
+  // been verified to synthesize Mandarin; giving each character one of these
+  // avoids reusing the same six zh-CN voices for every speaker.
+  SpeechVoice(
+    id: 'en-US-AvaMultilingualNeural',
+    label: '艾娃 · 多语真人女声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'en-US-EmmaMultilingualNeural',
+    label: '艾玛 · 多语真人女声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'en-US-BrianMultilingualNeural',
+    label: '布莱恩 · 多语真人男声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'en-AU-WilliamMultilingualNeural',
+    label: '威廉 · 多语真人男声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'fr-FR-VivienneMultilingualNeural',
+    label: '薇薇安 · 多语真人女声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'fr-FR-RemyMultilingualNeural',
+    label: '雷米 · 多语真人男声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'it-IT-GiuseppeMultilingualNeural',
+    label: '朱塞佩 · 多语真人男声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'ko-KR-HyunsuMultilingualNeural',
+    label: '贤秀 · 多语真人男声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
+  SpeechVoice(
+    id: 'pt-BR-ThalitaMultilingualNeural',
+    label: '塔莉塔 · 多语真人女声',
+    source: ListeningSource.edge,
+    multilingual: true,
+  ),
 ];
 
 SpeechVoice? builtinEdgeVoiceById(String id) {
@@ -186,10 +252,15 @@ class SpeechSegment {
     this.text, {
     this.language = '',
     this.role = SpeechRole.narration,
+    this.speaker = '',
   });
   final int paragraph, start, end;
   final String text, language;
   final SpeechRole role;
+
+  /// Detected character name for quoted dialogue. Empty means the narrator or
+  /// a quote with no trustworthy attribution.
+  final String speaker;
   String key(SpeechVoice voice, {double gainDb = 0}) => sha256
       .convert(
         utf8.encode(
@@ -244,6 +315,7 @@ List<SpeechSegment> speechRecoverySegments(SpeechSegment segment) {
       [segment.text],
       maximum: 80,
       forceRole: segment.role,
+      forceSpeaker: segment.speaker,
     ))
       SpeechSegment(
         segment.paragraph,
@@ -252,6 +324,7 @@ List<SpeechSegment> speechRecoverySegments(SpeechSegment segment) {
         part.text,
         language: segment.language,
         role: part.role,
+        speaker: segment.speaker,
       ),
   ];
 }
@@ -295,11 +368,176 @@ List<_SpeechRange> _speechRanges(String text) {
       : ranges;
 }
 
+const _speakerPronouns = {
+  '他',
+  '她',
+  '它',
+  '我',
+  '你',
+  '您',
+  '他们',
+  '她们',
+  '它们',
+  '我们',
+  '你们',
+  '大家',
+  '众人',
+  '有人',
+  '那人',
+  '这人',
+  '对方',
+  '两人',
+  '三人',
+  '所有人',
+  '男子',
+  '女子',
+  '少年',
+  '少女',
+  '老人',
+  '孩子',
+  '声音',
+  '心中',
+  '心里',
+};
+
+const _speakerNoise = {
+  '说道',
+  '说',
+  '问道',
+  '问',
+  '答道',
+  '答',
+  '笑道',
+  '笑',
+  '喊道',
+  '喊',
+  '叫道',
+  '叫',
+  '低声说',
+  '高声说',
+  '冷声说',
+  '轻声说',
+  '开口',
+  '道',
+  '只见',
+  '这时',
+  '此时',
+  '随后',
+  '于是',
+  '忽然',
+  '突然',
+  '却见',
+  '然后',
+  '接着',
+  '同时',
+  '一旁',
+  '身后',
+  '门外',
+  '床上',
+  '心里',
+  '心中',
+};
+
+/// Strip speech-tag adverbs and reject pronouns/generic descriptions. A false
+/// positive is worse than no attribution: it permanently gives a line to the
+/// wrong character voice.
+String? _cleanSpeechSpeaker(String raw) {
+  var value = raw.trim().replaceAll(
+    RegExp(r'^[\s，,。！？!?：:；;、“”「」『』]+|[\s，,。！？!?：:；;、“”「」『』]+$'),
+    '',
+  );
+  value = value.replaceAll(
+    RegExp(r'^(?:只见|这时|此时|随后|于是|忽然|突然|却见|然后|接着|同时|而|但|却|又|便|就|也|才|只)+'),
+    '',
+  );
+  value = value.replaceAll(
+    RegExp(
+      r'(?:冷冷地|轻轻地|低声道|高声地|沉声道|柔声地|轻声地|大声地|小声地|笑着|苦笑着|连忙|急忙|缓缓|慢慢|忽然|突然|又|才|也|却|就|便|地)+$',
+    ),
+    '',
+  );
+  // A greedy capture can leave the final character of “笑道/问道/说道”.
+  value = value.replaceAll(RegExp(r'(?:说|问|答|笑|喊|叫|道|低声|高声|冷声|轻声|沉声)+$'), '');
+  value = value.replaceAll(RegExp(r'[，,。！？!?：:；;、]+$'), '');
+  if (value.length < 2) return null;
+  if (_speakerPronouns.contains(value) || _speakerNoise.contains(value)) {
+    return null;
+  }
+  if (value.contains(RegExp(r'[的了着过是在有和与跟对把被让给说问道喊叫笑哭想看听站坐走]'))) {
+    return null;
+  }
+  if (value.length > 4 && !value.contains('·')) return null;
+  if (value.length > 8) return null;
+  return value;
+}
+
+const _speechVerb =
+    r'(?:低声说|高声说|冷声说|轻声说|开口道|说道|问道|答道|笑道|喊道|叫道|开口|说|问|答|笑|喊|叫|道)';
+
+String? _speakerBeforeQuote(String text) {
+  final match = RegExp(
+    r'([\u4e00-\u9fa5·A-Za-z]{2,8})(?:[^。！？\n“”「」『』]{0,10})?' +
+        _speechVerb +
+        r'\s*[：:]?\s*[“「『"]?\s*$',
+  ).firstMatch(text);
+  return match == null ? null : _cleanSpeechSpeaker(match.group(1)!);
+}
+
+String? _speakerAfterQuote(String text) {
+  final match = RegExp(
+    r'^\s*[，,。！？!?]?\s*([\u4e00-\u9fa5·A-Za-z]{2,8})(?:[^。！？\n“”「」『』]{0,10})?' +
+        _speechVerb,
+  ).firstMatch(text);
+  return match == null ? null : _cleanSpeechSpeaker(match.group(1)!);
+}
+
+String? _speakerInsideQuote(String text) {
+  final match = RegExp(
+    r'^\s*([\u4e00-\u9fa5·A-Za-z]{2,6})\s*[：:]',
+  ).firstMatch(text);
+  return match == null ? null : _cleanSpeechSpeaker(match.group(1)!);
+}
+
+String? _speakerInNarration(String text) {
+  final matches = RegExp(
+    r'([\u4e00-\u9fa5·]{2,4})(?:推|走|站|坐|看|笑|叹|点|摇|转|抬|低|沉|把|将|从|向|对|和|跟)',
+  ).allMatches(text).toList();
+  for (final match in matches.reversed) {
+    final speaker = _cleanSpeechSpeaker(match.group(1)!);
+    if (speaker != null) return speaker;
+  }
+  return null;
+}
+
+bool _pronounAttribution(String text) {
+  final match = RegExp(
+    r'([他她它我你您他们她们])(?:[^。！？\n“”「」『』]{0,10})?' + _speechVerb,
+  ).firstMatch(text);
+  return match != null;
+}
+
+String? _speakerForRange(String text, _SpeechRange range, String? last) {
+  final before = text.substring(math.max(0, range.start - 80), range.start);
+  final after = text.substring(
+    math.min(text.length, range.end + 1),
+    math.min(text.length, range.end + 81),
+  );
+  final inside = _speakerInsideQuote(text.substring(range.start, range.end));
+  final candidate =
+      inside ?? _speakerBeforeQuote(before) ?? _speakerAfterQuote(after);
+  if (candidate != null) return candidate;
+  if (_pronounAttribution(before) || _pronounAttribution(after)) {
+    return last ?? _speakerInNarration(before);
+  }
+  return null;
+}
+
 /// Original UTF-16 offsets remain valid for selection; paired illustration markers are never spoken.
 List<SpeechSegment> speechSegments(
   List<String> paragraphs, {
   int maximum = 240,
   SpeechRole? forceRole,
+  String forceSpeaker = '',
 }) {
   if (maximum < 20 || maximum > 1000) {
     throw ArgumentError.value(maximum, 'maximum');
@@ -315,15 +553,29 @@ List<SpeechSegment> speechSegments(
             trimmed.endsWith('<!--image-->'))) {
       continue;
     }
+    var lastSpeaker = '';
     for (final range in _speechRanges(text)) {
+      final role = forceRole ?? range.role;
+      var speaker = forceSpeaker;
+      if (speaker.isEmpty && role == SpeechRole.dialogue) {
+        speaker =
+            _speakerForRange(
+              text,
+              range,
+              lastSpeaker.isEmpty ? null : lastSpeaker,
+            ) ??
+            '';
+        if (speaker.isNotEmpty) lastSpeaker = speaker;
+      }
       _appendSpeechRange(
         result,
         index,
         text,
         range.start,
         range.end,
-        forceRole ?? range.role,
+        role,
         maximum,
+        speaker,
       );
     }
   }
@@ -338,6 +590,7 @@ void _appendSpeechRange(
   int rangeEnd,
   SpeechRole role,
   int maximum,
+  String speaker,
 ) {
   var offset = rangeStart;
   while (offset < rangeEnd && text[offset].trim().isEmpty) {
@@ -380,7 +633,14 @@ void _appendSpeechRange(
     final fragment = speechText(text.substring(offset, chunkEnd));
     if (_speechLetters.hasMatch(fragment)) {
       result.add(
-        SpeechSegment(paragraph, offset, chunkEnd, fragment, role: role),
+        SpeechSegment(
+          paragraph,
+          offset,
+          chunkEnd,
+          fragment,
+          role: role,
+          speaker: speaker,
+        ),
       );
     }
     offset = chunkEnd;

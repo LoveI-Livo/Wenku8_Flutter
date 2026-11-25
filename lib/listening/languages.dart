@@ -52,6 +52,7 @@ List<SpeechSegment> speechWithLanguages(
           ),
         ),
         role: part.role,
+        speaker: part.speaker,
       ),
   ]);
 }
@@ -65,6 +66,10 @@ const _femaleEdgeVoices = {
   'zh-HK-HiuMaanNeural',
   'zh-TW-HsiaoChenNeural',
   'zh-TW-HsiaoYuNeural',
+  'en-US-AvaMultilingualNeural',
+  'en-US-EmmaMultilingualNeural',
+  'fr-FR-VivienneMultilingualNeural',
+  'pt-BR-ThalitaMultilingualNeural',
 };
 
 const _maleEdgeVoices = {
@@ -74,6 +79,11 @@ const _maleEdgeVoices = {
   'zh-CN-YunyangNeural',
   'zh-HK-WanLungNeural',
   'zh-TW-YunJheNeural',
+  'en-US-BrianMultilingualNeural',
+  'en-AU-WilliamMultilingualNeural',
+  'fr-FR-RemyMultilingualNeural',
+  'it-IT-GiuseppeMultilingualNeural',
+  'ko-KR-HyunsuMultilingualNeural',
 };
 
 /// A dialogue voice in the same provider, engine and language. Online Edge

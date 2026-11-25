@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wenku8_flutter/updates/app_updates.dart';
+import 'package:wenku8_flutter/updates/current_release_content.dart';
+import 'package:wenku8_flutter/updates/mod_release_history.dart';
 
 Map<String, dynamic> releaseJson({
   String version = '0.7.7',
@@ -66,6 +68,18 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('0.9.4 更新弹窗和历史记录都指向最新版本', () {
+    expect(currentAppVersion, '0.9.4');
+    expect(currentAppBuild, 3036);
+    expect(modReleaseHistory.first.version, '0.9.4');
+    expect(
+      modReleaseHistory.map((release) => release.version),
+      containsAll(['0.9.4', '0.9.3', '0.9.2']),
+    );
+    expect(currentReleaseSummary.join(), contains('多角色'));
+    expect(currentReleaseSummary.join(), contains('悬浮耳机'));
   });
 
   test('非本仓库下载地址不会进入安装包列表', () {

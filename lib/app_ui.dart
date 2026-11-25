@@ -366,11 +366,13 @@ class Atmosphere extends StatelessWidget {
     this.headerBackground,
     this.shareGlass = false,
     this.archiveBackdrop = true,
+    this.appBackdrop = true,
   });
   final Widget child;
   final Widget? headerBackground;
   final bool shareGlass;
   final bool archiveBackdrop;
+  final bool appBackdrop;
 
   @override
   Widget build(BuildContext context) {
@@ -393,7 +395,9 @@ class Atmosphere extends StatelessWidget {
     final background = Stack(
       fit: StackFit.expand,
       children: [
-        if (backdrop != null && backdrop.backdrop != AppBackdrop.none)
+        if (appBackdrop &&
+            backdrop != null &&
+            backdrop.backdrop != AppBackdrop.none)
           Positioned.fill(child: AppBackdropLayer(style: backdrop)),
         if (archiveBackdrop)
           Positioned.fill(

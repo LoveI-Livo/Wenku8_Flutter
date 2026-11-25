@@ -42,7 +42,6 @@ import 'book_collection_grid.dart';
 import 'book_grid_density.dart';
 import 'book_categories.dart';
 import 'bookshelf_scope.dart';
-import 'book_source_badge.dart';
 import 'book_search.dart';
 import 'blocked_tags_controls.dart';
 import 'catalog.dart';
@@ -726,9 +725,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                                   searchSource: _searchSource,
                                   showSources: true,
                                   fromCache: false,
-                                  onRecall: _searchScope == 0
-                                      ? _recallSearch
-                                      : null,
+                                  onRecall: _recallSearch,
                                   emptyQueryTitle: switch (_searchScope) {
                                     1 => '书架中的书籍',
                                     2 => '本地书籍',
@@ -1039,29 +1036,48 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
       if (mounted) setState(() => _searchTargets = const []);
       return;
     }
-    final targets = await CloudCatalogSearch.instance.targets(
-      source == SearchSource.cloud
-          ? CloudSearchScope.netDisks
-          : CloudSearchScope.sources,
-    );
-    if (!mounted || _searchSource != source) return;
-    final selected = (_searchTargetKeys[source] ?? const <String>{})
-        .where((key) => targets.any((target) => target.key == key))
-        .toSet();
-    setState(() {
-      _searchTargets = targets;
-      _searchTargetKeys[source] = selected;
-    });
-    final repository = _searchFeeds[source]!.repository;
-    if (repository is ScopedSearchRepository) repository.targetKeys = selected;
+    try {
+      final targets = await CloudCatalogSearch.instance.targets(
+        source == SearchSource.cloud
+            ? CloudSearchScope.netDisks
+            : CloudSearchScope.sources,
+      );
+      if (!mounted || _searchSource != source) return;
+      final selected = (_searchTargetKeys[source] ?? const <String>{})
+          .where((key) => targets.any((target) => target.key == key))
+          .toSet();
+      setState(() {
+        _searchTargets = targets;
+        _searchTargetKeys[source] = selected;
+      });
+      final repository = _searchFeeds[source]!.repository;
+      if (repository is ScopedSearchRepository) {
+        repository.targetKeys = selected;
+      }
+    } catch (_) {
+      // The button must remain usable even when a huge source pack is still
+      // being parsed or a cloud config is temporarily unavailable.
+      if (mounted && _searchSource == source) {
+        setState(() {
+          _searchTargets = const [];
+          _searchTargetKeys[source] = const {};
+        });
+      }
+    }
   }
 
   Future<void> _pickSearchTarget() async {
     if (_searchSource == SearchSource.library) return;
-    // 每次打开来源选择都重新读取配置，用户刚导入的书源/刚连接的网盘
-    // 不用重启 App 就能出现在列表里。
-    await _loadSearchTargets(_searchSource);
+    if (_searchTargets.isEmpty) {
+      // 每次打开来源选择都重新读取配置，用户刚导入的书源/刚连接的网盘
+      // 不用重启 App 就能出现在列表里。
+      await _loadSearchTargets(_searchSource);
+    }
     if (!mounted) return;
+    if (_searchTargets.isEmpty) {
+      showNovelFeedback(context, '来源列表暂时没有加载出来，请稍后重试或检查已连接网盘/书源');
+      return;
+    }
     final selected = await Navigator.of(context).push<Set<String>>(
       MaterialPageRoute(
         builder: (context) => SearchTargetPickerPage(
@@ -1111,7 +1127,7 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
               children: [
                 GlassTextButton(
                   key: const ValueKey('home-search-target'),
-                  onPressed: _searchTargets.isEmpty ? null : _pickSearchTarget,
+                  onPressed: _pickSearchTarget,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1206,15 +1222,20 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
     if (_searchSource == source) return;
     _dismissSearchKeyboard();
     final query = _searchText.text.trim();
-    setState(() => _searchSource = source);
+    setState(() {
+      _searchSource = source;
+      if (source != SearchSource.library) _searchTargets = const [];
+    });
     final feed = _activeSearch;
     feed.setBlockedTags(widget.state.blockedTags);
+    // 来源清单和搜索互不阻塞。以前先等全部书源搜完再加载来源，按钮会
+    // 长时间像是点不开。
+    unawaited(_loadSearchTargets(source));
     if (query.isNotEmpty) {
       await feed.searchFor(query);
     } else if (source == SearchSource.library && feed.page == 0) {
       await feed.loadInitial();
     }
-    await _loadSearchTargets(source);
   }
 
   Future<void> _selectSearchField(BookSearchField field) async {
@@ -4326,40 +4347,50 @@ class SearchProgressLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = CloudCatalogSearch.instance.progress;
-    if (!progress.active) return const SizedBox.shrink();
-    final value = progress.total <= 0
-        ? null
-        : (progress.done / progress.total).clamp(0.0, 1.0);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    // Only this four-pixel line listens to progress. The book list no longer
+    // rebuilds for every source, which keeps thousand-source searches smooth.
+    return AnimatedBuilder(
+      animation: progress,
+      builder: (context, _) {
+        if (!progress.active) return const SizedBox.shrink();
+        final value = progress.total <= 0
+            ? null
+            : (progress.done / progress.total).clamp(0.0, 1.0);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Expanded(
-                child: AppText(
-                  '正在搜索书源',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                ),
+              Row(
+                children: [
+                  const Expanded(
+                    child: AppText(
+                      '正在搜索书源',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  AppText(
+                    '${progress.done} / ${progress.total}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
               ),
-              AppText(
-                '${progress.done} / ${progress.total}',
-                style: const TextStyle(fontSize: 12),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  value: value,
+                  minHeight: 4,
+                  semanticsLabel: '搜索进度',
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: value,
-              minHeight: 4,
-              semanticsLabel: '搜索进度',
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -4389,18 +4420,31 @@ class InlineSearchResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([feed, CloudCatalogSearch.instance.progress]),
-    builder: (context, _) => feed.searchGroups.isNotEmpty
-        ? _buildGroupedResults(context)
-        : LoadedContentSequence(
-            generation: feed.resultReplacesRetained
-                ? null
-                : feed.resultRevision,
-            firstIndex: feed.resultStartIndex == 0
-                ? 0
-                : feed.resultStartIndex + 1,
-            child: _buildResults(context),
+    animation: feed,
+    builder: (context, _) {
+      final results = feed.searchGroups.isNotEmpty
+          ? _buildGroupedResults(context)
+          : LoadedContentSequence(
+              generation: feed.resultReplacesRetained
+                  ? null
+                  : feed.resultRevision,
+              firstIndex: feed.resultStartIndex == 0
+                  ? 0
+                  : feed.resultStartIndex + 1,
+              child: _buildResults(context),
+            );
+      // The counter stays visible after the first few books arrive, not only
+      // on the empty skeleton page. It updates through its own listener.
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+            child: SearchProgressLine(),
           ),
+          Expanded(child: results),
+        ],
+      );
+    },
   );
 
   Widget _buildGroupedResults(BuildContext context) {
@@ -4434,7 +4478,6 @@ class InlineSearchResults extends StatelessWidget {
             ),
             sliver: SliverMainAxisGroup(
               slivers: [
-                const SliverToBoxAdapter(child: SearchProgressLine()),
                 if (live.isNotEmpty)
                   SliverMainAxisGroup(
                     key: const ValueKey('search-live-results'),
@@ -4661,7 +4704,6 @@ class InlineSearchResults extends StatelessWidget {
           24,
         ),
         children: [
-          const SearchProgressLine(),
           RecentSearches(state: state, onRecall: onRecall!),
           if (feed.loading && !feed.hasLoaded)
             const Padding(
@@ -4793,7 +4835,6 @@ class InlineSearchResults extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SearchProgressLine(),
                       if (feed.query.isEmpty && onRecall != null)
                         RecentSearches(state: state, onRecall: onRecall!),
                       Row(
@@ -10540,6 +10581,37 @@ class _ReaderPageState extends State<ReaderPage>
     ),
   );
 
+  /// One tap returns to the listening panel after it is dismissed. This
+  /// deliberately stays mounted for the whole active session and is never
+  /// tied to the transient bottom-sheet route.
+  Widget _readerFloatingListening(BuildContext context) {
+    final listening = _listening;
+    if (listening == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<ListeningSnapshot>(
+      valueListenable: listening.snapshot,
+      builder: (context, state, _) {
+        if (!state.active ||
+            state.novel?.id != widget.novel.id ||
+            _catalogueOpen ||
+            _findOpen ||
+            _noteOpen) {
+          return const SizedBox.shrink();
+        }
+        return Tooltip(
+          message: state.playing ? '正在听书，打开听书面板' : '听书暂停，打开听书面板',
+          child: GlassIconButton(
+            key: const ValueKey('reader-floating-listening'),
+            icon: state.playing
+                ? CupertinoIcons.headphones
+                : CupertinoIcons.play_circle,
+            label: state.playing ? '正在听书' : '继续听书',
+            onPressed: _listen,
+          ),
+        );
+      },
+    );
+  }
+
   Widget _readerBottomControls(BuildContext context) => ActiveListenableBuilder(
     listenable: Listenable.merge([
       widget.state.settingsChanges,
@@ -10889,6 +10961,7 @@ class _ReaderPageState extends State<ReaderPage>
     body: Atmosphere(
       shareGlass: true,
       archiveBackdrop: false,
+      appBackdrop: false,
       child: Stack(
         children: [
           ReaderScreenBinding(
@@ -10999,6 +11072,11 @@ class _ReaderPageState extends State<ReaderPage>
               right: 0,
               child: _readerHandoff(context),
             ),
+          Positioned(
+            right: MediaQuery.paddingOf(context).right + 18,
+            bottom: readerDockBottomPadding(context) + 76,
+            child: _readerFloatingListening(context),
+          ),
           Align(
             alignment: Alignment.bottomCenter,
             child: Padding(

@@ -154,15 +154,23 @@ class EdgeSpeechClient {
     return (path: path, audio: Uint8List.fromList(data.sublist(length + 2)));
   }
 
-  static bool validVoice(String id, String locale) =>
-      id.length <= 120 &&
-      locale.length <= 40 &&
-      RegExp(r'^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8}){1,4}$').hasMatch(locale) &&
-      RegExp(
-        r'^[a-zA-Z]{2,3}-(?:[A-Za-z0-9]+-)+[A-Za-z0-9]+Neural$',
-      ).hasMatch(id) &&
-      id.toLowerCase().startsWith('${locale.toLowerCase()}-') &&
-      speechLanguageCode(locale).isNotEmpty;
+  static bool validVoice(String id, String locale) {
+    if (id.length > 120 ||
+        locale.length > 40 ||
+        !RegExp(
+          r'^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8}){1,4}$',
+        ).hasMatch(locale) ||
+        !RegExp(
+          r'^[a-zA-Z]{2,3}-(?:[A-Za-z0-9]+-)+[A-Za-z0-9]+Neural$',
+        ).hasMatch(id) ||
+        speechLanguageCode(locale).isEmpty) {
+      return false;
+    }
+    // Microsoft multilingual voices are advertised under en-US/fr-FR/etc.,
+    // but Edge synthesizes Mandarin correctly when they carry a zh-CN locale.
+    return id.toLowerCase().startsWith('${locale.toLowerCase()}-') ||
+        id.endsWith('MultilingualNeural');
+  }
 
   Future<Uint8List> synthesize(
     String text,
@@ -229,7 +237,7 @@ class EdgeSpeechClient {
       );
       final boost = (volumePercent.clamp(100, 200) - 100);
       final ssml =
-          '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${voice.locale}">'
+          '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${voice.multilingual ? 'en-US' : voice.locale}">'
           '<voice name="${voice.id}"><prosody pitch="+0Hz" rate="+0%" volume="+$boost%">${escapeXml(text)}</prosody></voice></speak>';
       socket.add(
         'X-RequestId:${connectionId()}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp(now)}Z\r\nPath:ssml\r\n\r\n$ssml',

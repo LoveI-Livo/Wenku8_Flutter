@@ -149,6 +149,25 @@ class _ListeningPanelState extends State<ListeningPanel> {
     if (choice != null && mounted) await _voice(choice);
   }
 
+  Future<void> _characterVoice(String speaker) async {
+    final state = widget.controller.snapshot.value;
+    if (!state.segments.any((segment) => segment.speaker == speaker)) return;
+    final choice = await showJellySheet<SpeechVoice>(
+      context: context,
+      reduceMotion: MediaQuery.disableAnimationsOf(context),
+      heightFactor: .72,
+      builder: (_) => _OnlineVoicePicker(
+        controller: widget.controller,
+        selected: state.characterVoices[speaker],
+        heading: '「$speaker」的角色音色',
+        description: '这本小说里该角色会一直使用这个音色；试听只生成一小段，不会打乱正在播放的进度。',
+      ),
+    );
+    if (choice != null && mounted) {
+      await _act(() => widget.controller.setCharacterVoice(speaker, choice));
+    }
+  }
+
   Future<void> _languageVoice(String language) async {
     final choice = await showJellySheet<({SpeechVoice? voice})>(
       context: context,
@@ -574,6 +593,8 @@ class _ListeningPanelState extends State<ListeningPanel> {
           Map<String, SpeechVoice> voiceOverrides,
           bool multiRole,
           SpeechVoice? dialogueVoice,
+          Set<String> speakers,
+          Map<String, SpeechVoice> characterVoices,
         })
       >(
         listenable: widget.controller.snapshot,
@@ -590,6 +611,8 @@ class _ListeningPanelState extends State<ListeningPanel> {
               ? state.languages
               : const {},
           voiceOverrides: state.voiceOverrides,
+          characterVoices: state.characterVoices,
+          speakers: state.speakers,
           multiRole: state.multiRole,
           dialogueVoice: state.dialogueVoice,
         ),
@@ -689,7 +712,7 @@ class _ListeningPanelState extends State<ListeningPanel> {
                 state.multiRole
                     ? state.dialogueVoice == null
                           ? '当前音源没有第二个同语言音色，暂由旁白音色代读对话；选择在线 Edge 音色即可自动配对。'
-                          : '旁白 ${state.voice.label} · 对话 ${state.dialogueVoice!.label}。引号内的对白自动换声线。'
+                          : '旁白 ${state.voice.label} · 已识别 ${state.speakers.length} 个角色，每人独立音色。'
                     : '已关闭分角色，旁白和引号对白都使用 ${state.voice.label}。',
                 style: TextStyle(
                   fontSize: 12,
@@ -697,6 +720,41 @@ class _ListeningPanelState extends State<ListeningPanel> {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
+              if (state.multiRole && state.speakers.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final speaker in state.speakers.take(12))
+                      JellyTapSurface(
+                        key: ValueKey('listening-speaker-$speaker'),
+                        onTap: () => _characterVoice(speaker),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: .07),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: AppText(
+                            '$speaker · ${state.characterVoices[speaker]?.label ?? '自动'}',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                if (state.speakers.length > 12)
+                  AppText(
+                    '还有 ${state.speakers.length - 12} 个角色同样已分配音色',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+              ],
               const SizedBox(height: 12),
               ListeningEnhancementSettings(
                 enhancement: widget.controller.enhancement,
@@ -883,8 +941,16 @@ class _ListeningPanelState extends State<ListeningPanel> {
 }
 
 class _OnlineVoicePicker extends StatefulWidget {
-  const _OnlineVoicePicker({required this.controller});
+  const _OnlineVoicePicker({
+    required this.controller,
+    this.selected,
+    this.heading = '在线中文音色',
+    this.description,
+  });
   final ListeningController controller;
+  final SpeechVoice? selected;
+  final String heading;
+  final String? description;
   @override
   State<_OnlineVoicePicker> createState() => _OnlineVoicePickerState();
 }
@@ -954,9 +1020,9 @@ class _OnlineVoicePickerState extends State<_OnlineVoicePicker> {
           padding: const EdgeInsets.fromLTRB(24, 8, 14, 6),
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: ArchiveSection(
-                  title: '在线中文音色',
+                  title: widget.heading,
                   code: 'AUDIO / ONLINE VOICES',
                 ),
               ),
@@ -971,7 +1037,8 @@ class _OnlineVoicePickerState extends State<_OnlineVoicePicker> {
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
           child: AppText(
-            '内置 14 种普通话、东北、陕西、粤语和台湾音色；联网后会补充更多语言。',
+            widget.description ??
+                '内置 ${builtinEdgeVoices.length} 种中文与多语真人音色：普通话、东北、陕西、粤语、台湾腔，以及 9 位可读中文的多语神经音色；联网后会补充更多语言。',
             style: TextStyle(
               fontSize: 12,
               height: 1.55,
@@ -984,7 +1051,8 @@ class _OnlineVoicePickerState extends State<_OnlineVoicePicker> {
             future: _voices,
             builder: (context, snapshot) {
               final voices = snapshot.data;
-              final selected = widget.controller.snapshot.value.voice;
+              final selected =
+                  widget.selected ?? widget.controller.snapshot.value.voice;
               return ListView(
                 key: const ValueKey('listening-online-voice-options'),
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),

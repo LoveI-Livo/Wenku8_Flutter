@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -102,6 +103,8 @@ class AppBackdropLayer extends StatelessWidget {
       child: ExcludeSemantics(
         child: RepaintBoundary(
           child: CustomPaint(
+            isComplex: true,
+            willChange: false,
             painter: _BackdropPainter(style, strength.clamp(0, 1)),
             child: child ?? const SizedBox.expand(),
           ),
@@ -111,6 +114,11 @@ class AppBackdropLayer extends StatelessWidget {
   }
 }
 
+/// Static paintings are recorded once per size/theme and replayed as a
+/// display list. Re-running dozens of path and gradient commands on every
+/// scroll frame was the main source of the 0.9.3 jank.
+final _backdropPictures = <String, ui.Picture>{};
+
 class _BackdropPainter extends CustomPainter {
   const _BackdropPainter(this.style, this.strength);
   final AppBackdropStyle style;
@@ -118,24 +126,43 @@ class _BackdropPainter extends CustomPainter {
 
   double get _alpha => (style.dark ? .16 : .12) * strength;
 
+  String _key(Size size) =>
+      '${style.backdrop.name}|${style.ink.value}|${style.accent.value}|'
+      '${style.secondary.value}|${style.dark}|${strength.toStringAsFixed(3)}|'
+      '${size.width.toStringAsFixed(1)}x${size.height.toStringAsFixed(1)}';
+
   @override
   void paint(Canvas canvas, Size size) {
+    final key = _key(size);
+    final cached = _backdropPictures[key];
+    if (cached != null) {
+      canvas.drawPicture(cached);
+      return;
+    }
+    final recorder = ui.PictureRecorder();
+    final target = Canvas(recorder);
     switch (style.backdrop) {
       case AppBackdrop.paper:
-        _paper(canvas, size);
+        _paper(target, size);
       case AppBackdrop.blossom:
-        _blossom(canvas, size);
+        _blossom(target, size);
       case AppBackdrop.rain:
-        _rain(canvas, size);
+        _rain(target, size);
       case AppBackdrop.starlight:
-        _starlight(canvas, size);
+        _starlight(target, size);
       case AppBackdrop.forest:
-        _forest(canvas, size);
+        _forest(target, size);
       case AppBackdrop.neon:
-        _neon(canvas, size);
+        _neon(target, size);
       case AppBackdrop.none:
         break;
     }
+    final picture = recorder.endRecording();
+    if (_backdropPictures.length >= 8) {
+      _backdropPictures.remove(_backdropPictures.keys.first);
+    }
+    _backdropPictures[key] = picture;
+    canvas.drawPicture(picture);
   }
 
   Paint _paint(Color color, double opacity, {double width = 1}) => Paint()

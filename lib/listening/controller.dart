@@ -67,6 +67,8 @@ class ListeningSnapshot {
     this.currentVoice,
     this.voiceOverrides = const {},
     this.dialogueVoice,
+    this.characterVoices = const {},
+    this.speakers = const {},
     this.multiRole = true,
     this.spokenLanguage,
     this.languages = const {},
@@ -90,6 +92,10 @@ class ListeningSnapshot {
   final SpeechVoice? currentVoice;
   final Map<String, SpeechVoice> voiceOverrides;
   final SpeechVoice? dialogueVoice;
+
+  /// Detected named characters and the voice assigned to each.
+  final Map<String, SpeechVoice> characterVoices;
+  final Set<String> speakers;
   final bool multiRole;
   SpeechVoice get outputVoice => currentVoice ?? voice;
   final String? spokenLanguage;
@@ -185,6 +191,8 @@ class ListeningController {
   List<SpeechSegment> _rawSegments = const [];
   Map<String, SpeechVoice> _languageVoices = const {};
   Map<String, SpeechVoice> _dialogueVoices = const {};
+  Map<String, SpeechVoice> _characterVoices = const {};
+  Set<String> _speakers = const {};
   Map<String, SpeechVoice> _voiceOverrides = const {};
   bool _multiRole = true;
   (ListeningSource, String?, String, String)? _inventoryKey;
@@ -237,6 +245,14 @@ class ListeningController {
   SpeechVoice? _voiceFor(SpeechSegment segment) {
     final narration = _languageVoices[segment.language];
     if (!_multiRole || segment.role != SpeechRole.dialogue) return narration;
+    final speaker = segment.speaker;
+    if (speaker.isNotEmpty) {
+      final character = _characterVoices[speaker];
+      if (character != null &&
+          speechLanguageCode(character.locale) == segment.language) {
+        return character;
+      }
+    }
     return _dialogueVoices[segment.language] ?? narration;
   }
 
@@ -360,6 +376,8 @@ class ListeningController {
     SpeechVoice? voice,
     SpeechVoice? currentVoice,
     SpeechVoice? dialogueVoice,
+    Map<String, SpeechVoice>? characterVoices,
+    Set<String>? speakers,
     bool clearCurrentVoice = false,
     bool clearDialogueVoice = false,
     bool? multiRole,
@@ -389,6 +407,8 @@ class ListeningController {
       voiceOverrides: _voiceOverrides,
       dialogueVoice:
           dialogueVoice ?? (clearDialogueVoice ? null : old.dialogueVoice),
+      characterVoices: characterVoices ?? old.characterVoices,
+      speakers: speakers ?? old.speakers,
       multiRole: multiRole ?? old.multiRole,
       spokenLanguage: store.spokenLanguage((novel ?? old.novel)?.id ?? 0),
       languages: languages ?? old.languages,
@@ -725,9 +745,116 @@ class ListeningController {
     }
   }
 
+  /// Assign every detected character a different voice. The assignment is
+  /// persisted per book, and named speakers keep their voice across chapters.
+  Map<String, SpeechVoice> _assignCharacterVoices(
+    int novelId,
+    List<SpeechVoice> available,
+    List<SpeechSegment> candidates,
+  ) {
+    final speakers = <String, String>{};
+    for (final part in candidates) {
+      if (part.role == SpeechRole.dialogue &&
+          part.speaker.isNotEmpty &&
+          !speakers.containsKey(part.speaker)) {
+        speakers[part.speaker] = part.language;
+      }
+    }
+    if (speakers.isEmpty) return const {};
+    final preferred = snapshot.value.voice;
+    final stored = store.characterVoices(novelId, preferred);
+    final used = <String>{};
+    final result = <String, SpeechVoice>{};
+
+    for (final entry in speakers.entries) {
+      final existing = stored[entry.key];
+      if (existing != null &&
+          existing.id != _languageVoices[entry.value]?.id &&
+          available.any(
+            (voice) =>
+                voice.id == existing.id &&
+                voice.source == existing.source &&
+                voice.engine == existing.engine,
+          )) {
+        result[entry.key] = existing;
+        used.add(existing.id);
+      }
+    }
+
+    for (final entry in speakers.entries) {
+      if (result.containsKey(entry.key)) continue;
+      final language = entry.value;
+      final narration = _languageVoices[language];
+      var pool = available
+          .where(
+            (voice) =>
+                speechLanguageCode(voice.locale) == language &&
+                voice.id != narration?.id,
+          )
+          .toList();
+      if (pool.isEmpty) {
+        pool = available.where((voice) => voice.id != narration?.id).toList();
+      }
+      if (pool.isEmpty) continue;
+      var seed = entry.key.codeUnits.fold<int>(0, (sum, code) => sum + code);
+      SpeechVoice? choice;
+      for (var offset = 0; offset < pool.length; offset++) {
+        final candidate = pool[(seed + offset) % pool.length];
+        if (!used.contains(candidate.id)) {
+          choice = candidate;
+          break;
+        }
+      }
+      choice ??= pool[seed % pool.length];
+      result[entry.key] = choice;
+      used.add(choice.id);
+    }
+
+    final frozen = Map<String, SpeechVoice>.unmodifiable(result);
+    unawaited(
+      store
+          .saveCharacterVoices(novelId, preferred, frozen)
+          .catchError((Object _) {}),
+    );
+    return frozen;
+  }
+
+  Future<List<SpeechVoice>> characterVoiceOptions(String language) =>
+      voicesForLanguage(language);
+
+  Future<void> setCharacterVoice(String speaker, SpeechVoice voice) async {
+    final state = snapshot.value;
+    final novel = state.novel;
+    if (novel == null || speaker.isEmpty) {
+      throw const SpeechFailure('请先开始听书再分配角色音色');
+    }
+    final language = state.segments
+        .where((segment) => segment.speaker == speaker)
+        .map((segment) => segment.language)
+        .firstOrNull;
+    if (!voice.availableForListening ||
+        voice.id == '@default' ||
+        voice.source != state.voice.source ||
+        voice.engine != state.voice.engine ||
+        (language != null && speechLanguageCode(voice.locale) != language)) {
+      throw const SpeechFailure('请选择当前音源中该角色语言的音色');
+    }
+    final values = Map<String, SpeechVoice>.of(_characterVoices)
+      ..[speaker] = voice;
+    await store.saveCharacterVoices(novel.id, state.voice, values);
+    if (_disposed) return;
+    _characterVoices = Map.unmodifiable(values);
+    _emit(characterVoices: _characterVoices);
+    if (state.active && _rawSegments.isNotEmpty) {
+      await _replanCurrent(snapshot.value);
+    }
+  }
+
   Future<bool> _planChapter(int generation) async {
     final state = snapshot.value;
     _dialogueVoices = const {};
+    _characterVoices = const {};
+    _speakers = const {};
     final all = speechWithLanguages(_rawSegments, _chapterContent, state.voice);
     final selection = spokenLanguage(state.novel!.id);
     final candidates = all
@@ -764,6 +891,15 @@ class ListeningController {
             case final dialogue?)
           entry.key: dialogue,
     });
+    final speakers = <String>{
+      for (final part in candidates)
+        if (part.role == SpeechRole.dialogue && part.speaker.isNotEmpty)
+          part.speaker,
+    };
+    _speakers = Set.unmodifiable(speakers);
+    _characterVoices = _multiRole
+        ? _assignCharacterVoices(state.novel!.id, available, candidates)
+        : const {};
     final missing = Set<String>.unmodifiable(
       needed.difference(_languageVoices.keys.toSet()),
     );
@@ -779,6 +915,8 @@ class ListeningController {
       dialogueVoice: _multiRole && segments.isNotEmpty
           ? _dialogueVoices[segments.first.language]
           : null,
+      characterVoices: _characterVoices,
+      speakers: _speakers,
       clearCurrentVoice: true,
     );
     if (segments.isEmpty) throw SpeechFailure(_missingModelMessage(missing));
@@ -1654,8 +1792,15 @@ class ListeningController {
     _inventory = null;
     _inventoryKey = null;
     _voiceOverrides = store.languageVoices(voice);
+    _characterVoices = const {};
+    _speakers = const {};
     if (!state.active || _rawSegments.isEmpty) {
-      _emit(voice: voice, clearCurrentVoice: true);
+      _emit(
+        voice: voice,
+        characterVoices: const {},
+        speakers: const {},
+        clearCurrentVoice: true,
+      );
       return;
     }
     _emit(voice: voice, clearCurrentVoice: true);
@@ -1799,6 +1944,8 @@ class ListeningController {
           ? _dialogueVoices[state.current!.language]
           : null,
       clearDialogueVoice: !value,
+      characterVoices: value ? state.characterVoices : const {},
+      speakers: value ? state.speakers : const {},
     );
     if (state.active && _rawSegments.isNotEmpty) {
       await _replanCurrent(snapshot.value);
