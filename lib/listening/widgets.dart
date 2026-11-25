@@ -138,6 +138,16 @@ class _ListeningPanelState extends State<ListeningPanel> {
     await _act(() => widget.controller.setVoice(voice));
   }
 
+  Future<void> _onlineVoice() async {
+    final choice = await showJellySheet<SpeechVoice>(
+      context: context,
+      reduceMotion: MediaQuery.disableAnimationsOf(context),
+      heightFactor: .72,
+      builder: (_) => _OnlineVoicePicker(controller: widget.controller),
+    );
+    if (choice != null && mounted) await _voice(choice);
+  }
+
   Future<void> _languageVoice(String language) async {
     final choice = await showJellySheet<({SpeechVoice? voice})>(
       context: context,
@@ -773,6 +783,12 @@ class _ListeningPanelState extends State<ListeningPanel> {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
+              if (source == ListeningSource.edge)
+                GlassTextButton(
+                  key: const ValueKey('listening-online-voices'),
+                  onPressed: _onlineVoice,
+                  child: const AppText('选择在线中文音色 · 14 种'),
+                ),
               const SizedBox(height: 8),
               GlassTextButton(
                 key: const ValueKey('listening-system-engines'),
@@ -834,6 +850,141 @@ class _ListeningPanelState extends State<ListeningPanel> {
       );
   static String _time(int seconds) =>
       '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+}
+
+class _OnlineVoicePicker extends StatefulWidget {
+  const _OnlineVoicePicker({required this.controller});
+  final ListeningController controller;
+  @override
+  State<_OnlineVoicePicker> createState() => _OnlineVoicePickerState();
+}
+
+class _OnlineVoicePickerState extends State<_OnlineVoicePicker> {
+  late Future<List<SpeechVoice>> _voices;
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _voices = widget.controller.voicesForLanguage('zh');
+  }
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    await widget.controller.refreshVoices();
+    if (!mounted) return;
+    setState(() {
+      _refreshing = false;
+      _voices = widget.controller.voicesForLanguage('zh');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: MediaQuery.sizeOf(context).height * .72,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 14, 6),
+          child: Row(
+            children: [
+              const Expanded(
+                child: ArchiveSection(
+                  title: '在线中文音色',
+                  code: 'AUDIO / ONLINE VOICES',
+                ),
+              ),
+              GlassIconButton(
+                icon: CupertinoIcons.xmark,
+                label: '关闭音色选择',
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+          child: AppText(
+            '内置 14 种普通话、东北、陕西、粤语和台湾音色；联网后会补充更多语言。',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.55,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Expanded(
+          child: FutureBuilder<List<SpeechVoice>>(
+            future: _voices,
+            builder: (context, snapshot) {
+              final voices = snapshot.data;
+              final selected = widget.controller.snapshot.value.voice;
+              return ListView(
+                key: const ValueKey('listening-online-voice-options'),
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                children: [
+                  if (snapshot.connectionState != ConnectionState.done)
+                    const InlineSkeleton(width: double.infinity, height: 54),
+                  if (snapshot.hasError)
+                    AppText(
+                      snapshot.error is SpeechFailure
+                          ? (snapshot.error as SpeechFailure).message
+                          : '在线音色列表暂时不可用',
+                    ),
+                  if (voices != null && voices.isEmpty)
+                    const AppText('暂未获取到中文在线音色，可稍后刷新。'),
+                  for (final voice in voices ?? const <SpeechVoice>[])
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: GlassTextButton(
+                        key: ValueKey('listening-online-voice-${voice.id}'),
+                        selected: selected.id == voice.id,
+                        onPressed: () => Navigator.pop(context, voice),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppText(
+                                    voice.label,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                  AppText(
+                                    '${voice.locale} · Edge 神经网络',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (voice.id == defaultEdgeVoice.id ||
+                                voice.id == alternateEdgeVoice.id)
+                              const AppText(
+                                '推荐',
+                                style: TextStyle(fontSize: 11),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+          child: GlassTextButton(
+            key: const ValueKey('listening-online-voices-refresh'),
+            onPressed: _refreshing ? null : _refresh,
+            child: AppText(_refreshing ? '正在刷新音色…' : '刷新在线音色列表'),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _LanguageVoicePicker extends StatefulWidget {

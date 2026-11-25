@@ -45,7 +45,9 @@ import 'reader_appearance.dart';
 import 'reader_illustrations.dart';
 import 'app_palette.dart';
 import 'book_open_monitor.dart';
+import 'builtin_book_sources.dart';
 import 'cloud_book_media.dart';
+import 'cloud_sources.dart';
 import 'cloud_parse_service.dart';
 import 'reading_widget_controller.dart';
 import 'reading_widget_cards.dart';
@@ -61,6 +63,8 @@ Future<void> main() async {
   // Do not hold the first frame while Android is applying window insets.
   unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
   final state = await LibraryState.load();
+  // 内置书源包约 1200 条，解析和加密落盘放到首帧后，不阻塞启动。
+  unawaited(BuiltInBookSources.ensure(CloudSourceSettings()));
   unawaited(CloudBookMedia.pruneLegacyDisk());
   unawaited(CloudParseSettings.instance.load());
   if (state.appPalette.source == AppPaletteSource.system ||

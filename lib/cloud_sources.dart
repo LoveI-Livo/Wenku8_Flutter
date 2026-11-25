@@ -1734,6 +1734,43 @@ class RssBookClient extends DirectLinkBookClient {
     return config.effectiveSources.take(_maxSources).toList(growable: false);
   }
 
+  /// 1000 个书源不可能在 30 秒内全部扫完。把已体检有效、响应时间短、
+  /// JSON API 的源排前面，用户先拿到能看的结果；慢站和死站排后面，
+  /// 不会占满并发把好源挤出去。
+  List<CloudBookSource> get _orderedSourceObjects {
+    final list = _sourceObjects.toList();
+    int rank(CloudBookSource source) {
+      if (source.valid) return 0;
+      if (source.invalid) return 3;
+      return 1;
+    }
+
+    int latency(CloudBookSource source) {
+      final raw = source.rules['respondTime'];
+      final value = raw is num ? raw.toInt() : int.tryParse('$raw');
+      return value == null || value <= 0 || value > 60000 ? 99999 : value;
+    }
+
+    bool jsonApi(CloudBookSource source) {
+      final search = source.rules['ruleSearch'];
+      if (search is Map) {
+        return search.values.any((value) => '$value'.contains(r'$.'));
+      }
+      return '$search'.contains(r'$.');
+    }
+
+    list.sort((a, b) {
+      final byState = rank(a).compareTo(rank(b));
+      if (byState != 0) return byState;
+      final byApi = (jsonApi(a) ? 0 : 1).compareTo(jsonApi(b) ? 0 : 1);
+      if (byApi != 0) return byApi;
+      final byTime = latency(a).compareTo(latency(b));
+      if (byTime != 0) return byTime;
+      return a.label.compareTo(b.label);
+    });
+    return list;
+  }
+
   List<String> get _sources => [
     for (final source in _sourceObjects)
       if (!source.isLegado) source.url,
@@ -1873,7 +1910,7 @@ class RssBookClient extends DirectLinkBookClient {
     // 页面，单个坏源不再拖住整次搜索。
     final sourceTasks =
         _parallel(
-          _sourceObjects,
+          _orderedSourceObjects,
           (source) async {
             if (stopped) return;
             attempted++;
@@ -1896,7 +1933,7 @@ class RssBookClient extends DirectLinkBookClient {
                   cookie: config.cookie,
                   authorization:
                       authHeaders[HttpHeaders.authorizationHeader] ?? '',
-                ).timeout(const Duration(seconds: 6));
+                ).timeout(const Duration(milliseconds: 2800));
                 for (final entry in listing.entries) {
                   if (stopped) return;
                   final inserted = entries.putIfAbsent(entry.id, () => entry);
@@ -1919,7 +1956,7 @@ class RssBookClient extends DirectLinkBookClient {
               final pageEntries = await _entriesFor(
                 target,
                 page: page,
-              ).timeout(const Duration(seconds: 6));
+              ).timeout(const Duration(milliseconds: 3200));
               for (final entry in pageEntries) {
                 if (stopped) return;
                 final matches = hasQuery
@@ -1942,7 +1979,7 @@ class RssBookClient extends DirectLinkBookClient {
             }
             reportSource();
           },
-          workers: 32,
+          workers: 48,
           onDone: onSourceDone,
         ).whenComplete(() {
           if (!_sourcesDone.isCompleted) _sourcesDone.complete();

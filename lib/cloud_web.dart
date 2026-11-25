@@ -234,6 +234,20 @@ class WebNovelReader {
     return utf8.decode(bytes, allowMalformed: true);
   }
 
+  /// 给 Legado 详情/简介兜底用：规则没写 intro 时，仍然从同一份网页
+  /// 里识别 og:description、简介容器和“简介：”正文，避免把有简介的书
+  /// 误报成“来源未提供简介”。
+  static ({String? title, String? author, String? summary, String? coverUrl})
+  parseBookInfo(String body, Uri base) {
+    final info = _bookInfo(html.parse(body), base);
+    return (
+      title: info.title,
+      author: info.author,
+      summary: info.summary,
+      coverUrl: info.coverUrl,
+    );
+  }
+
   static _BookInfo _bookInfo(Document doc, Uri base) {
     String? meta(String key) {
       for (final node in doc.querySelectorAll('meta')) {

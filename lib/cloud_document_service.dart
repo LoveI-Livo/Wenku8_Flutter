@@ -220,13 +220,25 @@ class CloudDocumentService {
     if (url == null || url.trim().isEmpty) return '';
     if (novel.remoteKind != CloudSourceKind.rss.name) return '';
     try {
-      final page = await WebNovelReader.inspect(
-        url,
-        cookie: novel.remoteCookie ?? '',
-        authorization: novel.remoteAuthorization ?? '',
-        allowHttp: url.startsWith('http://'),
-      ).timeout(const Duration(seconds: 12));
-      final text = page.summary?.trim() ?? '';
+      final String text;
+      if (url.startsWith('legado://')) {
+        // 书源规则自带 intro 时必须走规则；以前把 legado:// 直接交给
+        // WebNovelReader，永远解析不出简介，界面就误报“来源未提供简介”。
+        text = await LegadoReader.summary(
+          url,
+          allowHttp: false,
+          cookie: novel.remoteCookie ?? '',
+          authorization: novel.remoteAuthorization ?? '',
+        ).timeout(const Duration(seconds: 12));
+      } else {
+        final page = await WebNovelReader.inspect(
+          url,
+          cookie: novel.remoteCookie ?? '',
+          authorization: novel.remoteAuthorization ?? '',
+          allowHttp: url.startsWith('http://'),
+        ).timeout(const Duration(seconds: 12));
+        text = page.summary?.trim() ?? '';
+      }
       if (text.isNotEmpty && !isPlaceholderSummary(text)) {
         _urls[novel.id] = url;
         _metadata[novel.id] = novel.withMetadata(summary: text);

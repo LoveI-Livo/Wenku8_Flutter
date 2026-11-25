@@ -1552,6 +1552,36 @@ bool _canLazyCloudCover(Novel novel) =>
     novel.remoteEntryId != null &&
     (novel.remoteKind == 'rss' || CloudParseSettings.instance.enabled);
 
+final _coverFutures = <String, Future<Uint8List>>{};
+
+/// A list cell rebuilds on every scroll frame. Creating a new cover future each
+/// build used to re-enter the network/cache path and made covers pop in slowly.
+/// Remote covers are memoised until the image URL changes; local files stay
+/// uncached because the user can replace them on disk.
+Future<Uint8List> _coverLoadCached(Novel novel) {
+  final url = novel.coverUrl;
+  if (url != null &&
+      (url.startsWith('wenku-local:') || url.startsWith('file:'))) {
+    return _coverLoad(novel);
+  }
+  final key =
+      '${novel.id}|${novel.coverUrl}|${novel.remoteKind}|${novel.remoteEntryId}';
+  final cached = _coverFutures[key];
+  if (cached != null) return cached;
+  if (_coverFutures.length >= 256) {
+    _coverFutures.remove(_coverFutures.keys.first);
+  }
+  final future = _coverLoad(novel);
+  _coverFutures[key] = future;
+  future.then<void>(
+    (_) {},
+    onError: (Object error, StackTrace stack) {
+      if (identical(_coverFutures[key], future)) _coverFutures.remove(key);
+    },
+  );
+  return future;
+}
+
 Future<Uint8List> _coverLoad(Novel novel) {
   final url = novel.coverUrl;
   if (url == null && _canLazyCloudCover(novel)) {
@@ -1764,7 +1794,7 @@ class NovelCover extends StatelessWidget {
               );
               return FutureBuilder<Uint8List>(
                 key: ValueKey(('cover-bytes', novel.id, novel.coverUrl)),
-                future: _coverLoad(novel),
+                future: _coverLoadCached(novel),
                 initialData: _coverPeek(novel),
                 builder: (context, snapshot) {
                   final bytes = snapshot.data;
@@ -1848,7 +1878,7 @@ class CoverGlow extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final background = dark ? ArchiveDesign.darkBackground : Colors.white;
     return FutureBuilder(
-      future: _coverLoad(novel),
+      future: _coverLoadCached(novel),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox.shrink();
         return ShaderMask(

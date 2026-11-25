@@ -57,10 +57,13 @@ class LocalLibraryPreferences extends ChangeNotifier {
   BookShelfPreferences shelfPreferences = const BookShelfPreferences.defaults();
   BookShelfContentPreferences shelfContent =
       const BookShelfContentPreferences.defaults();
+  BookShelfContentPreferences networkShelfContent =
+      const BookShelfContentPreferences.defaults();
   LocalLibrarySort sort = LocalLibrarySort.recentAdded;
   String selected = all;
   String readingFilter = 'all';
   String shelfSelected = all;
+  String networkShelfSelected = all;
   final Map<String, Map<String, dynamic>> _groups = {};
   final Map<int, Map<String, dynamic>> _assignments = {};
   final _assignmentRevisions = <int, int>{};
@@ -204,7 +207,19 @@ class LocalLibraryPreferences extends ChangeNotifier {
         !groups.containsKey(shelfSelected)) {
       shelfSelected = all;
     }
+    networkShelfSelected = raw['networkShelfSelected'] is String
+        ? raw['networkShelfSelected']
+        : all;
+    if (networkShelfSelected != all &&
+        networkShelfSelected != unfiled &&
+        categoryAuthor(networkShelfSelected) == null &&
+        !groups.containsKey(networkShelfSelected)) {
+      networkShelfSelected = all;
+    }
     shelfContent = _visibleShelfContent(shelfContent);
+    networkShelfContent = _visibleShelfContent(
+      BookShelfContentPreferences.parseOrDefault(raw['networkShelfContent']),
+    );
   }
 
   BookShelfContentPreferences _visibleShelfContent(
@@ -341,17 +356,26 @@ class LocalLibraryPreferences extends ChangeNotifier {
     record['organization'] = valid;
     record['selected'] = visible(selected) ? selected : all;
     record['shelfSelected'] = visible(shelfSelected) ? shelfSelected : all;
+    record['networkShelfSelected'] = visible(networkShelfSelected)
+        ? networkShelfSelected
+        : all;
     final nextShelfContent = visible(shelfContent.category)
         ? shelfContent
         : shelfContent.copyWith(category: all);
     record['shelfContent'] = nextShelfContent.toJson();
+    final nextNetworkContent = visible(networkShelfContent.category)
+        ? networkShelfContent
+        : networkShelfContent.copyWith(category: all);
+    record['networkShelfContent'] = nextNetworkContent.toJson();
     if (!await preferences.setString(key, jsonEncode(record))) {
       throw const FormatException('本地分类保存失败');
     }
     _accept(valid, replace: true);
     selected = record['selected'];
     shelfSelected = record['shelfSelected'];
+    networkShelfSelected = record['networkShelfSelected'];
     shelfContent = nextShelfContent;
+    networkShelfContent = nextNetworkContent;
     if (!_disposed) notifyListeners();
   }
 
@@ -394,10 +418,12 @@ class LocalLibraryPreferences extends ChangeNotifier {
     'gridDensity': gridDensity.value,
     'shelfPreferences': shelfPreferences.toJson(),
     'shelfContent': (content ?? shelfContent).toJson(),
+    'networkShelfContent': networkShelfContent.toJson(),
     'sort': sort.name,
     'readingFilter': readingFilter,
     'selected': selected,
     'shelfSelected': shelfSelected,
+    'networkShelfSelected': networkShelfSelected,
     'organization': assignments == null
         ? exportOrganization()
         : {
@@ -465,6 +491,11 @@ class LocalLibraryPreferences extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   });
 
+  Future<void> setNetworkShelfContent(BookShelfContentPreferences value) {
+    networkShelfContent = _visibleShelfContent(value);
+    return _save();
+  }
+
   Future<void> setSort(LocalLibrarySort value) {
     sort = value;
     return _save();
@@ -478,14 +509,20 @@ class LocalLibraryPreferences extends ChangeNotifier {
     return _save();
   }
 
-  Future<void> select(String value, {bool shelf = false}) {
+  Future<void> select(
+    String value, {
+    bool shelf = false,
+    bool network = false,
+  }) {
     if (value != all &&
         value != unfiled &&
         categoryAuthor(value) == null &&
         !groups.containsKey(value)) {
       throw const FormatException('分类不存在');
     }
-    if (shelf) {
+    if (network) {
+      networkShelfSelected = value;
+    } else if (shelf) {
       shelfSelected = value;
     } else {
       selected = value;

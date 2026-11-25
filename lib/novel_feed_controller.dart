@@ -123,6 +123,11 @@ class NovelFeedController extends ChangeNotifier {
 
   bool refreshFailed = false;
   int _generation = 0;
+  // 逐源结果如果每来一个源就 notify 一次，1000 个源会把长列表反复复制、
+  // 反复重建，滑动时明显卡顿。这里按 80ms 合并成一批。
+  List<Novel> _partialItems = const [];
+  Timer? _partialFlush;
+  bool _pendingLoadMore = false;
   // Accepted data batches, not request attempts. Failed/stale requests must not
   // restart presentation, and appended pages must leave the old rows alone.
   int _resultRevision = 0;
@@ -204,7 +209,18 @@ class NovelFeedController extends ChangeNotifier {
 
   Future<void> loadInitial() => _load(replace: true);
   Future<void> loadMore() async {
-    if (loading || !hasMore || error != null) return;
+    if (!hasMore || error != null) return;
+    // 搜索分组边出边显示时父控制器会一直 loading，但已经完成的字段组
+    // 完全可以先翻下一页。旧逻辑在这里直接 return，用户点“下一页”
+    // 就像按钮坏了。
+    if (loading) {
+      if (_usesSearchGroups) {
+        _pendingLoadMore = true;
+        notifyListeners();
+        return;
+      }
+      return;
+    }
     await _load(replace: false);
   }
 
@@ -326,6 +342,10 @@ class NovelFeedController extends ChangeNotifier {
   void _reset() {
     _cancelSearchGroups();
     _generation++;
+    _partialFlush?.cancel();
+    _partialFlush = null;
+    _partialItems = const [];
+    _pendingLoadMore = false;
     _items = const [];
     _visibleItems = null;
     page = 0;
@@ -341,11 +361,11 @@ class NovelFeedController extends ChangeNotifier {
 
   Future<void> _load({required bool replace, bool force = false}) async {
     if (_disposed) return;
-    if (!replace && loading) return;
     if (_usesSearchGroups) {
       await _loadSearchGroups(replace: replace, force: force);
       return;
     }
+    if (!replace && loading) return;
     final generation = replace ? ++_generation : _generation;
     var requestedPage = replace ? 1 : page + 1;
     var replacing = replace;
@@ -508,6 +528,12 @@ class NovelFeedController extends ChangeNotifier {
   }) async {
     final generation = replace ? ++_generation : _generation;
     final groups = _ensureSearchGroups();
+    if (replace) {
+      _partialFlush?.cancel();
+      _partialFlush = null;
+      _partialItems = const [];
+      _pendingLoadMore = false;
+    }
     // Start every field before accepting notifications, so a new query cannot
     // briefly display another field's retained results from the previous query.
     _acceptGroupChanges = false;
@@ -542,9 +568,27 @@ class NovelFeedController extends ChangeNotifier {
 
   void _appendPartial(List<Novel> incoming) {
     if (_disposed || !_acceptGroupChanges || !_usesSearchGroups) return;
-    final ids = {for (final item in _items) item.id};
+    final ids = <int>{
+      for (final item in _items) item.id,
+      for (final item in _partialItems) item.id,
+    };
     final fresh = <Novel>[];
     for (final item in incoming) {
+      if (ids.add(item.id)) fresh.add(item);
+    }
+    if (fresh.isEmpty) return;
+    _partialItems = List.unmodifiable(
+      [..._partialItems, ...fresh].take(500).toList(growable: false),
+    );
+    _partialFlush ??= Timer(const Duration(milliseconds: 80), _flushPartial);
+  }
+
+  void _flushPartial() {
+    _partialFlush = null;
+    if (_disposed || !_acceptGroupChanges || !_usesSearchGroups) return;
+    final ids = {for (final item in _items) item.id};
+    final fresh = <Novel>[];
+    for (final item in _partialItems) {
       if (ids.add(item.id)) fresh.add(item);
     }
     if (fresh.isEmpty) return;
@@ -557,7 +601,18 @@ class NovelFeedController extends ChangeNotifier {
   void _searchGroupChanged() {
     if (_disposed || !_acceptGroupChanges || !_usesSearchGroups) return;
     final groups = _searchGroups!;
-    final items = [for (final group in groups) ...group.allItems];
+    // 逐源先到的结果不能因为某个字段组还没返回就被整表替换掉；这里
+    // 把分组结果和已推送的逐源结果取并集。
+    final merged = <int, Novel>{};
+    for (final group in groups) {
+      for (final item in group.allItems) {
+        merged.putIfAbsent(item.id, () => item);
+      }
+    }
+    for (final item in _partialItems) {
+      merged.putIfAbsent(item.id, () => item);
+    }
+    final items = merged.values.toList(growable: false);
     if (!listEquals(_items, items)) {
       _items = List.unmodifiable(items);
       _visibleItems = null;
@@ -587,6 +642,10 @@ class NovelFeedController extends ChangeNotifier {
     error = groups.every((group) => group.error != null)
         ? groups.first.error
         : null;
+    if (!loading && _pendingLoadMore) {
+      _pendingLoadMore = false;
+      unawaited(_loadSearchGroups(replace: false, force: false));
+    }
     notifyListeners();
   }
 
@@ -594,6 +653,8 @@ class NovelFeedController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _searchDelay?.cancel();
+    _partialFlush?.cancel();
+    _partialFlush = null;
     _generation++;
     for (final group in _searchGroups ?? const <NovelFeedController>[]) {
       group.dispose();

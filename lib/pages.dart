@@ -1779,7 +1779,9 @@ class FeedFooter extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (feed.loading && !feed.refreshing) ...[
+        if (feed.loading &&
+            !feed.refreshing &&
+            !(feed.search && feed.items.isNotEmpty)) ...[
           if (feed.tagProgressLabel case final progress?) ...[
             AppText(
               progress,
@@ -1797,6 +1799,16 @@ class FeedFooter extends StatelessWidget {
             grid: grid,
             gridDensity: gridDensity,
           ),
+        ] else if (feed.loading && feed.search && feed.items.isNotEmpty) ...[
+          // 搜索还在逐源追加，但已有结果；此时“下一页”不能消失。
+          // 点击后 loadMore 会排队，等这一轮字段完成后立即请求下一页。
+          GlassTextButton(
+            key: const ValueKey('search-load-more-while-running'),
+            onPressed: feed.loadMore,
+            child: const AppText('加载下一页（搜索继续中）'),
+          ),
+          const SizedBox(height: 6),
+          const AppText('已先显示返回的结果，剩余书源仍在搜索'),
         ] else if (feed.error != null) ...[
           AppText(
             feed.refreshFailed
@@ -2330,8 +2342,29 @@ class _ShelfPageState extends State<ShelfPage>
   Future<List<Novel>>? _previewRequest;
   final _query = TextEditingController();
   bool _standaloneSearch = false;
-  _ShelfSort get _sort =>
-      _ShelfSort.values.firstWhere((sort) => sort.name == state.shelfSort);
+  _ShelfSort get _sort {
+    if (widget.networkOnly) {
+      final name = _content.sort.name;
+      return _ShelfSort.values.firstWhere(
+        (sort) => sort.name == name,
+        orElse: () => _ShelfSort.recentAdded,
+      );
+    }
+    return _ShelfSort.values.firstWhere((sort) => sort.name == state.shelfSort);
+  }
+
+  /// 普通书架与网络书架的分类、筛选、排序、立体书架偏好完全分开。
+  BookShelfContentPreferences get _content => widget.networkOnly
+      ? state.organization.networkShelfContent
+      : state.shelfContent;
+
+  String get _selectedCategory => widget.networkOnly
+      ? state.organization.networkShelfSelected
+      : state.organization.shelfSelected;
+
+  String get _selectedCategoryLabel =>
+      state.organization.nameOf(_selectedCategory);
+
   LibraryState get state => widget.state;
   late final _changes = Listenable.merge([
     state,
@@ -2454,7 +2487,14 @@ class _ShelfPageState extends State<ShelfPage>
     if (!widget.networkOnly && _isNetworkBook(id)) return false;
     if (_cacheOnly && _offline?.availableOffline(id) != true) return false;
     final book = _known(id);
-    if (!bookshelfMatchesCategory(id, state, book: book)) return false;
+    if (!bookshelfMatchesCategory(
+      id,
+      state,
+      book: book,
+      category: _selectedCategory,
+    )) {
+      return false;
+    }
     if (term.isNotEmpty &&
         !'$id ${book?.title ?? ''} ${book?.author ?? ''}'
             .toLowerCase()
@@ -2463,7 +2503,9 @@ class _ShelfPageState extends State<ShelfPage>
     }
     final read = state.hasRead(id);
     final finished = book != null && state.finishedReading(book);
-    return switch (state.shelfFilter) {
+    return switch (widget.networkOnly
+        ? _content.readingFilter
+        : state.shelfFilter) {
       'unread' => !read,
       'reading' => read && !finished,
       'finished' => finished,
@@ -2517,14 +2559,14 @@ class _ShelfPageState extends State<ShelfPage>
       key: ValueKey((
         'bookshelf-preview',
         books.map((book) => book.id).join(','),
-        state.shelfContent.followCollection
+        _content.followCollection
             ? (
-                state.shelfSort,
-                state.shelfFilter,
-                state.organization.shelfSelected,
+                _sort,
+                widget.networkOnly ? _content.readingFilter : state.shelfFilter,
+                _selectedCategory,
                 _query.text,
               )
-            : state.shelfContent.record,
+            : _content.record,
       )),
       books: books,
       library: state,
@@ -2620,7 +2662,7 @@ class _ShelfPageState extends State<ShelfPage>
       final order = addedAt(b).compareTo(addedAt(a));
       return order != 0 ? order : a.compareTo(b);
     });
-    final content = state.shelfContent;
+    final content = _content;
     final contentCategory = content.followCollection
         ? '_all'
         : _shelfContentCategory;
@@ -2697,20 +2739,19 @@ class _ShelfPageState extends State<ShelfPage>
       ...organization.groups,
       for (final author in authors)
         LocalLibraryPreferences.authorCategory(author): '作者 · $author',
-      if (shelfContentDynamicCategoryLabel(state.shelfContent.category)
-          case final label?)
+      if (shelfContentDynamicCategoryLabel(_content.category) case final label?)
         if (!authors.any(
           (author) =>
               LocalLibraryPreferences.authorCategory(author) ==
-              state.shelfContent.category,
+              _content.category,
         ))
-          state.shelfContent.category: '$label（暂无匹配）',
+          _content.category: '$label（暂无匹配）',
     };
   }
 
   String get _shelfContentCategory =>
-      _shelfContentCategories.containsKey(state.shelfContent.category)
-      ? state.shelfContent.category
+      _shelfContentCategories.containsKey(_content.category)
+      ? _content.category
       : LocalLibraryPreferences.all;
 
   int _addedAt(int id) => isLocalBook(id)
@@ -2805,10 +2846,8 @@ class _ShelfPageState extends State<ShelfPage>
                         child: state.shelfViewMode.hasShelf
                             ? BookCollectionRegionToolbar(
                                 title: '立体书架',
-                                category: state.shelfContent.followCollection
-                                    ? state.organization.nameOf(
-                                        state.organization.shelfSelected,
-                                      )
+                                category: _content.followCollection
+                                    ? _selectedCategoryLabel
                                     : _shelfContentCategories[_shelfContentCategory] ??
                                           '全部书籍',
                                 count: featured.length,
@@ -2964,13 +3003,18 @@ class _ShelfPageState extends State<ShelfPage>
     children: [
       BookCollectionRegionToolbar(
         title: state.shelfViewMode.isGrid ? '图书宫格' : '图书列表',
-        category: state.organization.nameOf(state.organization.shelfSelected),
+        category: _selectedCategoryLabel,
         count: count,
         categoryKey: const ValueKey('shelf-category'),
         filterKey: const ValueKey('shelf-filter'),
         viewKey: const ValueKey('shelf-view'),
         activeFilters:
-            (state.shelfFilter == 'all' ? 0 : 1) +
+            ((widget.networkOnly
+                        ? _content.readingFilter
+                        : state.shelfFilter) ==
+                    'all'
+                ? 0
+                : 1) +
             (state.combinedShelf && state.shelfSourceFilter != 'all' ? 1 : 0),
         onCategory: _lowerShelfCategories,
         onFilter: _libraryOptions,
@@ -2989,17 +3033,15 @@ class _ShelfPageState extends State<ShelfPage>
   );
 
   Future<void> _lowerShelfCategories() {
-    final ids = bookshelfIds(
-      state,
-      _offline,
-      filterSource: false,
-      filterCategory: false,
+    final ids = _scope(
+      bookshelfIds(state, _offline, filterSource: false, filterCategory: false),
     );
     final known = [for (final id in ids) ?_known(id)];
     return showBookCategories(
       context,
       state.organization,
       shelf: true,
+      network: widget.networkOnly,
       books: known,
       unknownAuthorCount: ids.length - known.length,
       reduceMotion: state.reduceMotion,
@@ -3010,14 +3052,14 @@ class _ShelfPageState extends State<ShelfPage>
     final chosen = await chooseBookCollectionRegionCategory(
       context,
       options: _shelfContentCategories,
-      selected: state.shelfContent.followCollection
-          ? state.organization.shelfSelected
+      selected: _content.followCollection
+          ? _selectedCategory
           : _shelfContentCategory,
       reduceMotion: state.reduceMotion,
     );
     if (chosen != null && mounted) {
       await _saveShelfContent(
-        state.shelfContent.copyWith(followCollection: false, category: chosen),
+        _content.copyWith(followCollection: false, category: chosen),
       );
     }
   }
@@ -3031,7 +3073,7 @@ class _ShelfPageState extends State<ShelfPage>
       builder: (context, _) => SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: BookShelfContentOptions(
-          value: state.shelfContent,
+          value: _content,
           onChanged: _saveShelfContent,
           categoryOptions: _shelfContentCategories,
           sourceOptions: state.combinedShelf
@@ -3206,6 +3248,27 @@ class _ShelfPageState extends State<ShelfPage>
           String? sort,
           BookGridDensity? gridDensity,
         }) {
+          if (widget.networkOnly && (filter != null || sort != null)) {
+            var content = _content;
+            if (filter != null) {
+              content = content.copyWith(readingFilter: filter);
+            }
+            if (sort != null) {
+              content = content.copyWith(
+                sort: BookShelfContentSort.values.firstWhere(
+                  (value) => value.name == sort,
+                  orElse: () => BookShelfContentSort.recentAdded,
+                ),
+              );
+            }
+            unawaited(_saveShelfContent(content));
+            if (layout != null || gridDensity != null) {
+              unawaited(
+                state.setShelfView(layout: layout, gridDensity: gridDensity),
+              );
+            }
+            return;
+          }
           unawaited(
             state
                 .setShelfView(
@@ -3229,8 +3292,10 @@ class _ShelfPageState extends State<ShelfPage>
           gridDensity: state.shelfGridDensity,
           gridViewport: _gridViewport.value,
           onGridDensity: (v) => save(gridDensity: v),
-          reading: state.shelfFilter,
-          sort: state.shelfSort,
+          reading: widget.networkOnly
+              ? _content.readingFilter
+              : state.shelfFilter,
+          sort: widget.networkOnly ? _content.sort.name : state.shelfSort,
           source: state.combinedShelf ? state.shelfSourceFilter : null,
           onView: (v) => save(layout: v ? 'shelf' : 'list'),
           onReading: (v) => save(filter: v),
@@ -3275,7 +3340,7 @@ class _ShelfPageState extends State<ShelfPage>
             gridDensity: state.shelfGridDensity,
             gridViewport: _gridViewport.value,
             shelfPreferences: state.shelfPreferences,
-            shelfContent: state.shelfContent,
+            shelfContent: _content,
             shelfCategoryOptions: _shelfContentCategories,
             shelfSourceOptions: state.combinedShelf
                 ? const {
@@ -3300,9 +3365,13 @@ class _ShelfPageState extends State<ShelfPage>
 
   Future<void> _saveShelfContent(BookShelfContentPreferences value) async {
     try {
-      await state.setShelfContent(value);
+      if (widget.networkOnly) {
+        await state.organization.setNetworkShelfContent(value);
+      } else {
+        await state.setShelfContent(value);
+      }
     } catch (_) {
-      if (mounted) showNovelFeedback(context, '立体书架偏好保存失败，请重试');
+      if (mounted) showNovelFeedback(context, '书架偏好保存失败，请重试');
     }
   }
 

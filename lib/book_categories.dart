@@ -11,11 +11,16 @@ Future<void> showBookCategories(
   BuildContext context,
   LocalLibraryPreferences organization, {
   bool shelf = false,
+  bool network = false,
   bool reduceMotion = false,
   Iterable<Novel> books = const [],
   int unknownAuthorCount = 0,
 }) async {
-  final selected = shelf ? organization.shelfSelected : organization.selected;
+  final selected = network
+      ? organization.networkShelfSelected
+      : shelf
+      ? organization.shelfSelected
+      : organization.selected;
   final result = await showJellySheet<String>(
     context: context,
     reduceMotion: reduceMotion,
@@ -125,7 +130,9 @@ Future<void> showBookCategories(
           ],
         ),
       );
-      if (category != null) await organization.select(category, shelf: shelf);
+      if (category != null) {
+        await organization.select(category, shelf: shelf, network: network);
+      }
     } else if (result == '_new' || result.startsWith('rename:')) {
       await showJellySheet<void>(
         context: context,
@@ -147,7 +154,7 @@ Future<void> showBookCategories(
         await organization.removeGroup(result.substring(7));
       }
     } else {
-      await organization.select(result, shelf: shelf);
+      await organization.select(result, shelf: shelf, network: network);
     }
   } catch (e) {
     if (context.mounted) {

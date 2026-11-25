@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'book_search.dart';
+import 'builtin_book_sources.dart';
 import 'catalog.dart';
 import 'cloud_document_service.dart';
 import 'cloud_parse_service.dart';
@@ -25,6 +26,10 @@ class CloudSearchProgress extends ChangeNotifier {
   void advance() {
     if (done >= total) return;
     done++;
+    // 1000 个书源逐个 notify 会让进度条和列表一起重建上千次。
+    // 每 1% 或最后一项刷新一次即可。
+    final step = total > 20 ? (total / 100).ceil() : 1;
+    if (done != total && done % step != 0) return;
     notifyListeners();
   }
 
@@ -87,6 +92,7 @@ class CloudCatalogSearch {
 
   /// 当前范围可用于搜索的来源。网盘按连接区分，书源按单个地址区分。
   Future<List<CloudSearchTarget>> targets(CloudSearchScope scope) async {
+    await BuiltInBookSources.ensure(settings);
     await settings.ensureLoaded();
     final result = <CloudSearchTarget>[];
     for (final config in settings.activeConfigs) {
@@ -195,6 +201,7 @@ class CloudCatalogSearch {
         DateTime.now().difference(_cacheAt!) < _cacheLifetime) {
       return _cache!;
     }
+    await BuiltInBookSources.ensure(settings);
     await settings.ensureLoaded();
     lastFailure = null;
     final failures = <String>[];

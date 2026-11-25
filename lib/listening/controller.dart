@@ -109,7 +109,7 @@ class ListeningSnapshot {
 
 class ListeningVoiceCatalog {
   const ListeningVoiceCatalog({
-    this.online = const [defaultEdgeVoice, alternateEdgeVoice],
+    this.online = builtinEdgeVoices,
     this.offline = const [],
     this.loading = false,
     this.checked = false,
@@ -612,12 +612,16 @@ class ListeningController {
               code == speechLanguageCode(preferred.locale) &&
               (_voiceOverrides[code] == null ||
                   _voiceOverrides[code]!.id == preferred.id ||
-                  [
-                    defaultEdgeVoice.id,
-                    alternateEdgeVoice.id,
-                  ].contains(_voiceOverrides[code]!.id)),
+                  builtinEdgeVoiceById(_voiceOverrides[code]!.id) != null),
         )) {
-      return [preferred, defaultEdgeVoice, alternateEdgeVoice];
+      return [
+        preferred,
+        for (final voice in builtinEdgeVoices)
+          if (voice.id != preferred.id &&
+              speechLanguageCode(voice.locale) ==
+                  speechLanguageCode(preferred.locale))
+            voice,
+      ];
     }
     try {
       final found = await _cancel
@@ -673,8 +677,12 @@ class ListeningController {
       );
     } catch (_) {
       _inventory = null;
-      if (preferred.source == ListeningSource.edge && code == 'zh') {
-        return const [defaultEdgeVoice, alternateEdgeVoice];
+      if (preferred.source == ListeningSource.edge) {
+        final builtIn = [
+          for (final voice in builtinEdgeVoices)
+            if (speechLanguageCode(voice.locale) == code) voice,
+        ];
+        if (builtIn.isNotEmpty) return List.unmodifiable(builtIn);
       }
       throw const SpeechFailure('音色列表暂时不可用，请重试');
     }

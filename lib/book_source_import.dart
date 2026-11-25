@@ -144,6 +144,14 @@ class BookSourceFileReader {
         'loginUrl',
         'coverDecodeJs',
         'bookUrlPattern',
+        // 番茄等源把 Cover/Clean/Base 放在 jsLib 里；丢掉后封面和正文
+        // 清洗都会失效，书能搜到却打不开。保留整段脚本供规则引擎使用。
+        'jsLib',
+        'searchKey',
+        'exploreUrl',
+        'bookSourceType',
+        'respondTime',
+        'lastUpdateTime',
       ];
       final rules = <String, dynamic>{};
       for (final key in ruleKeys) {

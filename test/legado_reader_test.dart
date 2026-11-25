@@ -194,4 +194,121 @@ void main() {
       '第1918章 吞下',
     ]);
   });
+
+  test('Legado 番茄式 jsLib 设置、封面、目录、正文与简介全链路', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((request) async {
+      final response = request.response;
+      final path = request.uri.path;
+      if (path == '/api/novel/search') {
+        response.headers.contentType = ContentType.json;
+        response.write(
+          jsonEncode({
+            'data': {
+              'items': [
+                {
+                  'articleid': 123456,
+                  'articlename': '番茄测试书',
+                  'author': '测试作者',
+                  'intro': '<p>这是简介第一段</p><p>简介第二段</p>',
+                },
+              ],
+            },
+          }),
+        );
+      } else if (path == '/api/novel/detail/123456') {
+        response.headers.contentType = ContentType.json;
+        response.write(
+          jsonEncode({
+            'data': {
+              'articleid': 123456,
+              'articlename': '番茄测试书',
+              'author': '测试作者',
+              'intro': '<div>详情简介<br>第二行</div>',
+            },
+          }),
+        );
+      } else if (path == '/api/chapter/list/123456') {
+        response.headers.contentType = ContentType.json;
+        response.write(
+          jsonEncode({
+            'data': [
+              {'chapterid': 90001, 'chaptername': '第1章 开端'},
+              {'chapterid': 90002, 'chaptername': '第2章 继续'},
+            ],
+          }),
+        );
+      } else if (path == '/api/chapter/content/123456/90001') {
+        response.headers.contentType = ContentType.json;
+        response.write(
+          jsonEncode({
+            'data': {'content': '<p>正文第一段</p><p>正文第二段</p>'},
+          }),
+        );
+      } else {
+        response.statusCode = 404;
+        response.write('not found');
+      }
+      await response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final rules = <String, dynamic>{
+      'searchUrl': '$base/api/novel/search?key={{key}}&page={{page}}',
+      'jsLib':
+          'function Cover(id){return "https://pic.cooks.tw/"+(id/1000|0)+"/"+id+"/"+id+"s.jpg"}',
+      'ruleSearch': {
+        'bookList': r'$.data.items[*]',
+        'name': r'$.articlename',
+        'author': r'$.author',
+        'intro': r'$.intro',
+        'bookUrl': '$base/api/novel/detail/{{ \$.articleid }}?lang=zh-CN',
+        'coverUrl': r'$.articleid' + '\n<js>Cover(result)</js>',
+      },
+      'ruleBookInfo': {
+        'name': r'$.data.articlename',
+        'author': r'$.data.author',
+        'intro': r'$.data.intro',
+        'coverUrl': r'$.data.articleid' + '\n<js>Cover(result)</js>',
+        'tocUrl':
+            r'$.data.articleid' +
+            '\n<js>Base()+\'/api/chapter/list/\'+result</js>',
+      },
+      'ruleToc': {
+        'chapterList': r'$.data[*]',
+        'chapterName': r'$.chaptername',
+        'chapterUrl':
+            r'$.chapterid' +
+            '\n<js>Base()+\'/api/chapter/content/\'+result</js>',
+      },
+      'ruleContent': r'$.data.content' + '\n<js>Clean(result)</js>',
+    };
+    final source = CloudBookSource(url: base, name: '番茄测试', rules: rules);
+    final listing = await LegadoReader.search(source, '番茄');
+    expect(listing.entries.single.name, '番茄测试书');
+    expect(listing.entries.single.author, '测试作者');
+    expect(listing.entries.single.summary, contains('简介第一段'));
+    expect(
+      listing.entries.single.coverUrl,
+      'https://pic.cooks.tw/123/123456/123456s.jpg',
+    );
+    final payload = listing.entries.single.id;
+    final detail = await LegadoReader.detail(payload);
+    expect(detail.document.title, '番茄测试书');
+    expect(detail.document.summary, contains('详情简介'));
+    expect(detail.document.chapters, hasLength(2));
+    expect(
+      detail.document.chapters.first.url,
+      '$base/api/chapter/content/123456/90001?lang=zh-CN',
+    );
+    final content = await LegadoReader.content(
+      detail.document.chapters.first.url,
+      payload: payload,
+    );
+    expect(content, contains('正文第一段'));
+    expect(content, contains('正文第二段'));
+    expect(content, isNot(contains('<p>')));
+    final summary = await LegadoReader.summary(payload);
+    expect(summary, contains('详情简介'));
+  });
 }

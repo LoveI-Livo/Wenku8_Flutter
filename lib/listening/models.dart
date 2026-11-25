@@ -58,14 +58,97 @@ class SpeechVoice {
 
 const defaultEdgeVoice = SpeechVoice(
   id: 'zh-CN-XiaoxiaoNeural',
-  label: '晓晓 · 中文女声',
+  label: '晓晓 · 温柔女声',
   source: ListeningSource.edge,
 );
 const alternateEdgeVoice = SpeechVoice(
   id: 'zh-CN-YunxiNeural',
-  label: '云希 · 中文男声',
+  label: '云希 · 阳光男声',
   source: ListeningSource.edge,
 );
+
+/// Built-in Chinese Edge voices. The online catalogue can advertise hundreds
+/// of locales, but these keep the picker useful when the voice-list request is
+/// slow, blocked or offline. Every ID is a public Edge neural voice.
+const builtinEdgeVoices = <SpeechVoice>[
+  defaultEdgeVoice,
+  SpeechVoice(
+    id: 'zh-CN-XiaoyiNeural',
+    label: '晓伊 · 少女甜声',
+    source: ListeningSource.edge,
+  ),
+  alternateEdgeVoice,
+  SpeechVoice(
+    id: 'zh-CN-YunjianNeural',
+    label: '云健 · 激情男声',
+    source: ListeningSource.edge,
+  ),
+  SpeechVoice(
+    id: 'zh-CN-YunxiaNeural',
+    label: '云夏 · 少年男声',
+    source: ListeningSource.edge,
+  ),
+  SpeechVoice(
+    id: 'zh-CN-YunyangNeural',
+    label: '云扬 · 沉稳播音',
+    source: ListeningSource.edge,
+  ),
+  SpeechVoice(
+    id: 'zh-CN-liaoning-XiaobeiNeural',
+    label: '晓北 · 东北女声',
+    source: ListeningSource.edge,
+    locale: 'zh-CN-liaoning',
+  ),
+  SpeechVoice(
+    id: 'zh-CN-shaanxi-XiaoniNeural',
+    label: '晓妮 · 陕西女声',
+    source: ListeningSource.edge,
+    locale: 'zh-CN-shaanxi',
+  ),
+  SpeechVoice(
+    id: 'zh-HK-HiuGaaiNeural',
+    label: '慧佳 · 粤语女声',
+    source: ListeningSource.edge,
+    locale: 'zh-HK',
+  ),
+  SpeechVoice(
+    id: 'zh-HK-HiuMaanNeural',
+    label: '慧曼 · 粤语温柔女声',
+    source: ListeningSource.edge,
+    locale: 'zh-HK',
+  ),
+  SpeechVoice(
+    id: 'zh-HK-WanLungNeural',
+    label: '云龙 · 粤语男声',
+    source: ListeningSource.edge,
+    locale: 'zh-HK',
+  ),
+  SpeechVoice(
+    id: 'zh-TW-HsiaoChenNeural',
+    label: '晓陈 · 台湾女声',
+    source: ListeningSource.edge,
+    locale: 'zh-TW',
+  ),
+  SpeechVoice(
+    id: 'zh-TW-HsiaoYuNeural',
+    label: '晓雨 · 台湾甜声',
+    source: ListeningSource.edge,
+    locale: 'zh-TW',
+  ),
+  SpeechVoice(
+    id: 'zh-TW-YunJheNeural',
+    label: '云哲 · 台湾男声',
+    source: ListeningSource.edge,
+    locale: 'zh-TW',
+  ),
+];
+
+SpeechVoice? builtinEdgeVoiceById(String id) {
+  for (final voice in builtinEdgeVoices) {
+    if (voice.id == id) return voice;
+  }
+  return null;
+}
 
 /// Installed engines are used exclusively through the host's public TTS API.
 bool supportedSystemSpeechEngine(String? engine) =>

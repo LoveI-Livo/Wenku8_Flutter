@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'cloud_sources.dart';
 
@@ -12,12 +16,62 @@ import 'cloud_sources.dart';
 /// 这里用书源请求同一套 `CloudHttp` 取图，并在内存里按书 ID 缓存。
 abstract final class CloudCoverMedia {
   static const _maxBytes = 4 * 1024 * 1024;
-  static const _maxEntries = 96;
+  static const _maxEntries = 512;
+  static const _maxMemoryBytes = 24 * 1024 * 1024;
   static final _memory = <int, Uint8List>{};
   static final _urls = <int, String>{};
   static final _pending = <int, Future<Uint8List?>>{};
   static final _failedAt = <int, DateTime>{};
   static final _http = CloudHttp();
+  static int _memoryBytes = 0;
+  static final bool _diskEnabled = !Platform.environment.containsKey(
+    'FLUTTER_TEST',
+  );
+  static Future<Directory?>? _directoryFuture;
+
+  static Future<Directory?> _directory() => _directoryFuture ??= () async {
+    if (!_diskEnabled) return null;
+    try {
+      final root = await getApplicationCacheDirectory();
+      final directory = Directory('${root.path}/cloud-covers');
+      if (!await directory.exists()) await directory.create(recursive: true);
+      return directory;
+    } catch (_) {
+      return null;
+    }
+  }();
+
+  static Future<File?> _diskFile(String url) async {
+    final directory = await _directory();
+    if (directory == null) return null;
+    final name = sha256.convert(utf8.encode(url)).toString();
+    return File('${directory.path}/$name.img');
+  }
+
+  static Future<Uint8List?> _readDisk(String url) async {
+    try {
+      final file = await _diskFile(url);
+      if (file == null || !await file.exists()) return null;
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty || bytes.length > _maxBytes) return null;
+      return bytes.asUnmodifiableView();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static void _writeDisk(String url, Uint8List bytes) {
+    if (!_diskEnabled || bytes.isEmpty) return;
+    unawaited(() async {
+      try {
+        final file = await _diskFile(url);
+        if (file == null) return;
+        await file.writeAsBytes(bytes, flush: false);
+      } catch (_) {
+        // 封面缓存失败不影响正文与阅读。
+      }
+    }());
+  }
 
   static Uint8List? peek(int id, {String? url}) {
     if (url != null && url.isNotEmpty && _urls[id] != url) return null;
@@ -37,6 +91,7 @@ abstract final class CloudCoverMedia {
     _urls.clear();
     _pending.clear();
     _failedAt.clear();
+    _memoryBytes = 0;
   }
 
   /// [sourceUrl] 是书详情/章节页地址，用来判断 Cookie 是否同源，并作为
@@ -96,6 +151,9 @@ abstract final class CloudCoverMedia {
     }
     final uri = Uri.tryParse(raw);
     if (uri == null || uri.host.isEmpty) return null;
+    // 先读磁盘缓存。第二页、重启 App、从书架回到搜索时都不再重新下载。
+    final disk = await _readDisk(raw);
+    if (disk != null) return _remember(id, raw, disk);
     var rawSource = Uri.tryParse((sourceUrl ?? '').trim());
     if (sourceUrl != null && sourceUrl.startsWith('legado://')) {
       final decoded = LegadoReader.decodePayload(sourceUrl);
@@ -131,18 +189,26 @@ abstract final class CloudCoverMedia {
       redirectMessage: '封面地址发生跳转',
     );
     final bytes = await _http.bytes(response, limit: _maxBytes);
+    _writeDisk(raw, bytes);
     return _remember(id, raw, bytes);
   }
 
   static Uint8List? _remember(int id, String url, Uint8List bytes) {
     if (bytes.isEmpty || bytes.length > _maxBytes) return null;
-    if (_memory.length >= _maxEntries && !_memory.containsKey(id)) {
-      _memory.remove(_memory.keys.first);
-      _urls.remove(_urls.keys.first);
+    final old = _memory[id];
+    if (old != null) _memoryBytes -= old.length;
+    while (_memory.length >= _maxEntries ||
+        _memoryBytes + bytes.length > _maxMemoryBytes) {
+      if (_memory.isEmpty) break;
+      final first = _memory.keys.first;
+      final removed = _memory.remove(first);
+      if (removed != null) _memoryBytes -= removed.length;
+      _urls.remove(first);
     }
     final value = Uint8List.fromList(bytes).asUnmodifiableView();
     _memory[id] = value;
     _urls[id] = url;
+    _memoryBytes += value.length;
     return value;
   }
 }

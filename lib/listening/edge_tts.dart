@@ -116,11 +116,7 @@ class EdgeSpeechClient {
         if (!validVoice(id, locale)) {
           continue;
         }
-        final known = id == defaultEdgeVoice.id
-            ? defaultEdgeVoice.label
-            : id == alternateEdgeVoice.id
-            ? alternateEdgeVoice.label
-            : null;
+        final known = builtinEdgeVoiceById(id)?.label;
         final gender = item['Gender'] == 'Female' ? '女声' : '男声';
         voices.add(
           SpeechVoice(

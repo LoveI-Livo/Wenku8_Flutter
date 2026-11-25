@@ -112,9 +112,8 @@ final class LegadoReader {
       final resolved = _resolve(request.uri, book);
       if (resolved.isEmpty) continue;
       final author = _textValue(item, rule['author'] ?? rule['authorName']);
-      final summary = _textValue(
-        item,
-        rule['intro'] ?? rule['summary'] ?? rule['desc'],
+      final summary = _cleanJsText(
+        _textValue(item, rule['intro'] ?? rule['summary'] ?? rule['desc']),
       );
       final cover = _itemCover(item, rule, request.uri);
       final coverUrl = cover.isEmpty ? null : _resolve(request.uri, cover);
@@ -137,6 +136,47 @@ final class LegadoReader {
       );
     }
     return CloudBookListing(entries.values.toList(growable: false));
+  }
+
+  /// 只读取书源详情里的简介。编辑器发现书架记录没有简介时调用，
+  /// 不再把 `legado://` 当成普通网页丢给 WebNovelReader。
+  static Future<String> summary(
+    String payload, {
+    bool allowHttp = false,
+    String cookie = '',
+    String authorization = '',
+  }) async {
+    final decoded = decodePayload(payload);
+    if (decoded == null) return '';
+    final bookUrl = (decoded['book'] ?? '').toString();
+    final rules = decoded['rules'] is Map
+        ? Map<String, dynamic>.from(decoded['rules'] as Map)
+        : <String, dynamic>{};
+    final uri = Uri.tryParse(bookUrl);
+    if (uri == null || uri.host.isEmpty) return '';
+    final useHttp =
+        allowHttp ||
+        rules['allowHttp'] == true ||
+        uri.scheme.toLowerCase() == 'http';
+    final body = await _fetch(
+      uri,
+      cookie: cookie,
+      authorization: authorization,
+      allowHttp: useHttp,
+      extraHeaders: _headers(rules['header']),
+    );
+    final info = _ruleMap(rules['ruleBookInfo']);
+    var summary = _textValue(
+      body,
+      info['intro'] ?? info['summary'] ?? info['desc'],
+      base: uri,
+    );
+    if (summary.trim().isEmpty &&
+        !body.trimLeft().startsWith('{') &&
+        !body.trimLeft().startsWith('[')) {
+      summary = WebNovelReader.parseBookInfo(body, uri).summary ?? '';
+    }
+    return summary.trim();
   }
 
   /// 打开书：读取书名/作者/简介和目录。
@@ -167,7 +207,7 @@ final class LegadoReader {
       extraHeaders: _headers(rules['header']),
     );
     final info = _ruleMap(rules['ruleBookInfo']);
-    var title = _textValue(body, info['name'] ?? info['bookName']);
+    var title = _textValue(body, info['name'] ?? info['bookName'], base: uri);
     if (title.isEmpty) {
       try {
         final generic = WebNovelReader.catalogFromHtml(body, uri).entries;
@@ -176,16 +216,45 @@ final class LegadoReader {
         // 详情页不一定有通用目录，规则没写书名时继续用空标题。
       }
     }
-    final author = _textValue(body, info['author']);
-    final summary = _textValue(
+    var author = _textValue(body, info['author'], base: uri);
+    var summary = _textValue(
       body,
       info['intro'] ?? info['summary'] ?? info['desc'],
+      base: uri,
     );
-    final cover = _textValue(body, info['coverUrl'] ?? info['cover']);
-    final coverUrl = cover.isEmpty ? null : _resolve(uri, cover);
+    final cover = _textValue(
+      body,
+      info['coverUrl'] ?? info['cover'],
+      base: uri,
+    );
+    var coverUrl = cover.isEmpty ? null : _resolve(uri, cover);
+    // 规则只写了目录/书名、没写简介时，仍然用同一份网页里的
+    // og:description 和简介容器兜底；不额外请求一次详情。
+    final genericInfo =
+        body.trimLeft().startsWith('{') || body.trimLeft().startsWith('[')
+        ? null
+        : WebNovelReader.parseBookInfo(body, uri);
+    if (title.isEmpty && genericInfo?.title != null) {
+      title = genericInfo!.title!;
+    }
+    if (author.isEmpty && genericInfo?.author != null) {
+      author = genericInfo!.author!;
+    }
+    if (summary.isEmpty && genericInfo?.summary != null) {
+      summary = genericInfo!.summary!;
+    }
+    if ((coverUrl == null || coverUrl.isEmpty) &&
+        genericInfo?.coverUrl != null) {
+      coverUrl = genericInfo!.coverUrl;
+    }
+    summary = _cleanJsText(summary);
     var tocUri = uri;
     var tocBody = body;
-    final tocAddress = _textValue(body, info['tocUrl'] ?? info['toc']);
+    final tocAddress = _textValue(
+      body,
+      info['tocUrl'] ?? info['toc'],
+      base: uri,
+    );
     if (tocAddress.isNotEmpty) {
       final resolved = _resolve(uri, tocAddress);
       final next = Uri.tryParse(resolved);
@@ -219,7 +288,11 @@ final class LegadoReader {
       // 目录分页不再只翻 20 页；长书 100+ 页目录很常见，提前截断正是
       // “章节缺失”的来源之一。
       for (var page = 0; page < 120; page++) {
-        final next = _textValue(tocPages.last.$1, nextTocRule);
+        final next = _textValue(
+          tocPages.last.$1,
+          nextTocRule,
+          base: tocPages.last.$2,
+        );
         if (next.isEmpty) break;
         final nextUri = Uri.tryParse(_resolve(tocPages.last.$2, next));
         if (nextUri == null || nextUri == tocPages.last.$2) break;
@@ -239,10 +312,19 @@ final class LegadoReader {
       final chapterList = _list(page.$1, chapterRule, page.$2);
       for (final item in chapterList) {
         if (chapters.length >= 10000) break;
-        final name = _textValue(item, toc['chapterName'] ?? toc['name']);
-        final link = _textValue(item, toc['chapterUrl'] ?? toc['url']);
+        final name = _textValue(
+          item,
+          toc['chapterName'] ?? toc['name'],
+          base: page.$2,
+        );
+        final link = _textValue(
+          item,
+          toc['chapterUrl'] ?? toc['url'],
+          base: page.$2,
+        );
         if (name.isEmpty) continue;
-        final resolved = link.isEmpty ? bookUrl : _resolve(page.$2, link);
+        if (link.isEmpty) continue;
+        final resolved = _resolve(page.$2, link);
         if (resolved.isEmpty) continue;
         // 多页目录经常把“最新章节”和第一页重复拼接，先按“地址+标题”
         // 去重；不同标题即使共用同一个阅读页也不能误删。
@@ -707,15 +789,112 @@ final class LegadoReader {
     return '';
   }
 
-  static String _textValue(Object body, Object? rule) {
+  static String _textValue(Object body, Object? rule, {Uri? base}) {
     if (rule == null) return '';
     final parsed = _parse(body);
-    final value = _extract(parsed, rule, Uri(), list: false);
+    final value = _extract(parsed, rule, base ?? Uri(), list: false);
+    return _textOf(value);
+  }
+
+  static String _textOf(Object? value) {
     if (value == null) return '';
     if (value is List) {
-      return value.whereType<String>().join(' ').trim();
+      return value.map(_textOf).where((v) => v.isNotEmpty).join(' ').trim();
+    }
+    if (value is Map || value is Iterable) {
+      try {
+        return jsonEncode(value).trim();
+      } catch (_) {
+        return '$value'.trim();
+      }
     }
     return '$value'.trim();
+  }
+
+  /// 阅读规则里的 `<js>` 常见于封面、目录地址和正文清洗。没有完整的
+  /// Rhino 运行时，但番茄等主流源只用到几个固定函数；这里实现它们，
+  /// 保证 `Cover(result)`、`Clean(result)` 和 Base()+路径能正常求值。
+  static Object? _applyJs(Object? current, String expression, Uri base) {
+    final code = expression.trim();
+    if (code.isEmpty) return current;
+    final text = _textOf(current);
+    String idOf(Object? value) {
+      final match = RegExp(r'\d{3,}').firstMatch(_textOf(value));
+      return match?.group(0) ?? '';
+    }
+
+    String origin() {
+      if (base.hasScheme && base.host.isNotEmpty) {
+        final port = base.hasPort ? ':${base.port}' : '';
+        return '${base.scheme}://${base.host}$port';
+      }
+      return 'https://novel.cooks.tw';
+    }
+
+    if (code.contains('/api/chapter/list/')) {
+      var id = '';
+      final path = base.path;
+      final detail = RegExp(r'/detail/(\d+)').firstMatch(path);
+      if (detail != null) id = detail.group(1)!;
+      if (id.isEmpty && current is Map) {
+        final data = current['data'] is Map ? current['data'] as Map : current;
+        id = idOf(data['articleid']);
+      }
+      if (id.isEmpty) id = idOf(current);
+      return id.isEmpty ? '' : '${origin()}/api/chapter/list/$id?lang=zh-CN';
+    }
+    if (code.contains('/api/chapter/content/')) {
+      var aid = '';
+      final list =
+          RegExp(r'/list/(\d+)').firstMatch(base.path) ??
+          RegExp(r'/detail/(\d+)').firstMatch(base.path);
+      if (list != null) aid = list.group(1)!;
+      final chapter = idOf(current);
+      if (aid.isEmpty || chapter.isEmpty) return '';
+      return '${origin()}/api/chapter/content/$aid/$chapter?lang=zh-CN';
+    }
+    if (code.startsWith('Cover(')) {
+      final id = idOf(current);
+      if (id.isEmpty) return '';
+      final bucket = int.parse(id) ~/ 1000;
+      return 'https://pic.cooks.tw/$bucket/$id/${id}s.jpg';
+    }
+    if (code.startsWith('Clean(') || code.startsWith('T(')) {
+      return _cleanJsText(text);
+    }
+    if (code.startsWith('J(')) {
+      try {
+        return jsonDecode(text);
+      } catch (_) {
+        return current;
+      }
+    }
+    if (code == 'result' || code == 'result;' || code.endsWith(' result;')) {
+      return current;
+    }
+    return current;
+  }
+
+  static String _cleanJsText(String value) {
+    var text = value
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '\n');
+    try {
+      text = html.parseFragment(text).text ?? text;
+    } catch (_) {
+      text = text.replaceAll(RegExp(r'<[^>]+>'), '');
+    }
+    return text
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&quot;', '"')
+        .replaceAll(RegExp(r'[ \t]+\n'), '\n')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
   }
 
   static Object _parse(Object body) {
@@ -746,7 +925,66 @@ final class LegadoReader {
     }
     final value = '$rule'.trim();
     if (value.isEmpty) return null;
-    if (value.contains('&') && !value.contains('&&')) {
+
+    // Legado 规则允许换行串联：第一行取字段，第二行 `<js>Cover(result)</js>`
+    // 或 `<js>Clean(result)</js>` 加工。之前整段当成一个选择器，番茄源的
+    // 封面、目录地址和正文清洗全部失效。
+    if (value.contains('\n')) {
+      final lines = value
+          .split('\n')
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty)
+          .toList(growable: false);
+      Object? current = root;
+      for (final line in lines) {
+        final script = RegExp(
+          r'^<js>\s*([\s\S]*?)\s*</js>$',
+          caseSensitive: false,
+        ).firstMatch(line);
+        if (script != null) {
+          current = _applyJs(current, script.group(1) ?? '', base);
+        } else {
+          current = _extract(current ?? root, line, base, list: list);
+        }
+        if (current == null) return null;
+      }
+      return current;
+    }
+
+    // `$.data[*]||$.data.items[*]` 这类多路径兜底在 Legado 源里很常见。
+    if (value.contains('||') && !value.startsWith('http')) {
+      for (final alternative in value.split('||')) {
+        final result = _extract(root, alternative.trim(), base, list: list);
+        if (result != null &&
+            (result is! List || result.isNotEmpty) &&
+            '$result'.trim().isNotEmpty) {
+          return result;
+        }
+      }
+      return null;
+    }
+
+    // 书源模板：`https://host/detail/{{$.articleid}}`。模板里的字段从当前
+    // 列表项读取；读不到时保留原串交给后面的通用网页解析。
+    if (value.contains('{{') && value.contains('}}')) {
+      final replaced = value.replaceAllMapped(
+        RegExp(r'\{\{\s*([^{}]+?)\s*\}\}'),
+        (match) {
+          final path = match.group(1)!.trim();
+          if (path.startsWith('source.') || path == 'key' || path == 'page') {
+            return match.group(0)!;
+          }
+          final field = _extract(root, path, base, list: false);
+          return field == null ? '' : _textOf(field);
+        },
+      );
+      if (replaced != value && !replaced.contains('{{')) return replaced;
+    }
+
+    if (value.contains('&') &&
+        !value.contains('&&') &&
+        !value.contains('{{') &&
+        !value.startsWith('http')) {
       final pieces = value
           .split('&')
           .map((item) => item.trim())
