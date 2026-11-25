@@ -714,7 +714,11 @@ class HomeShellState extends State<HomeShell> with TickerProviderStateMixin {
                             child: Atmosphere(
                               child: Padding(
                                 padding: EdgeInsets.only(
-                                  top: _searchTabsHeight(context),
+                                  top:
+                                      MediaQuery.paddingOf(context).top +
+                                      FrostedHeader.toolbarHeight +
+                                      _searchTabsHeight(context) +
+                                      8,
                                 ),
                                 child: InlineSearchResults(
                                   feed: _activeSearch,
@@ -1976,9 +1980,13 @@ class _ReaderLoaderPageState extends State<ReaderLoaderPage> {
         book = await offline.cachedBook(widget.novel.id);
       }
     }
-    book ??= (await widget.repository.detail(
-      widget.novel,
-    )).withChapters(await widget.repository.chapters(widget.novel.id));
+    if (book == null) {
+      final detail = await widget.repository.detail(widget.novel);
+      final chapters = detail.chapters.isNotEmpty
+          ? detail.chapters
+          : await widget.repository.chapters(widget.novel.id);
+      book = detail.withChapters(chapters);
+    }
     if (book.tags.isEmpty && widget.novel.tags.isNotEmpty) {
       book = book.withGenre(widget.novel.genre);
     }
@@ -2725,36 +2733,7 @@ class _ShelfPageState extends State<ShelfPage>
 
   Map<String, String> _buildShelfContentCategories() {
     final organization = state.organization;
-    final authors =
-        _scope(
-              bookshelfIds(
-                state,
-                _offline,
-                readableOnly: _cacheOnly,
-                filterSource: false,
-                filterCategory: false,
-              ),
-            )
-            .map(_known)
-            .whereType<Novel>()
-            .map((book) => LocalLibraryPreferences.authorName(book.author))
-            .toSet()
-            .toList()
-          ..sort();
-    return {
-      LocalLibraryPreferences.all: '全部书籍',
-      LocalLibraryPreferences.unfiled: '未分类',
-      ...organization.groups,
-      for (final author in authors)
-        LocalLibraryPreferences.authorCategory(author): '作者 · $author',
-      if (shelfContentDynamicCategoryLabel(_content.category) case final label?)
-        if (!authors.any(
-          (author) =>
-              LocalLibraryPreferences.authorCategory(author) ==
-              _content.category,
-        ))
-          _content.category: '$label（暂无匹配）',
-    };
+    return {LocalLibraryPreferences.all: '全部书籍', ...organization.groups};
   }
 
   String get _shelfContentCategory =>
@@ -4470,9 +4449,7 @@ class InlineSearchResults extends StatelessWidget {
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
               24,
-              MediaQuery.paddingOf(context).top +
-                  FrostedHeader.toolbarHeight +
-                  20,
+              18,
               24,
               MediaQuery.paddingOf(context).bottom + 24,
             ),
@@ -4697,12 +4674,7 @@ class InlineSearchResults extends StatelessWidget {
         onRecall != null &&
         state.recentSearches.isNotEmpty) {
       return ListView(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          MediaQuery.paddingOf(context).top + FrostedHeader.toolbarHeight + 20,
-          24,
-          24,
-        ),
+        padding: EdgeInsets.fromLTRB(24, 18, 24, 24),
         children: [
           RecentSearches(state: state, onRecall: onRecall!),
           if (feed.loading && !feed.hasLoaded)
@@ -4726,24 +4698,7 @@ class InlineSearchResults extends StatelessWidget {
       );
     }
     if (books.isEmpty && feed.loading && !feed.hasLoaded) {
-      final progress = CloudCatalogSearch.instance.progress;
-      final status = progress.active ? '正在搜索书源' : feed.tagProgressLabel;
-      final ratio = progress.active && progress.total > 0
-          ? (progress.done / progress.total).clamp(0.0, 1.0)
-          : null;
-      return Column(
-        children: [
-          Expanded(
-            child: SearchSkeleton(
-              status: status,
-              progress: ratio,
-              progressLabel: progress.active
-                  ? '${progress.done} / ${progress.total}'
-                  : null,
-            ),
-          ),
-        ],
-      );
+      return const Column(children: [Expanded(child: SearchSkeleton())]);
     }
     if (books.isEmpty && feed.error != null) {
       return ContentNotice(
@@ -4816,9 +4771,7 @@ class InlineSearchResults extends StatelessWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
             22,
-            MediaQuery.paddingOf(context).top +
-                FrostedHeader.toolbarHeight +
-                20,
+            18,
             22,
             MediaQuery.paddingOf(context).bottom + 24,
           ),
@@ -5106,7 +5059,12 @@ class _DetailLoaderPageState extends State<DetailLoaderPage> {
 
   Future<Novel> _load() async {
     final detail = await widget.repository.detail(widget.novel);
-    final chapters = await widget.repository.chapters(widget.novel.id);
+    // Most repositories (including cloud RSS and the built-in library) already
+    // return the complete directory with detail(). Avoid a redundant second
+    // network/disk round-trip before the detail page can render.
+    final chapters = detail.chapters.isNotEmpty
+        ? detail.chapters
+        : await widget.repository.chapters(widget.novel.id);
     final loaded = detail.withChapters(chapters);
     await widget.state.rememberNovel(loaded);
     return loaded;
@@ -10309,15 +10267,7 @@ class _ReaderPageState extends State<ReaderPage>
                           ),
                         ),
                       ),
-                      SizedBox(
-                        width: 46,
-                        child: GlassIconButton(
-                          key: const ValueKey('reader-listening-entry'),
-                          icon: CupertinoIcons.headphones,
-                          label: '听书',
-                          onPressed: _listening == null ? null : _listen,
-                        ),
-                      ),
+                      _readerHeaderListeningEntry(),
                     ],
                   ),
                 ],
@@ -10328,6 +10278,28 @@ class _ReaderPageState extends State<ReaderPage>
       ),
     ),
   );
+
+  Widget _readerHeaderListeningEntry() {
+    final listening = _listening;
+    if (listening == null) return const SizedBox(width: 46);
+    return ValueListenableBuilder<ListeningSnapshot>(
+      valueListenable: listening.snapshot,
+      builder: (context, state, _) {
+        final active = state.active && state.novel?.id == widget.novel.id;
+        return SizedBox(
+          width: 46,
+          child: active
+              ? const SizedBox.shrink()
+              : GlassIconButton(
+                  key: const ValueKey('reader-listening-entry'),
+                  icon: CupertinoIcons.headphones,
+                  label: '听书',
+                  onPressed: _listen,
+                ),
+        );
+      },
+    );
+  }
 
   void _previewChromeProgress(double value) {
     _pageAdvanceOrigin = null;
@@ -11074,7 +11046,7 @@ class _ReaderPageState extends State<ReaderPage>
             ),
           Positioned(
             right: MediaQuery.paddingOf(context).right + 18,
-            bottom: readerDockBottomPadding(context) + 76,
+            bottom: readerDockBottomPadding(context) + 160,
             child: _readerFloatingListening(context),
           ),
           Align(

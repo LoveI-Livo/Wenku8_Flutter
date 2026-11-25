@@ -183,31 +183,13 @@ class _LocalLibraryPageState extends State<LocalLibraryPage>
     if (_shelfCategories != null) return _shelfCategories!;
     final categories = {
       LocalLibraryPreferences.all: '全部书籍',
-      LocalLibraryPreferences.unfiled: '未分类',
       ...organization.groups,
-      for (final author
-          in (_localMembership()
-              .map((book) => LocalLibraryPreferences.authorName(book.author))
-              .toSet()
-              .toList()
-            ..sort()))
-        LocalLibraryPreferences.authorCategory(author): '作者 · $author',
     };
-    final selected = organization.shelfContent.category;
-    final selectedAuthor = LocalLibraryPreferences.categoryAuthor(selected);
-    if (selectedAuthor != null && !categories.containsKey(selected)) {
-      categories[selected] = '作者 · $selectedAuthor（暂无匹配）';
-    }
     return _shelfCategories = categories;
   }
 
   String _shelfCategory(LocalLibraryPreferences organization) {
     final requested = organization.shelfContent.category;
-    // An author is a query, not a named category that can be deleted. Keep its
-    // condition when no visible book matches instead of broadening to all books.
-    if (LocalLibraryPreferences.categoryAuthor(requested) != null) {
-      return requested;
-    }
     return _shelfCategoryOptions(organization).containsKey(requested)
         ? requested
         : LocalLibraryPreferences.all;

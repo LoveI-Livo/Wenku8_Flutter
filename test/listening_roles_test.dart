@@ -66,6 +66,33 @@ void main() {
     expect(dialogue.speaker, '张三');
   });
 
+  test('男角色由“他”标记为男声，女角色由“她”标记为女声', () {
+    final male = speechSegments(['张三摇了摇头，他沉声道：“你来了。”']);
+    final maleDialogue = male.firstWhere(
+      (segment) => segment.role == SpeechRole.dialogue,
+    );
+    expect(maleDialogue.speaker, '张三');
+    expect(maleDialogue.gender, SpeechVoiceGender.male);
+
+    final female = speechSegments(['林雪站在门口。“我没事。”她轻声道。']);
+    final femaleDialogue = female.firstWhere(
+      (segment) => segment.role == SpeechRole.dialogue,
+    );
+    expect(femaleDialogue.speaker, '林雪');
+    expect(femaleDialogue.gender, SpeechVoiceGender.female);
+  });
+
+  test('音色池公开性别，晓晓是女声、云希是男声', () {
+    final xiaoxiao = builtinEdgeVoices.firstWhere(
+      (voice) => voice.id == 'zh-CN-XiaoxiaoNeural',
+    );
+    final yunxi = builtinEdgeVoices.firstWhere(
+      (voice) => voice.id == 'zh-CN-YunxiNeural',
+    );
+    expect(speechVoiceGender(xiaoxiao), SpeechVoiceGender.female);
+    expect(speechVoiceGender(yunxi), SpeechVoiceGender.male);
+  });
+
   test('多语真人音色通过Edge中文合成校验', () {
     expect(
       EdgeSpeechClient.validVoice('en-US-AvaMultilingualNeural', 'zh-CN'),

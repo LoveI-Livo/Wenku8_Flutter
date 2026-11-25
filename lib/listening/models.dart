@@ -8,6 +8,11 @@ enum ListeningSource { edge, system, custom }
 
 enum ListeningPhase { stopped, preparing, playing, paused, completed, failed }
 
+/// Inferred character gender, used only to keep automatic character voices
+/// from assigning a female voice to an explicitly male character (or vice
+/// versa). Neutral means the text did not give a trustworthy cue.
+enum SpeechVoiceGender { neutral, female, male }
+
 const listeningMinimumSpeed = .5;
 const listeningMaximumSpeed = 3.0;
 const listeningMaximumParagraphGapMs = 3000;
@@ -253,6 +258,7 @@ class SpeechSegment {
     this.language = '',
     this.role = SpeechRole.narration,
     this.speaker = '',
+    this.gender = SpeechVoiceGender.neutral,
   });
   final int paragraph, start, end;
   final String text, language;
@@ -261,6 +267,9 @@ class SpeechSegment {
   /// Detected character name for quoted dialogue. Empty means the narrator or
   /// a quote with no trustworthy attribution.
   final String speaker;
+
+  /// Gender inferred from the quote attribution or the speaker's name.
+  final SpeechVoiceGender gender;
   String key(SpeechVoice voice, {double gainDb = 0}) => sha256
       .convert(
         utf8.encode(
@@ -325,6 +334,7 @@ List<SpeechSegment> speechRecoverySegments(SpeechSegment segment) {
         language: segment.language,
         role: part.role,
         speaker: segment.speaker,
+        gender: segment.gender,
       ),
   ];
 }
@@ -506,6 +516,45 @@ String? _speakerInNarration(String text) {
     final speaker = _cleanSpeechSpeaker(match.group(1)!);
     if (speaker != null) return speaker;
   }
+  // Common web-novel form “张三摇了摇头，他沉声道”: the action verb is
+  // separated from the name by 了/着, so the expression above cannot capture a
+  // clean name. Take the leading name of the last clause before the pronoun.
+  const compoundSurnames = {
+    '欧阳',
+    '司马',
+    '上官',
+    '诸葛',
+    '东方',
+    '皇甫',
+    '尉迟',
+    '公孙',
+    '慕容',
+    '司徒',
+    '令狐',
+    '夏侯',
+    '长孙',
+    '宇文',
+    '轩辕',
+    '独孤',
+    '南宫',
+    '西门',
+  };
+  final clauses = text.split(RegExp(r'[，,。！？!?；;：:\n]'));
+  for (final clause in clauses.reversed) {
+    final value = clause.trim();
+    final lead = RegExp(r'^([\u4e00-\u9fa5·A-Za-z]{2,4})').firstMatch(value);
+    if (lead == null) continue;
+    final raw = lead.group(1)!;
+    if (_speakerPronouns.contains(raw[0])) continue;
+    final length =
+        raw.length >= 3 && compoundSurnames.contains(raw.substring(0, 2))
+        ? 3
+        : 2;
+    final candidate = _cleanSpeechSpeaker(
+      raw.substring(0, math.min(length, raw.length)),
+    );
+    if (candidate != null) return candidate;
+  }
   return null;
 }
 
@@ -516,20 +565,109 @@ bool _pronounAttribution(String text) {
   return match != null;
 }
 
-String? _speakerForRange(String text, _SpeechRange range, String? last) {
+SpeechVoiceGender? _nearestPronounGender(String before, String after) {
+  int? bestDistance;
+  SpeechVoiceGender? best;
+  void consider(SpeechVoiceGender gender, int distance) {
+    if (bestDistance == null || distance < bestDistance!) {
+      bestDistance = distance;
+      best = gender;
+    }
+  }
+
+  final beforeMatches = RegExp(
+    r'(他|她)(?:[^。！？\n“”「」『』]{0,12})?' + _speechVerb,
+  ).allMatches(before);
+  for (final match in beforeMatches) {
+    final pronoun = match.group(1);
+    if (pronoun == null) continue;
+    consider(
+      pronoun == '他' ? SpeechVoiceGender.male : SpeechVoiceGender.female,
+      before.length - match.start,
+    );
+  }
+  final afterMatch = RegExp(
+    r'^\s*[，,。！？!?]?\s*(他|她)(?:[^。！？\n“”「」『』]{0,12})?' + _speechVerb,
+  ).firstMatch(after);
+  if (afterMatch?.group(1) case final pronoun?) {
+    consider(
+      pronoun == '他' ? SpeechVoiceGender.male : SpeechVoiceGender.female,
+      afterMatch!.start,
+    );
+  }
+  return best;
+}
+
+const _maleNameCues =
+    '伟强军刚勇峰磊涛斌杰浩宇轩晨阳龙虎鹏飞凯明华建国志文武山海江河川石铁牛马爷公兄弟父叔伯舅师僧道先生少爷王爷皇帝掌柜将军侍卫郎';
+const _femaleNameCues = '婷雅静丽娜敏雪琳瑶萱薇琪悦欣怡颖倩慧娟秀兰梅菊香玉珍凤燕莺娘女姐妹母婆姨姑嫂妃后公主小姐姑娘夫人仙子';
+
+int _cueScore(String name, String cues) =>
+    name.runes.where((rune) => cues.runes.contains(rune)).length;
+
+String? _nearestNameGender(String speaker, String text) {
+  // Direct appositions are stronger than single-name characters: 公子/小姐,
+  // 先生/姑娘, 师父/师姐 etc. They decide without needing a pronoun.
+  if (RegExp(
+    r'(小姐|姑娘|夫人|仙子|师姐|师妹|母亲|婆婆|阿姨|姑姑|嫂嫂|姐姐|妹妹|公主|皇后|妃子|妇人|女子|少女)',
+  ).hasMatch(speaker)) {
+    return 'female';
+  }
+  if (RegExp(
+    r'(公子|少爷|王爷|皇帝|先生|师父|师兄|师弟|父亲|叔叔|伯伯|舅舅|老者|老头|汉子|将军|掌柜|少年|男子)',
+  ).hasMatch(speaker)) {
+    return 'male';
+  }
+  final male = _cueScore(speaker, _maleNameCues);
+  final female = _cueScore(speaker, _femaleNameCues);
+  if (male > female) return 'male';
+  if (female > male) return 'female';
+  // A bare “他/她” elsewhere in the same paragraph still helps common names
+  // such as 陈伶/林夕 that do not carry an obvious gendered character.
+  final maleCount = RegExp(r'他(?!们)').allMatches(text).length;
+  final femaleCount = RegExp(r'她(?!们)').allMatches(text).length;
+  if (maleCount > femaleCount) return 'male';
+  if (femaleCount > maleCount) return 'female';
+  return null;
+}
+
+SpeechVoiceGender _speakerGender(
+  String speaker,
+  String before,
+  String after,
+  String paragraph,
+) {
+  final pronoun = _nearestPronounGender(before, after);
+  if (pronoun != null) return pronoun;
+  return switch (_nearestNameGender(speaker, paragraph)) {
+    'female' => SpeechVoiceGender.female,
+    'male' => SpeechVoiceGender.male,
+    _ => SpeechVoiceGender.neutral,
+  };
+}
+
+({String speaker, SpeechVoiceGender gender})? _speakerForRange(
+  String text,
+  _SpeechRange range,
+  String? last,
+) {
   final before = text.substring(math.max(0, range.start - 80), range.start);
   final after = text.substring(
     math.min(text.length, range.end + 1),
     math.min(text.length, range.end + 81),
   );
   final inside = _speakerInsideQuote(text.substring(range.start, range.end));
-  final candidate =
+  var candidate =
       inside ?? _speakerBeforeQuote(before) ?? _speakerAfterQuote(after);
-  if (candidate != null) return candidate;
-  if (_pronounAttribution(before) || _pronounAttribution(after)) {
-    return last ?? _speakerInNarration(before);
+  if (candidate == null &&
+      (_pronounAttribution(before) || _pronounAttribution(after))) {
+    candidate = last ?? _speakerInNarration(before);
   }
-  return null;
+  if (candidate == null) return null;
+  return (
+    speaker: candidate,
+    gender: _speakerGender(candidate, before, after, text),
+  );
 }
 
 /// Original UTF-16 offsets remain valid for selection; paired illustration markers are never spoken.
@@ -557,15 +695,26 @@ List<SpeechSegment> speechSegments(
     for (final range in _speechRanges(text)) {
       final role = forceRole ?? range.role;
       var speaker = forceSpeaker;
+      var gender = SpeechVoiceGender.neutral;
       if (speaker.isEmpty && role == SpeechRole.dialogue) {
-        speaker =
-            _speakerForRange(
-              text,
-              range,
-              lastSpeaker.isEmpty ? null : lastSpeaker,
-            ) ??
-            '';
+        final detected = _speakerForRange(
+          text,
+          range,
+          lastSpeaker.isEmpty ? null : lastSpeaker,
+        );
+        speaker = detected?.speaker ?? '';
+        gender = detected?.gender ?? SpeechVoiceGender.neutral;
         if (speaker.isNotEmpty) lastSpeaker = speaker;
+      } else if (speaker.isNotEmpty) {
+        final before = text.substring(
+          math.max(0, range.start - 80),
+          range.start,
+        );
+        final after = text.substring(
+          math.min(text.length, range.end + 1),
+          math.min(text.length, range.end + 81),
+        );
+        gender = _speakerGender(speaker, before, after, text);
       }
       _appendSpeechRange(
         result,
@@ -576,6 +725,7 @@ List<SpeechSegment> speechSegments(
         role,
         maximum,
         speaker,
+        gender,
       );
     }
   }
@@ -591,6 +741,7 @@ void _appendSpeechRange(
   SpeechRole role,
   int maximum,
   String speaker,
+  SpeechVoiceGender gender,
 ) {
   var offset = rangeStart;
   while (offset < rangeEnd && text[offset].trim().isEmpty) {
@@ -640,6 +791,7 @@ void _appendSpeechRange(
           fragment,
           role: role,
           speaker: speaker,
+          gender: gender,
         ),
       );
     }

@@ -70,13 +70,13 @@ void main() {
     );
   });
 
-  test('0.9.4 更新弹窗和历史记录都指向最新版本', () {
-    expect(currentAppVersion, '0.9.4');
-    expect(currentAppBuild, 3036);
-    expect(modReleaseHistory.first.version, '0.9.4');
+  test('0.9.5 更新弹窗和历史记录都指向最新版本', () {
+    expect(currentAppVersion, '0.9.5');
+    expect(currentAppBuild, 3037);
+    expect(modReleaseHistory.first.version, '0.9.5');
     expect(
       modReleaseHistory.map((release) => release.version),
-      containsAll(['0.9.4', '0.9.3', '0.9.2']),
+      containsAll(['0.9.5', '0.9.4', '0.9.3']),
     );
     expect(currentReleaseSummary.join(), contains('多角色'));
     expect(currentReleaseSummary.join(), contains('悬浮耳机'));

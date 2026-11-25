@@ -549,25 +549,22 @@ class SearchSkeleton extends StatelessWidget {
     this.status,
     this.progress,
     this.progressLabel,
+    this.topPadding = 12,
   });
   final String? status;
   final double? progress;
   final String? progressLabel;
+  final double topPadding;
   @override
   Widget build(BuildContext context) => Semantics(
-    label: status ?? '正在找故事',
+    label: status ?? '正在载入搜索结果',
     liveRegion: true,
     child: ClipRect(
       child: OverflowBox(
         alignment: Alignment.topCenter,
         maxHeight: double.infinity,
         child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            22,
-            MediaQuery.paddingOf(context).top + 76,
-            22,
-            0,
-          ),
+          padding: EdgeInsets.fromLTRB(22, topPadding, 22, 0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

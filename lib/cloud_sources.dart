@@ -1712,26 +1712,71 @@ class RssBookClient extends DirectLinkBookClient {
   /// 书源越多，单次搜索需要的时间越长；不能用固定 8 秒把 1000 个书源
   /// 只跑到前 200 个就收掉进度条。
   Duration get searchBudget {
-    final count = _sourceObjects.length;
-    if (count >= 500) return const Duration(seconds: 30);
-    if (count >= 200) return const Duration(seconds: 20);
-    if (count >= 50) return const Duration(seconds: 12);
-    return const Duration(seconds: 8);
+    final count = _searchSourceObjects.length;
+    // Thousands of sources cannot all finish in one budget. Keep the first
+    // screen fast and let results stream in; the remaining sources are still
+    // available for the next pages/search.
+    if (count >= 500) return const Duration(seconds: 10);
+    if (count >= 200) return const Duration(seconds: 8);
+    if (count >= 50) return const Duration(seconds: 7);
+    return const Duration(seconds: 6);
+  }
+
+  List<CloudBookSource> _uniqueSources(Iterable<CloudBookSource> values) {
+    final seen = <String>{};
+    final result = <CloudBookSource>[];
+    for (final source in values) {
+      final key = source.isLegado ? source.key : source.url.trim();
+      if (key.isEmpty || !seen.add(key)) continue;
+      result.add(source);
+    }
+    return result;
   }
 
   List<CloudBookSource> get _sourceObjects {
-    if (_entriesOverride case final entries?) {
-      return entries.take(_maxSources).toList(growable: false);
+    final raw = _entriesOverride != null
+        ? _entriesOverride!.toList(growable: false)
+        : _override != null
+        ? _override!
+              .map((value) => value.trim())
+              .where((value) => value.isNotEmpty)
+              .map((value) => CloudBookSource(url: value))
+              .toList(growable: false)
+        : config.effectiveSources;
+    return _uniqueSources(raw).take(_maxSources).toList(growable: false);
+  }
+
+  /// Invalid sources are noise for an interactive search; if every source is
+  /// invalid (for example a fresh import that has never been checked), keep
+  /// them so search still has a chance.
+  List<CloudBookSource> get _searchSourceObjects {
+    final ordered = _orderedSourceObjects;
+    final usable = ordered.where((source) => !source.invalid).toList();
+    return usable.isEmpty ? ordered : usable;
+  }
+
+  int get searchSourceCount => _searchSourceObjects.length;
+
+  /// Mirrors the search source de-duplication so the progress total matches
+  /// the actual number of network requests instead of the imported row count.
+  static int searchableSourceCount(
+    CloudSourceConfig config, {
+    List<CloudBookSource> selected = const [],
+  }) {
+    final raw = selected.isNotEmpty
+        ? selected
+        : config.sources.isNotEmpty
+        ? config.sources.where((source) => source.enabled)
+        : config.effectiveSources;
+    final seen = <String>{};
+    final objects = <CloudBookSource>[];
+    for (final source in raw) {
+      final key = source.isLegado ? source.key : source.url.trim();
+      if (key.isEmpty || !seen.add(key)) continue;
+      objects.add(source);
     }
-    if (_override case final urls?) {
-      return urls
-          .map((value) => value.trim())
-          .where((value) => value.isNotEmpty)
-          .map((value) => CloudBookSource(url: value))
-          .take(_maxSources)
-          .toList(growable: false);
-    }
-    return config.effectiveSources.take(_maxSources).toList(growable: false);
+    final usable = objects.where((source) => !source.invalid);
+    return usable.isEmpty ? objects.length : usable.length;
   }
 
   /// 1000 个书源不可能在 30 秒内全部扫完。把已体检有效、响应时间短、
@@ -1923,7 +1968,7 @@ class RssBookClient extends DirectLinkBookClient {
     // 页面，单个坏源不再拖住整次搜索。
     final sourceTasks =
         _parallel(
-          _orderedSourceObjects,
+          _searchSourceObjects,
           (source) async {
             if (stopped) return;
             attempted++;
@@ -1946,7 +1991,7 @@ class RssBookClient extends DirectLinkBookClient {
                   cookie: config.cookie,
                   authorization:
                       authHeaders[HttpHeaders.authorizationHeader] ?? '',
-                ).timeout(const Duration(milliseconds: 2800));
+                ).timeout(const Duration(milliseconds: 2200));
                 for (final entry in listing.entries) {
                   if (stopped) return;
                   final inserted = entries.putIfAbsent(entry.id, () => entry);
@@ -1969,7 +2014,7 @@ class RssBookClient extends DirectLinkBookClient {
               final pageEntries = await _entriesFor(
                 target,
                 page: page,
-              ).timeout(const Duration(milliseconds: 3200));
+              ).timeout(const Duration(milliseconds: 2400));
               for (final entry in pageEntries) {
                 if (stopped) return;
                 final matches = hasQuery
@@ -1992,7 +2037,7 @@ class RssBookClient extends DirectLinkBookClient {
             }
             reportSource();
           },
-          workers: 48,
+          workers: 64,
           onDone: onSourceDone,
         ).whenComplete(() {
           if (!_sourcesDone.isCompleted) _sourcesDone.complete();

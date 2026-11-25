@@ -35,7 +35,6 @@ Future<void> showBookCategories(
           const SizedBox(height: 16),
           for (final entry in {
             LocalLibraryPreferences.all: '全部书籍',
-            LocalLibraryPreferences.unfiled: '未分类',
             ...organization.groups,
           }.entries)
             Padding(
@@ -50,7 +49,7 @@ Future<void> showBookCategories(
                       ),
                     ),
                   ),
-                  if (!entry.key.startsWith('_')) ...[
+                  if (entry.key != LocalLibraryPreferences.all) ...[
                     const SizedBox(width: 8),
                     GlassIconButton(
                       icon: CupertinoIcons.pencil,
@@ -69,12 +68,6 @@ Future<void> showBookCategories(
                 ],
               ),
             ),
-          const SizedBox(height: 12),
-          GlassTextButton(
-            key: const ValueKey('category-by-author'),
-            onPressed: () => Navigator.pop(sheet, '_authors'),
-            child: const AppText('按作者分类'),
-          ),
           const SizedBox(height: 12),
           GlassPillButton(
             icon: CupertinoIcons.plus,

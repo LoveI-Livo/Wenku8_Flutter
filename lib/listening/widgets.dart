@@ -168,6 +168,18 @@ class _ListeningPanelState extends State<ListeningPanel> {
     }
   }
 
+  Future<void> _characterVoices() async {
+    final state = widget.controller.snapshot.value;
+    if (!state.multiRole || state.speakers.isEmpty) return;
+    final speaker = await showJellySheet<String>(
+      context: context,
+      reduceMotion: MediaQuery.disableAnimationsOf(context),
+      heightFactor: .68,
+      builder: (_) => _CharacterVoiceManager(controller: widget.controller),
+    );
+    if (speaker != null && mounted) await _characterVoice(speaker);
+  }
+
   Future<void> _languageVoice(String language) async {
     final choice = await showJellySheet<({SpeechVoice? voice})>(
       context: context,
@@ -722,6 +734,19 @@ class _ListeningPanelState extends State<ListeningPanel> {
               ),
               if (state.multiRole && state.speakers.isNotEmpty) ...[
                 const SizedBox(height: 8),
+                GlassTextButton(
+                  key: const ValueKey('listening-character-voice-manager'),
+                  onPressed: _characterVoices,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(CupertinoIcons.mic, size: 17),
+                      const SizedBox(width: 7),
+                      AppText('角色音色选择（${state.speakers.length} 个角色）'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -938,6 +963,128 @@ class _ListeningPanelState extends State<ListeningPanel> {
       );
   static String _time(int seconds) =>
       '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+}
+
+class _CharacterVoiceManager extends StatelessWidget {
+  const _CharacterVoiceManager({required this.controller});
+  final ListeningController controller;
+
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<ListeningSnapshot>(
+        valueListenable: controller.snapshot,
+        builder: (context, state, _) {
+          final speakers = state.speakers.toList()..sort();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: AppText(
+                        '角色音色',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    GlassIconButton(
+                      icon: CupertinoIcons.xmark,
+                      label: '关闭角色音色',
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                AppText(
+                  '点一个角色，就能单独挑选这个角色从头到尾使用的音色。男角色自动优先男声，女角色优先女声。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: speakers.isEmpty
+                      ? const Center(child: AppText('这本书还没有识别到具名角色'))
+                      : ListView.separated(
+                          itemCount: speakers.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 6),
+                          itemBuilder: (context, index) {
+                            final speaker = speakers[index];
+                            final gender = state.segments
+                                .where((segment) => segment.speaker == speaker)
+                                .map((segment) => segment.gender)
+                                .followedBy(const [SpeechVoiceGender.neutral])
+                                .first;
+                            final genderLabel = switch (gender) {
+                              SpeechVoiceGender.male => '男',
+                              SpeechVoiceGender.female => '女',
+                              _ => '',
+                            };
+                            final voice = state.characterVoices[speaker];
+                            return JellyTapSurface(
+                              key: ValueKey('character-voice-manager-$speaker'),
+                              onTap: () => Navigator.pop(context, speaker),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 13,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: .07),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          AppText(
+                                            genderLabel.isEmpty
+                                                ? speaker
+                                                : '$speaker · $genderLabel',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          AppText(
+                                            voice?.label ?? '自动分配',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(
+                                      CupertinoIcons.chevron_right,
+                                      size: 18,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
 }
 
 class _OnlineVoicePicker extends StatefulWidget {

@@ -95,6 +95,7 @@ class CloudCatalogSearch {
     await BuiltInBookSources.ensure(settings);
     await settings.ensureLoaded();
     final result = <CloudSearchTarget>[];
+    final seen = <String>{};
     for (final config in settings.activeConfigs) {
       final allowed = switch (scope) {
         CloudSearchScope.all =>
@@ -108,6 +109,7 @@ class CloudCatalogSearch {
             in config.sources.isNotEmpty
                 ? config.sources.where((value) => value.enabled)
                 : config.effectiveSources) {
+          if (!seen.add('rss:${source.key}')) continue;
           result.add(
             CloudSearchTarget(
               key: 'rss:${source.key}',
@@ -118,12 +120,14 @@ class CloudCatalogSearch {
           );
         }
       } else {
+        final key = config.connectionId.isEmpty
+            ? config.kind.name
+            : '${config.kind.name}:${config.connectionId}';
+        if (!seen.add(key)) continue;
         final host = Uri.tryParse(config.address)?.host;
         result.add(
           CloudSearchTarget(
-            key: config.connectionId.isEmpty
-                ? config.kind.name
-                : '${config.kind.name}:${config.connectionId}',
+            key: key,
             label: host == null || host.isEmpty
                 ? config.label
                 : '${config.label} · $host',
@@ -250,9 +254,10 @@ class CloudCatalogSearch {
             .where((source) => keys.contains('rss:${source.key}'))
             .toList(growable: false);
         sourcePlan[config] = selected;
-        total += selected.isEmpty
-            ? config.effectiveSources.length
-            : selected.length;
+        total += RssBookClient.searchableSourceCount(
+          config,
+          selected: selected,
+        );
       } else {
         sourcePlan[config] = const [];
         total++;

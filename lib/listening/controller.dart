@@ -752,12 +752,12 @@ class ListeningController {
     List<SpeechVoice> available,
     List<SpeechSegment> candidates,
   ) {
-    final speakers = <String, String>{};
+    final speakers = <String, ({String language, SpeechVoiceGender gender})>{};
     for (final part in candidates) {
       if (part.role == SpeechRole.dialogue &&
           part.speaker.isNotEmpty &&
           !speakers.containsKey(part.speaker)) {
-        speakers[part.speaker] = part.language;
+        speakers[part.speaker] = (language: part.language, gender: part.gender);
       }
     }
     if (speakers.isEmpty) return const {};
@@ -768,30 +768,55 @@ class ListeningController {
 
     for (final entry in speakers.entries) {
       final existing = stored[entry.key];
-      if (existing != null &&
-          existing.id != _languageVoices[entry.value]?.id &&
-          available.any(
+      if (existing == null ||
+          existing.id == _languageVoices[entry.value.language]?.id ||
+          !available.any(
             (voice) =>
                 voice.id == existing.id &&
                 voice.source == existing.source &&
                 voice.engine == existing.engine,
           )) {
-        result[entry.key] = existing;
-        used.add(existing.id);
+        continue;
       }
+      // 0.9.4 could persist a female voice for a male character because the
+      // assignment ignored gender. Drop such an old mapping and re-assign.
+      final expected = entry.value.gender;
+      final found = speechVoiceGender(existing);
+      if (expected != SpeechVoiceGender.neutral &&
+          found != SpeechVoiceGender.neutral &&
+          expected != found) {
+        continue;
+      }
+      result[entry.key] = existing;
+      used.add(existing.id);
     }
 
     for (final entry in speakers.entries) {
       if (result.containsKey(entry.key)) continue;
-      final language = entry.value;
+      final language = entry.value.language;
+      final gender = entry.value.gender;
       final narration = _languageVoices[language];
       var pool = available
           .where(
             (voice) =>
                 speechLanguageCode(voice.locale) == language &&
-                voice.id != narration?.id,
+                voice.id != narration?.id &&
+                (gender == SpeechVoiceGender.neutral ||
+                    speechVoiceGender(voice) == SpeechVoiceGender.neutral ||
+                    speechVoiceGender(voice) == gender),
           )
           .toList();
+      if (pool.isEmpty) {
+        // Only fall back to an opposite-gender voice if the engine has no
+        // matching gender at all; never silently do that when a match exists.
+        pool = available
+            .where(
+              (voice) =>
+                  speechLanguageCode(voice.locale) == language &&
+                  voice.id != narration?.id,
+            )
+            .toList();
+      }
       if (pool.isEmpty) {
         pool = available.where((voice) => voice.id != narration?.id).toList();
       }

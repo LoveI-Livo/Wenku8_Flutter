@@ -53,6 +53,7 @@ List<SpeechSegment> speechWithLanguages(
         ),
         role: part.role,
         speaker: part.speaker,
+        gender: part.gender,
       ),
   ]);
 }
@@ -85,6 +86,23 @@ const _maleEdgeVoices = {
   'it-IT-GiuseppeMultilingualNeural',
   'ko-KR-HyunsuMultilingualNeural',
 };
+
+/// Public gender lookup for character-voice assignment. Custom/system voices
+/// expose no metadata, so an explicit 男声/女声 label is the only safe cue.
+SpeechVoiceGender speechVoiceGender(SpeechVoice voice) {
+  if (_femaleEdgeVoices.contains(voice.id)) return SpeechVoiceGender.female;
+  if (_maleEdgeVoices.contains(voice.id)) return SpeechVoiceGender.male;
+  final label = voice.label.toLowerCase();
+  if (label.contains('女声') ||
+      label.contains('女音') ||
+      label.contains('female')) {
+    return SpeechVoiceGender.female;
+  }
+  if (label.contains('男声') || label.contains('男音') || label.contains('male')) {
+    return SpeechVoiceGender.male;
+  }
+  return SpeechVoiceGender.neutral;
+}
 
 /// A dialogue voice in the same provider, engine and language. Online Edge
 /// voices prefer the opposite gender; installed engines keep the narrator
